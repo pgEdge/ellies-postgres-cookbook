@@ -32,36 +32,49 @@ WORKBENCH_URL="${WORKBENCH_URL%/}"
 # Sends an authenticated request and prints the JSON reply:
 # api METHOD PATH [curl options]. With --fail-with-body, a request that the
 # server rejects leaves the server's error message in the reply, and the
-# function prints it to standard error.
+# function prints it to standard error. A caller can set allow_status to an
+# HTTP status that the function should treat as success.
 # The token goes to curl in a header file that bash supplies through a pipe,
 # so that it never appears in the arguments of the curl process, which other
 # users can read in the process list.
 api() {
     local method="$1" path="$2"
     shift 2
-    local response
-    response=$(curl --silent --show-error --fail-with-body \
+    local output status response
+    # With allow_status, curl stays quiet about the status that is allowed.
+    local show_error=--show-error
+    [[ -z "${allow_status:-}" ]] || show_error=--silent
+    # The --write-out option appends the HTTP status on a line of its own.
+    output=$(curl --silent "$show_error" --fail-with-body \
+        --write-out '\n%{http_code}' \
         --request "$method" \
         --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
-        "$@" "$WORKBENCH_URL/api/v1$path") || {
-        echo "$method $path failed: $response" >&2
+        "$@" "$WORKBENCH_URL/api/v1$path") && status=0 || status=$?
+    response="${output%$'\n'*}"
+    if [[ "$status" -ne 0 ]]; then
+        if [[ -n "${allow_status:-}" && "${output##*$'\n'}" == "$allow_status" ]]
+        then
+            return 0
+        fi
+        echo "$method $path failed: ${response:-no reply (curl $status)}" >&2
         return 1
-    }
+    fi
     printf '%s' "$response"
 }
 # --8<-- [end:request]
 
 # --8<-- [start:create]
 # Creates a blackout for one monitored server and prints the reply. The
-# blackout starts a minute ago, so that a small difference between the clocks
-# of this machine and the server cannot leave it inactive, and it ends in one
-# hour. The times are in RFC 3339 format, which jq builds from the current
-# time.
+# reason ends with the unique marker, so that the cleanup can find the
+# blackout even if this script never sees the reply. The blackout starts a
+# minute ago, so that a small difference between the clocks of this machine and
+# the server cannot leave it inactive, and it ends in one hour. The times are
+# in RFC 3339 format, which jq builds from the current time.
 create_blackout() {
-    local connection_id="$1"
-    jq -n --argjson connection_id "$connection_id" \
+    local connection_id="$1" marker="$2"
+    jq -n --argjson connection_id "$connection_id" --arg marker "$marker" \
         '{scope: "server", connection_id: $connection_id,
-          reason: "Cookbook maintenance window",
+          reason: ("Cookbook maintenance window " + $marker),
           start_time: (now - 60 | todate),
           end_time: (now + 3600 | todate)}' |
         api POST /blackouts \
@@ -85,17 +98,28 @@ stop_blackout() {
 # --8<-- [end:stop]
 
 # --8<-- [start:delete]
-# Deletes a blackout by its ID.
+# Deletes a blackout by its ID. A 404 status means that the blackout is
+# already gone, which is what the caller wanted, so it counts as success.
 delete_blackout() {
-    api DELETE "/blackouts/$1" >/dev/null
+    allow_status=404 api DELETE "/blackouts/$1" >/dev/null
 }
 # --8<-- [end:delete]
 
 # --8<-- [start:main]
-# This variable is global, because the EXIT trap runs after main returns. It
-# holds the reply to the create call until the blackout is deleted. Bash
-# assigns it before it runs a signal handler, whereas it would not yet have
-# extracted the ID from the reply.
+# Prints the IDs of the blackouts whose reason contains the marker.
+find_blackouts() {
+    api GET /blackouts |
+        jq -r --arg marker "$1" \
+            '.blackouts[] | select(.reason | contains($marker)) | .id'
+}
+
+# These variables are global, because the EXIT trap runs after main returns.
+# The marker is set before the create call and cleared once the blackout is
+# deleted, so a non-empty marker means that the outcome of the create call is
+# unknown, or that its blackout still exists. The created variable holds the
+# reply to the create call, which bash assigns before it runs a signal
+# handler, whereas it would not yet have extracted the ID from the reply.
+marker=""
 created=""
 
 cleanup() {
@@ -105,20 +129,44 @@ cleanup() {
     # Delete the blackout when the script ends, even if a later step failed,
     # so that a failed run does not leave alerts suppressed. Report a delete
     # that fails, and make the exit status non-zero.
+    local id ids=""
     if [[ -n "$created" ]]; then
-        local id
-        id=$(jq -er '.id' <<<"$created") || id=""
+        ids=$(jq -er '.id' <<<"$created") || ids=""
+    fi
+    if [[ -z "$ids" && -n "$marker" ]]; then
+        # Ctrl+C in a terminal sends SIGINT to every process in the
+        # foreground group, which includes curl, so the create call can end
+        # without a reply even though the server created the blackout. Look
+        # for the blackout by its marker. The server may still be handling
+        # the request, so look up to three times, a second apart.
+        local attempt
+        for attempt in 1 2 3; do
+            ids=$(find_blackouts "$marker") || {
+                echo "Error: could not look up the blackout" >&2
+                status=1
+                break
+            }
+            if [[ -n "$ids" ]]; then
+                break
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+                sleep 1
+            fi
+        done
+    fi
+    for id in $ids; do
         delete_blackout "$id" || {
             echo "Error: could not delete the blackout $id" >&2
             status=1
         }
-    fi
+    done
     exit "$status"
 }
 
 main() {
     local blackout_id blackout stopped active
-    created=$(create_blackout "$WORKBENCH_CONNECTION_ID")
+    marker="cookbook-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+    created=$(create_blackout "$WORKBENCH_CONNECTION_ID" "$marker")
     blackout_id=$(jq -er '.id' <<<"$created")
     active=$(jq -r '.is_active' <<<"$created")
     echo "Created a blackout for the server (active: $active)"
@@ -137,6 +185,7 @@ main() {
 
     delete_blackout "$blackout_id"
     created=""
+    marker=""
     echo "Deleted the blackout"
 }
 

@@ -292,16 +292,26 @@ hour. This includes SIGINT (Ctrl+C) and SIGTERM: each program catches both
 signals, so that the default action of ending the program does not skip the
 cleanup. A signal makes the next request that the program would send fail with
 an `Interrupted` error, or abandons the request in progress (in the TypeScript
-and Go programs), and the cleanup then deletes the blackout. The create call
-and the delete call ignore signals, so that the program never loses the ID of a
-blackout that the server created, and a second signal during the cleanup does
-nothing. The Python program uses a `finally` block and a signal handler, the
-TypeScript program keeps the delete step in a variable that runs after the
-`try` block, and the Go program returns the delete step from its `run()`
-function to `main()`, which uses `signal.NotifyContext`. The curl script uses
-an `EXIT` trap, which bash runs after both signals. Each program reports a
-failure on `stderr` and exits with a non-zero status. The following tabs show
-the main part of each program:
+and Go programs), and the cleanup then deletes the blackout. In the Python,
+TypeScript and Go programs, the create call and the delete call ignore
+signals, so that the program never loses the ID of a blackout that the server
+created, and a second signal during the cleanup does nothing. The Python
+program uses a `finally` block and a signal handler, the TypeScript program
+keeps the delete step in a variable that runs after the `try` block, and the Go
+program returns the delete step from its `run()` function to `main()`, which
+uses `signal.NotifyContext`.
+
+The curl script cannot ignore signals during the create call, because
+Ctrl+C in a terminal sends SIGINT to every process in the foreground group,
+including the `curl` process that is making the request. The script instead
+puts a random marker in the reason of the blackout, and sets it before the
+create call. If the script ends without having read the ID from the reply, its
+`EXIT` trap lists the blackouts and deletes the one whose reason contains the
+marker, looking up to three times in case the server is still handling the
+request. The trap ignores further signals, and treats a 404 status from the
+delete call as success, because that means the blackout is already gone. Each
+program reports a failure on `stderr` and exits with a non-zero status. The
+following tabs show the main part of each program:
 
 === "Python"
 
