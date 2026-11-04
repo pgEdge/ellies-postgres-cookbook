@@ -104,7 +104,7 @@ nav:
       - Reranking Search Results: go_llm_lib/rerank.md
       - Letting a Model Query the Database: go_llm_lib/tool_query.md
       - Extracting Structured Data into a Table: go_llm_lib/structured_extraction.md
-  - Using pgEdge RAG Server:
+  - Using the pgEdge RAG Server:
       - Preparing Data for the RAG Server: rag_server/prepare_data.md
       - Asking a Question: rag_server/ask_question.md
       - Streaming an Answer: rag_server/stream_answer.md

@@ -40,6 +40,7 @@ scripts/
   start_rag_server.sh             # Starts the pgEdge RAG Server.
   start_workbench.sh              # Starts the AI DBA Workbench.
   fixtures/rag_documents.json     # The RAG Server's sample documents.
+  fixtures/rag_private_documents.json  # The row-level security documents.
   test_recipes.sh                 # Tests every program.
 ```
 
@@ -210,9 +211,10 @@ scripts/test_recipes.sh python go
 Recipes that need more than a PostgreSQL server, such as recipes for the
 pgEdge Starfleet API, list the extra environment variables that they need
 in a `requires.txt` file. The test script skips those recipes when any of
-the variables are unset or empty. Continuous integration passes these
-variables from repository secrets of the same name, and skips the recipe
-when a secret is absent.
+the variables are unset or empty, so the command above tests only the
+recipes that a PostgreSQL server is enough for. Continuous integration
+passes these variables from repository secrets of the same name, and skips
+the recipe when a secret is absent.
 
 The `--dir` option limits a run to the recipes under one directory, and
 the `--exclude` option skips the recipes under one; both options may be
@@ -245,6 +247,10 @@ LLM_BASE_URL=http://localhost:1
 A `curl` program takes part in the unreachable-server run only when the
 recipe has a `failure_env.txt` file, because a shell script never reads
 the `PG*` variables through libpq.
+
+When `scripts/test_recipes.sh` receives `SIGINT` or `SIGTERM`, it passes the
+signal to the program that is running and waits for the program to finish,
+so that a program that deletes what it created can do so.
 
 The `scripts/start_test_server.sh` script starts the server that
 continuous integration uses: the `pgvector/pgvector:pg18` image in Docker,
@@ -318,17 +324,22 @@ unset:
 | Variable                  | Default                  | Purpose                                  |
 |---------------------------|--------------------------|------------------------------------------|
 | `RAG_SERVER_URL`          | `http://localhost:8080`  | The RAG Server's base URL.               |
-| `RAG_PIPELINE`            | `cookbook`               | The pipeline to query.                   |
+| `RAG_PIPELINE`            | `cookbook`; `cookbook_private` for row-level security | The pipeline to query. |
+| `OLLAMA_URL`              | `http://localhost:11434` | Ollama, for the data preparation recipe. |
 | `WORKBENCH_URL`           | `http://localhost:8080`  | The Workbench server's base URL.         |
 | `WORKBENCH_TOKEN`         | none                     | A Workbench API token.                   |
 | `WORKBENCH_USERNAME`      | none                     | The user for the login recipe.           |
 | `WORKBENCH_PASSWORD`      | none                     | The password for the login recipe.       |
+| `WORKBENCH_CONNECTION_ID` | none                     | The ID of a monitored connection.        |
 | `STARFLEET_CLIENT_ID`     | none                     | The Starfleet API client ID.             |
 | `STARFLEET_CLIENT_SECRET` | none                     | The Starfleet API client secret.         |
 | `STARFLEET_API_URL`       | `https://api.pgedge.com` | The Starfleet API's base URL.            |
 
-Each recipe lists the variables that have no default in `requires.txt`,
-so the test script skips the recipe when they are not set. A
+Each recipe lists the variables that have no default in `requires.txt`, so
+the test script skips the recipe when they are not set. The RAG Server
+recipes list `RAG_SERVER_URL` (and the data preparation recipe lists
+`OLLAMA_URL`) even though both have defaults, so that a test run skips them
+unless you have started the service and exported the variable. A
 `failure_env.txt` file points the URL variable at port 1, so that every
 program, including the curl script, must fail when the service is
 unreachable. A recipe whose output comes from a language model has a
@@ -343,8 +354,9 @@ the `qwen2.5:1.5b` model for answers. The script prints the
 `RAG_SERVER_URL` and `RAG_PIPELINE` lines to export.
 
 The `scripts/start_workbench.sh` script starts AI DBA Workbench 1.0.0 with
-the Docker Compose file from the `v1.0.0` tag and the published images,
-using Ollama as its language model. The script creates a `cookbook` user
+the Docker Compose file from the `v1.0.0` tag, which it checks against a
+pinned SHA-256 before using it, and the published images, using Ollama as
+its language model. The script creates a `cookbook` user
 with a generated password and an API token, registers the test server as
 a monitored connection, and waits until the collector has stored metrics
 for it. The script then prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`,
@@ -353,22 +365,41 @@ lines to export; the generated secrets stay in a temporary directory and
 never enter the repository.
 
 Both scripts accept `--name`, `--port`, `--network`, `--pg-host`,
-`--pg-port`, and `--ollama-url` options; the `--pg-host` and `--pg-port`
+`--pg-port`, and `--ollama-url` options, and `start_rag_server.sh` also
+accepts `--identity`, described below; the `--pg-host` and `--pg-port`
 options give the test server's address as the containers see it, which
 defaults to the Docker host. On Linux, a service on the Docker host is
 reachable from the containers only when it listens on an address other
 than `127.0.0.1`, so start Ollama with `OLLAMA_HOST=0.0.0.0:11434` there;
 Docker Desktop has no such restriction. The following commands
 start the test server and the RAG Server on a shared network, and test
-the RAG Server recipes:
+the RAG Server recipes, other than the row-level security recipe:
 
 ```bash
 scripts/start_test_server.sh --network cookbook --port 5433
 export PGHOST=localhost PGPORT=5433 PGUSER=postgres
 eval "$(scripts/start_rag_server.sh --network cookbook \
     --pg-host cookbook-test-pg --pg-port 5432 --port 8081)"
+export RAG_SERVER_URL RAG_PIPELINE OLLAMA_URL=http://localhost:11434
+scripts/test_recipes.sh --dir recipes/rag_server \
+    --exclude recipes/rag_server/row_level_security \
+    python typescript go curl
+```
+
+The row-level security recipe needs a server of its own, because the
+setting that makes a server require a caller identity applies to the whole
+server. The `--identity` option starts that server, with a
+`cookbook_private` pipeline over the documents in
+`scripts/fixtures/rag_private_documents.json`, and prints its own
+`RAG_SERVER_URL` and `RAG_PIPELINE` lines. The following commands start the
+server on a second port, and test the recipe against it:
+
+```bash
+eval "$(scripts/start_rag_server.sh --identity --network cookbook \
+    --pg-host cookbook-test-pg --pg-port 5432 --port 8082)"
 export RAG_SERVER_URL RAG_PIPELINE
-scripts/test_recipes.sh --dir recipes/rag_server python typescript go curl
+scripts/test_recipes.sh --dir recipes/rag_server/row_level_security \
+    python typescript go curl
 ```
 
 The Starfleet recipes use a real Starfleet account, so a recipe that
@@ -376,6 +407,13 @@ creates a billable resource names the resource with a `cookbook-` prefix
 and always deletes the resource again, even when a step fails. Continuous
 integration runs the Starfleet recipes only when started by hand and on a
 weekly schedule, and skips them when the credentials are not configured.
+Because a cancelled or timed-out run stops the programs before they can
+clean up, the job ends with a step that deletes every database created
+since the job started whose name starts with `cookbook`, and whose display
+name starts with `cookbook-`, and nothing else. If you run a Starfleet
+recipe locally, unset `PGSSLROOTCERT` first: the libpq library and pgx
+treat `sslmode=require` as `verify-ca` when it is set, and reject the
+certificate of a Starfleet database.
 
 ## Publishing the Documentation
 

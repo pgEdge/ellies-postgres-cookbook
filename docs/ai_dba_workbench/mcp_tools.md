@@ -25,6 +25,14 @@ Plan starts with: Result
 
 ## Preparing the Ingredients
 
+The `scripts/start_workbench.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a test Workbench in Docker. The script creates a `cookbook` user and an
+API token, registers a test PostgreSQL server as a monitored connection, and
+prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`, `WORKBENCH_USERNAME`,
+`WORKBENCH_PASSWORD`, and `WORKBENCH_CONNECTION_ID` values that the examples
+read from the environment.
+
 The examples need a running Workbench server that monitors at least one
 PostgreSQL server, and an API token for a user that may use the tools. The
 Python example uses [httpx](https://www.python-httpx.org/), the TypeScript

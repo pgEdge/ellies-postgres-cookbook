@@ -20,7 +20,7 @@ built-in connection pool:
 - Ruby
 - C
 
-The recipes for the HTTP APIs of pgEdge RAG Server, the pgEdge AI DBA
+The recipes for the HTTP APIs of the pgEdge RAG Server, the pgEdge AI DBA
 Workbench, and pgEdge Starfleet present the code in Python, TypeScript, and
 Go, and also include a `curl` example.
 

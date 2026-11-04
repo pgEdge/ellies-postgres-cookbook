@@ -44,6 +44,14 @@ succession is safe, but it can add up to 30 seconds to the second run.
 
 ## Preparing the Ingredients
 
+The `scripts/start_workbench.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a test Workbench in Docker. The script creates a `cookbook` user and an
+API token, registers a test PostgreSQL server as a monitored connection, and
+prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`, `WORKBENCH_USERNAME`,
+`WORKBENCH_PASSWORD`, and `WORKBENCH_CONNECTION_ID` values that the examples
+read from the environment.
+
 The examples need a running Workbench server that monitors at least one
 PostgreSQL server, and an API token for a user that can change alert overrides
 and acknowledge alerts. The Python example uses

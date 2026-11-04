@@ -379,6 +379,12 @@ the end:
 
 ## Running the Query
 
+If the `PGSSLROOTCERT` environment variable is set, as it is after you start
+the test server for the TLS recipe, unset it before you run the Python and Go
+programs or the curl script. The libpq library (and so psycopg and `psql`) and
+pgx then treat `sslmode=require` as `verify-ca`, and reject the certificate of
+a Starfleet database.
+
 The program connects to the branch with the driver for the language (psycopg
 for Python, node-postgres for TypeScript, pgx for Go, and `psql` for the curl
 script) and runs `SELECT version()`. The connection is encrypted. The
