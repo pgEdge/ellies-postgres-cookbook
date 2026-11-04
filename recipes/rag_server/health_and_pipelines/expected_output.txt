@@ -1,0 +1,5 @@
+Live: ok
+Health: healthy
+- cookbook: embedding reachable, completion reachable
+Pipelines (1):
+- cookbook: Questions about the Acme Widget product range

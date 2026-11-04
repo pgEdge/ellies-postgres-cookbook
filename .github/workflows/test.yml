@@ -194,11 +194,32 @@ jobs:
         if: hashFiles('recipes/rag_server/**') != ''
         run: >-
           scripts/test_recipes.sh --dir recipes/rag_server
+          --exclude recipes/rag_server/row_level_security
           python typescript go curl
 
-      - name: Show the RAG Server log
+      # Per-request identity is a server-wide setting, so the row-level
+      # security recipe needs a second server of its own. Its variables
+      # replace the first server's for the next step only.
+      - name: Start the RAG Server with per-request identity
+        run: |
+          scripts/start_rag_server.sh --identity --network cookbook-ci \
+            --pg-host cookbook-test-pg --pg-port 5432 --port 8081 \
+            > "$RUNNER_TEMP/rag-identity.env"
+
+      - name: Test the row-level security recipe
+        if: hashFiles('recipes/rag_server/row_level_security/**') != ''
+        run: |
+          set -a
+          . "$RUNNER_TEMP/rag-identity.env"
+          set +a
+          scripts/test_recipes.sh --dir recipes/rag_server/row_level_security \
+            python typescript go curl
+
+      - name: Show the RAG Server logs
         if: failure()
-        run: docker logs cookbook-rag-server || true
+        run: |
+          docker logs cookbook-rag-server || true
+          docker logs cookbook-rag-server-identity || true
 
   workbench:
     name: Recipes (AI DBA Workbench)

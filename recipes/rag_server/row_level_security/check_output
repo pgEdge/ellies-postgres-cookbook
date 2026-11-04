@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the row_level_security example. The
+# answers vary from run to run, so this checks that each is present and
+# not blank, and that it states the one outcome that the sample documents
+# give for the caller's warranty claim. The sources are far steadier than
+# the answers, and they show that row-level security worked, so this also
+# requires that the sources of each answer are exactly the documents that
+# the caller owns, and that a request without an identity is refused.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+grep -q '^Question: .\+' <<<"$out" || fail "missing Question line"
+
+# Prints the lines of the block for one caller: from its Caller line up to
+# the next Caller line, or to the end of the output.
+block() {
+    awk -v start="Caller: $1" '
+        $0 == start { on = 1; next }
+        /^Caller: / { on = 0 }
+        on { print }' <<<"$out"
+}
+
+# Checks one caller's block, given the caller, the pattern that the answer
+# must match, and the IDs that the sources must be (a subset of).
+check_block() {
+    local caller="$1" fact="$2" allowed="$3" text answer sources id
+
+    text="$(block "$caller")"
+    [[ -n "${text//[[:space:]]/}" ]] || fail "no block for $caller"
+
+    answer="$(sed -n '/^Answer:$/,/^Sources: /p' <<<"$text" | sed '1d;$d')"
+    [[ -n "${answer//[[:space:]]/}" ]] ||
+        fail "the answer for $caller is empty or blank"
+    grep -qiE "$fact" <<<"$answer" ||
+        fail "the answer for $caller does not match: $fact"
+
+    sources="$(sed -n 's/^Sources: //p' <<<"$text")"
+    [[ -n "$sources" ]] || fail "no sources for $caller"
+    for id in ${sources//,/ }; do
+        [[ " $allowed " == *" $id "* ]] ||
+            fail "$caller has source $id, which belongs to someone else"
+    done
+}
+
+check_block "jane.doe@example.com" 'approved' "1 2"
+check_block "john.smith@example.com" 'declined|denied|rejected' "3 4"
+
+anonymous="$(block "(no identity)")"
+grep -qx 'IDENTITY_REQUIRED (HTTP 401)' <<<"$anonymous" ||
+    fail "a request without an identity was not refused with IDENTITY_REQUIRED"

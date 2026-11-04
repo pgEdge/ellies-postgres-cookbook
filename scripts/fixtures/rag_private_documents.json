@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "Warranty claim",
+    "owner": "jane.doe@example.com",
+    "content": "Jane Doe's warranty claim for her Acme Widget Pro was approved on 3 March, and the repair is booked for the following Friday."
+  },
+  {
+    "id": 2,
+    "title": "Order status",
+    "owner": "jane.doe@example.com",
+    "content": "Jane Doe's order for a spare Acme Widget Pro charger ships by courier on Monday."
+  },
+  {
+    "id": 3,
+    "title": "Warranty claim",
+    "owner": "john.smith@example.com",
+    "content": "John Smith's warranty claim for his Acme Widget was declined on 9 March, because the damage was accidental and the warranty excludes accidental damage."
+  },
+  {
+    "id": 4,
+    "title": "Order status",
+    "owner": "john.smith@example.com",
+    "content": "John Smith's order for an Acme Widget was delivered on Tuesday and left with a neighbour."
+  }
+]

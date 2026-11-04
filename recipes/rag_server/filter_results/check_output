@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the filter_results example. The answers
+# vary from run to run, so this checks that each is present and not blank,
+# and that it mentions the one fact that the sample documents give for the
+# version in the filter. The sources are far steadier than the answers, and
+# they show that the filter worked, so this also requires that the sources
+# of each answer are exactly the documents for that version.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+grep -q '^Question: .\+' <<<"$out" || fail "missing Question line"
+
+# Prints the lines of the block for one version: from its Filter line up to
+# the next Filter line, or to the end of the output.
+block() {
+    awk -v start="Filter: product = Acme Widget, version = $1" '
+        $0 == start { on = 1; next }
+        /^Filter: / { on = 0 }
+        on { print }' <<<"$out"
+}
+
+# Checks one version's block, given the version, the pattern that its
+# answer must match, and the IDs that its sources must be (a subset of).
+check_block() {
+    local version="$1" fact="$2" allowed="$3" text answer sources id
+
+    text="$(block "$version")"
+    [[ -n "${text//[[:space:]]/}" ]] || fail "no block for version $version"
+
+    answer="$(sed -n '/^Answer:$/,/^Sources: /p' <<<"$text" | sed '1d;$d')"
+    [[ -n "${answer//[[:space:]]/}" ]] ||
+        fail "the answer for version $version is empty or blank"
+    grep -qiE "$fact" <<<"$answer" ||
+        fail "the answer for version $version does not match: $fact"
+
+    sources="$(sed -n 's/^Sources: //p' <<<"$text")"
+    [[ -n "$sources" ]] || fail "no sources for version $version"
+    for id in ${sources//,/ }; do
+        [[ " $allowed " == *" $id "* ]] ||
+            fail "version $version has source $id, which the filter excludes"
+    done
+}
+
+check_block "1.0" 'four hours|4 hours' "1 2"
+check_block "2.0" 'ninety minutes|90 minutes' "3 4"

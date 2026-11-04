@@ -4,7 +4,7 @@
 #
 # Usage: scripts/start_rag_server.sh [--name NAME] [--port PORT]
 #            [--network NET] [--pg-host HOST] [--pg-port PORT]
-#            [--ollama-url URL]
+#            [--ollama-url URL] [--identity]
 #
 # The script loads the fixture in scripts/fixtures/rag_documents.json into
 # a cookbook_rag_documents table, which it drops and recreates each time.
@@ -21,8 +21,22 @@
 # --pg-port give the address as the container sees it. PGDATABASE,
 # PGUSER, and PGPASSWORD apply to both connections.
 #
+# With --identity, the script starts a different server for the row-level
+# security recipe. The server requires a caller identity on every query
+# (the identity setting is server-wide, so it cannot share a server with
+# the cookbook pipeline), and it has one pipeline, cookbook_private, over a
+# cookbook_rag_private table from scripts/fixtures/rag_private_documents.json.
+# The table has row-level security with a policy that shows each row only
+# to the caller named in its owner column. The pipeline connects as a
+# cookbook_rag_service role, which the script creates without a password
+# (so the test server must use trust authentication, as
+# scripts/start_test_server.sh does), and which does not own the table and
+# cannot bypass row-level security. The server trusts the identity headers
+# from private network addresses only.
+#
 # On success the script prints two lines to stdout, RAG_SERVER_URL=<url>
-# and RAG_PIPELINE=cookbook. Progress messages go to stderr.
+# and RAG_PIPELINE=<pipeline>, where the pipeline is cookbook, or
+# cookbook_private with --identity. Progress messages go to stderr.
 #
 # Options:
 #   --name NAME       container name (default: cookbook-rag-server)
@@ -34,6 +48,8 @@
 #                     (default: $PGPORT, or 5432)
 #   --ollama-url URL  Ollama URL as the container sees it
 #                     (default: http://host.docker.internal:11434)
+#   --identity        start the identity-enabled server described above
+#                     (default name: cookbook-rag-server-identity)
 #
 # Environment:
 #   OLLAMA_URL         Ollama URL as this script sees it, for embedding the
@@ -60,6 +76,7 @@ network=""
 pg_host="host.docker.internal"
 pg_port="${PGPORT:-5432}"
 ollama_url="http://host.docker.internal:11434"
+identity=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -69,7 +86,8 @@ while [[ $# -gt 0 ]]; do
         --pg-host)    pg_host="${2:?--pg-host needs a value}"; shift 2 ;;
         --pg-port)    pg_port="${2:?--pg-port needs a value}"; shift 2 ;;
         --ollama-url) ollama_url="${2:?--ollama-url needs a value}"; shift 2 ;;
-        -h|--help)    sed -n '3,50p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --identity)   identity=1; shift ;;
+        -h|--help)    sed -n '3,70p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)            echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -79,7 +97,14 @@ for tool in curl jq psql docker; do
 done
 
 work="$(mktemp -d)"
-fixture="$root/scripts/fixtures/rag_documents.json"
+if [[ -n "$identity" ]]; then
+    fixture="$root/scripts/fixtures/rag_private_documents.json"
+    pipeline_name="cookbook_private"
+    [[ "$name" == "cookbook-rag-server" ]] && name="cookbook-rag-server-identity"
+else
+    fixture="$root/scripts/fixtures/rag_documents.json"
+    pipeline_name="cookbook"
+fi
 
 # On failure, remove the container and the temporary directory. On success
 # both stay, because the container reads its configuration from there.
@@ -108,9 +133,47 @@ jq --slurpfile e "$work/embeddings.json" \
 
 # psql quotes the document set as a single literal (:'docs'), so the
 # content never needs escaping here.
-echo "Loading cookbook_rag_documents" >&2
-psql --quiet --no-psqlrc --set ON_ERROR_STOP=1 \
-    --set docs="$(cat "$work/documents.json")" <<'SQL' >&2
+if [[ -n "$identity" ]]; then
+    echo "Loading cookbook_rag_private" >&2
+    psql --quiet --no-psqlrc --set ON_ERROR_STOP=1 \
+        --set docs="$(cat "$work/documents.json")" <<'SQL' >&2
+SET client_min_messages = warning;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- The role that the pipeline connects as. It owns nothing and cannot
+-- bypass row-level security, which the server checks when it starts.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cookbook_rag_service') THEN
+        CREATE ROLE cookbook_rag_service LOGIN NOSUPERUSER NOBYPASSRLS;
+    END IF;
+END
+$$;
+
+DROP TABLE IF EXISTS cookbook_rag_private;
+CREATE TABLE cookbook_rag_private (
+    id        integer PRIMARY KEY,
+    title     text NOT NULL,
+    owner     text NOT NULL,
+    content   text NOT NULL,
+    embedding vector(768) NOT NULL
+);
+INSERT INTO cookbook_rag_private (id, title, owner, content, embedding)
+SELECT id, title, owner, content, embedding::vector
+FROM json_to_recordset(:'docs'::json)
+    AS d(id integer, title text, owner text, content text, embedding text);
+
+-- Each caller sees only the rows that name them as the owner. The server
+-- puts the claims it receives in the request.jwt.claims setting.
+ALTER TABLE cookbook_rag_private ENABLE ROW LEVEL SECURITY;
+CREATE POLICY own_rows ON cookbook_rag_private FOR SELECT
+    USING (owner = current_setting('request.jwt.claims', true)::json ->> 'sub');
+GRANT SELECT ON cookbook_rag_private TO cookbook_rag_service;
+SQL
+else
+    echo "Loading cookbook_rag_documents" >&2
+    psql --quiet --no-psqlrc --set ON_ERROR_STOP=1 \
+        --set docs="$(cat "$work/documents.json")" <<'SQL' >&2
 SET client_min_messages = warning;
 CREATE EXTENSION IF NOT EXISTS vector;
 DROP TABLE IF EXISTS cookbook_rag_documents;
@@ -129,6 +192,7 @@ FROM json_to_recordset(:'docs'::json)
     AS d(id integer, title text, product text, version text,
          content text, embedding text);
 SQL
+fi
 
 # The server watches the directory that holds its configuration, so mount
 # the directory rather than the file; later recipes can then change the
@@ -137,23 +201,50 @@ SQL
 config="$work/config"
 mkdir -p "$config"
 chmod 755 "$config"
+
+# The standard server runs the pipeline as the user that the PG*
+# variables name. The identity server turns on per-request identity for
+# the whole server, trusts the identity headers from private addresses
+# only (loopback and the private ranges that Docker networks use), and
+# runs the pipeline as a role that row-level security applies to.
+identity_block=""
+description="Questions about the Acme Widget product range"
+table="cookbook_rag_documents"
+db_user="${PGUSER:-postgres}"
+db_password="${PGPASSWORD:-}"
+if [[ -n "$identity" ]]; then
+    identity_block='identity:
+  enabled: true
+  trusted_proxies:
+    - "127.0.0.0/8"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+'
+    description="Questions about each caller's own orders and claims"
+    table="cookbook_rag_private"
+    db_user="cookbook_rag_service"
+    db_password=""
+fi
+
 cat > "$config/pgedge-rag-server.yaml" <<YAML
 server:
   listen_address: "0.0.0.0"
   port: 8080
 
-pipelines:
-  - name: "cookbook"
-    description: "Questions about the Acme Widget product range"
+${identity_block}pipelines:
+  - name: "$pipeline_name"
+    description: "$description"
     database:
       host: "$pg_host"
       port: $pg_port
       database: "${PGDATABASE:-postgres}"
-      username: "${PGUSER:-postgres}"
-      password: "${PGPASSWORD:-}"
+      username: "$db_user"
+      password: "$db_password"
       ssl_mode: "prefer"
     tables:
-      - table: "cookbook_rag_documents"
+      - table: "$table"
         text_column: "content"
         vector_column: "embedding"
         id_column: "id"
@@ -193,9 +284,10 @@ docker run -d --name "$name" -p "$port:8080" \
 url="http://localhost:$port"
 for _ in $(seq 1 60); do
     if curl -fsS "$url/v1/live" 2>/dev/null | grep -q '"ok"' &&
-       curl -fsS "$url/v1/pipelines" 2>/dev/null | grep -q '"cookbook"'; then
+       curl -fsS "$url/v1/pipelines" 2>/dev/null \
+           | grep -q "\"$pipeline_name\""; then
         echo "RAG_SERVER_URL=$url"
-        echo "RAG_PIPELINE=cookbook"
+        echo "RAG_PIPELINE=$pipeline_name"
         exit 0
     fi
     # Stop waiting as soon as the server exits, for example on a bad

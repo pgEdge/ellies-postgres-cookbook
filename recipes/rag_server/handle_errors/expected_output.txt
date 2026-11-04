@@ -1,0 +1,6 @@
+Asking a pipeline that does not exist
+  PIPELINE_NOT_FOUND (HTTP 404): pipeline not found: no-such-pipeline
+  Check the pipeline name; GET /v1/pipelines lists the pipelines.
+Asking an empty question
+  INVALID_REQUEST (HTTP 400): query is required
+  Fix the request; the body must be JSON with a non-empty query.

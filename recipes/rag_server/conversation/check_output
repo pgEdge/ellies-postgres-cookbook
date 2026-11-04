@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the conversation example. The answers
+# vary from run to run, so this checks that both turns are present and not
+# blank, that the first answer mentions the one fact that the sample
+# documents give for the first question, and that the second answer, which
+# depends on the first turn being part of the request, mentions the one
+# fact that the sample documents give for the second question.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+# The answer to a turn: the text after "Assistant: " on the line that
+# follows the nth "You: " line, up to the next "You: " line.
+answer_for() {
+    awk -v n="$1" '
+        /^You: / { turn++; next }
+        turn == n { sub(/^Assistant: /, ""); print }' <<<"$out"
+}
+
+[[ "$(grep -c '^You: .\+' <<<"$out")" -eq 2 ]] || fail "expected two questions"
+[[ "$(grep -c '^Assistant: ' <<<"$out")" -eq 2 ]] || fail "expected two answers"
+
+first="$(answer_for 1)"
+second="$(answer_for 2)"
+[[ -n "${first//[[:space:]]/}" ]] || fail "the first answer is empty or blank"
+[[ -n "${second//[[:space:]]/}" ]] || fail "the second answer is empty or blank"
+
+grep -qiE 'ninety minutes|90 minutes' <<<"$first" ||
+    fail "the first answer does not mention ninety (or 90) minutes"
+grep -qiE 'eighteen hours|18 hours' <<<"$second" ||
+    fail "the second answer does not mention eighteen (or 18) hours"
