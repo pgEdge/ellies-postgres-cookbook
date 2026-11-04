@@ -226,8 +226,7 @@ func randomSuffix() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-// createDatabase creates a database that only this machine can reach,
-// and returns the API's description of it, which includes its ID.
+// clientIP returns this machine's public IP address as the API sees it.
 func clientIP(ctx context.Context, token string) (string, error) {
 	// A new database is closed to everyone until an allowlist rule admits
 	// an address. The API reports the address it sees this request come
@@ -241,6 +240,8 @@ func clientIP(ctx context.Context, token string) (string, error) {
 	return ip.IPAddress, nil
 }
 
+// createDatabase creates a database that only this machine can reach,
+// and returns the API's description of it, which includes its ID.
 func createDatabase(ctx context.Context, token, name, displayName, region, size, ip string) (*Database, error) {
 	var database Database
 	err := api(ctx, token, http.MethodPost, "/databases", map[string]any{

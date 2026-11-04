@@ -141,8 +141,7 @@ interface Database {
   status: string;
 }
 
-// Creates a database that only this machine can reach, and returns the
-// API's description of it, which includes its ID.
+// Returns this machine's public IP address as the API sees it.
 async function clientIp(token: string): Promise<string> {
   // A new database is closed to everyone until an allowlist rule admits
   // an address. The API reports the address it sees this request come
@@ -151,6 +150,8 @@ async function clientIp(token: string): Promise<string> {
   return reply!.ip_address;
 }
 
+// Creates a database that only this machine can reach, and returns the
+// API's description of it, which includes its ID.
 async function createDatabase(
   token: string,
   name: string,
