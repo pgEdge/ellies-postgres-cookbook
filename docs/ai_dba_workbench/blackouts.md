@@ -90,12 +90,13 @@ examples read:
 | `WORKBENCH_TOKEN`         | An API token for the Workbench.               |
 | `WORKBENCH_CONNECTION_ID` | The ID of the server to put in a blackout.    |
 
-The [Authenticating](authenticate.md) recipe shows how to create an API token. The user that owns
-the token needs the `manage_blackouts` administrative permission, which a
-superuser has. The Workbench accepts an API token for the blackout endpoints,
-so unlike the connection endpoints, they need no login. The following tabs show
-how each program reads the settings and stops with an error when the token or
-the connection ID is missing:
+The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+shows how to create an API token. The user that owns the token needs the
+`manage_blackouts` administrative permission, which a superuser has; a token
+with a restricted scope must include that permission too. The Workbench accepts
+an API token for the blackout endpoints, so unlike the connection endpoints,
+they need no login. The following tabs show how each program reads the settings
+and stops with an error when the token or the connection ID is missing:
 
 === "Python"
 
@@ -158,9 +159,9 @@ tabs show the helper function from each program:
 
 The program creates the blackout with `POST /api/v1/blackouts`. The `scope`
 field is `estate`, `group`, `cluster`, or `server`, and a `server` blackout
-also needs the `connection_id` of the server. The `start_time` and
-`end_time` fields are timestamps in RFC 3339 format, and the end must come after
-the start. The program starts the blackout a minute in the past, so that a small
+also needs the `connection_id` of the server. The `start_time` and `end_time`
+fields are timestamps in RFC 3339 format, and the end must come after the
+start. The program starts the blackout a minute in the past, so that a small
 difference between the clocks of the two machines cannot leave it inactive. The
 reply is the new blackout, including its `id` and an `is_active` flag. The
 following tabs show how each program creates the blackout:
@@ -191,10 +192,10 @@ following tabs show how each program creates the blackout:
 
 ## Reading the Blackout
 
-The program reads the blackout back with `GET /api/v1/blackouts/{id}`. The reply
-has the same fields as the reply to the create call, and `is_active` is `true`
-while the current time lies between the start and the end. The following tabs
-show how each program reads the blackout:
+The program reads the blackout back with `GET /api/v1/blackouts/{id}`. The
+reply has the same fields as the reply to the create call, and `is_active` is
+`true` while the current time lies between the start and the end. The following
+tabs show how each program reads the blackout:
 
 === "Python"
 
@@ -255,8 +256,8 @@ blackout:
 
 ## Deleting the Blackout
 
-The program removes the record with `DELETE /api/v1/blackouts/{id}`. The reply is
-a short status message. The following tabs show how each program deletes the
+The program removes the record with `DELETE /api/v1/blackouts/{id}`. The reply
+is a short status message. The following tabs show how each program deletes the
 blackout:
 
 === "Python"
@@ -287,12 +288,20 @@ blackout:
 
 The main part of each program deletes the blackout on every path, so that a
 failure after the create call does not leave alerts suppressed for the next
-hour. The Python program uses a `finally` block, and the TypeScript program
-keeps the delete step in a variable that runs after the `try` block. The Go
-program returns the delete step from its `run()` function to `main()`, and the
-curl script uses an `EXIT` trap. Each program reports a failure on `stderr` and
-exits with a non-zero status. The following tabs show the main part of each
-program:
+hour. This includes SIGINT (Ctrl+C) and SIGTERM: each program catches both
+signals, so that the default action of ending the program does not skip the
+cleanup. A signal makes the next request that the program would send fail with
+an `Interrupted` error, or abandons the request in progress (in the TypeScript
+and Go programs), and the cleanup then deletes the blackout. The create call
+and the delete call ignore signals, so that the program never loses the ID of a
+blackout that the server created, and a second signal during the cleanup does
+nothing. The Python program uses a `finally` block and a signal handler, the
+TypeScript program keeps the delete step in a variable that runs after the
+`try` block, and the Go program returns the delete step from its `run()`
+function to `main()`, which uses `signal.NotifyContext`. The curl script uses
+an `EXIT` trap, which bash runs after both signals. Each program reports a
+failure on `stderr` and exits with a non-zero status. The following tabs show
+the main part of each program:
 
 === "Python"
 
@@ -320,8 +329,7 @@ program:
 
 If a run is killed without a chance to clean up (with `kill -9`, for example),
 the blackout stays in place until its end time. To end it sooner, send a `POST`
-request to its `stop` path, using the ID that the create call printed or the
-Workbench web interface shows.
+request to the `stop` path of the blackout.
 
 ## Running the Example
 
@@ -393,10 +401,10 @@ The following tabs show the complete program for each language:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [Authenticating](authenticate.md) recipe explains how to create the API
-  token that these examples use.
-- The [Listing and Acknowledging Alerts](alerts.md) recipe shows the alerts
-  that a blackout suppresses.
+- The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+  explains how to create the API token that these examples use.
+- The [Listing and Acknowledging Alerts with the AI DBA Workbench
+  API](alerts.md) recipe shows the alerts that a blackout suppresses.
 - The AI DBA Workbench [blackouts
   guide](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/user-guide/blackouts.md)
   describes how blackouts affect alerting.

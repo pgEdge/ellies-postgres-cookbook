@@ -8,6 +8,7 @@ This code is released under the PostgreSQL License.
 
 # --8<-- [start:imports]
 import os
+import signal
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,8 @@ def settings() -> dict:
         raise RuntimeError(
             "WORKBENCH_TOKEN and WORKBENCH_CONNECTION_ID must be set"
         )
+    if not connection_id.isdigit():
+        raise RuntimeError("WORKBENCH_CONNECTION_ID must be a number")
     return {
         "base_url": (
             os.environ.get("WORKBENCH_URL") or "http://localhost:8080"
@@ -38,12 +41,29 @@ def settings() -> dict:
 
 
 # --8<-- [start:request]
-def api(cfg: dict, method: str, path: str, **kwargs) -> httpx.Response:
+interrupted = None
+
+
+def on_signal(signum, frame) -> None:
+    """Records that the program received SIGINT or SIGTERM. The handler
+    replaces the default action, which would end the program before it could
+    delete the blackout, and a second signal does nothing more."""
+    global interrupted
+    interrupted = signal.Signals(signum).name
+
+
+def api(cfg: dict, method: str, path: str, interruptible: bool = True,
+        **kwargs) -> httpx.Response:
     """Sends a request to the API and returns the response.
 
     A request that the server rejects raises an error that includes the
     message from the server, which raise_for_status alone would leave out.
+    After a signal, every request that is interruptible fails at once; the
+    cleanup and the create call, whose result the program must not lose,
+    pass False.
     """
+    if interruptible and interrupted:
+        raise RuntimeError(f"Interrupted by {interrupted}")
     response = httpx.request(
         method, f"{cfg['base_url']}/api/v1{path}", timeout=30,
         headers={"Authorization": f"Bearer {cfg['token']}"}, **kwargs,
@@ -66,7 +86,7 @@ def create_blackout(cfg: dict) -> dict:
     and it ends in one hour. The times are in RFC 3339 format.
     """
     now = datetime.now(timezone.utc)
-    return api(cfg, "POST", "/blackouts", json={
+    return api(cfg, "POST", "/blackouts", interruptible=False, json={
         "scope": "server",
         "connection_id": cfg["connection_id"],
         "reason": "Cookbook maintenance window",
@@ -94,7 +114,7 @@ def stop_blackout(cfg: dict, blackout_id: int) -> dict:
 # --8<-- [start:delete]
 def delete_blackout(cfg: dict, blackout_id: int) -> None:
     """Deletes a blackout by its ID."""
-    api(cfg, "DELETE", f"/blackouts/{blackout_id}")
+    api(cfg, "DELETE", f"/blackouts/{blackout_id}", interruptible=False)
 # --8<-- [end:delete]
 
 
@@ -103,6 +123,8 @@ def main() -> int:
     cfg = None
     blackout_id = None
     status = 0
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGTERM, on_signal)
     try:
         cfg = settings()
 

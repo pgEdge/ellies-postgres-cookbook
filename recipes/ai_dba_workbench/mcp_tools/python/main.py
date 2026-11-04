@@ -27,6 +27,8 @@ def settings() -> dict:
         raise RuntimeError(
             "WORKBENCH_TOKEN and WORKBENCH_CONNECTION_ID must be set"
         )
+    if not connection_id.isdigit():
+        raise RuntimeError("WORKBENCH_CONNECTION_ID must be a number")
     return {
         "base_url": (
             os.environ.get("WORKBENCH_URL") or "http://localhost:8080"

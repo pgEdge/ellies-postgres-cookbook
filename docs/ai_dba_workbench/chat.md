@@ -6,14 +6,14 @@ These examples are for AI DBA Workbench 1.0.0. Each step shows the code in
 every supported language; selecting a language tab switches every tab on the
 site to that language.
 
-The Workbench 1.0.0 API has no streaming chat endpoint: `POST
-/api/v1/llm/chat` returns the whole reply in one response, and the only
-endpoint that streams is `GET /api/v1/overview/stream`, which sends
-server-sent events about the state of the estate. This recipe therefore uses
-the chat endpoint without streaming. The example program reads the default
-provider and model, asks a question, and then asks a follow-up question that
-relies on the first answer. The reply text depends on the model, so the output
-has the following form:
+The Workbench 1.0.0 API has no streaming chat endpoint: `POST /api/v1/llm/chat`
+returns the whole reply in one response, and the only endpoint that streams is
+`GET /api/v1/overview/stream`, which sends server-sent events that report the
+progress of generating the estate overview. This recipe therefore uses the chat
+endpoint without streaming. The example program reads the default provider and
+model, asks a question, and then asks a follow-up question that relies on the
+first answer. The reply text depends on the model, so the output has the
+following form:
 
 ```text
 Provider: ollama (model qwen2.5:1.5b)
@@ -24,12 +24,14 @@ Stop reason: end_turn
 
 ## Preparing the Ingredients
 
-The examples need a running Workbench server that has an LLM provider configured, and an API token for a user that may use the chat feature. The Python example uses [httpx](https://www.python-httpx.org/), the
-TypeScript example uses the `fetch` function that Node.js provides, and the Go
-example uses the `net/http` package from the standard library. The curl
-example is a bash script that uses [jq](https://jqlang.org/) to build the
-requests and read the JSON replies. The following tabs show the dependency
-declaration from each example project:
+The examples need a running Workbench server that has an LLM provider
+configured, and an API token for a user that may use the chat feature. The
+Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
+example uses the `fetch` function that Node.js provides, and the Go example
+uses the `net/http` package from the standard library. The curl example is a
+bash script that uses [jq](https://jqlang.org/) to build the requests and read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -89,9 +91,9 @@ examples read:
 | `WORKBENCH_URL`   | The base URL; default `http://localhost:8080` |
 | `WORKBENCH_TOKEN` | An API token for the Workbench.               |
 
-The [Authenticating](authenticate.md) recipe shows how to create an API token.
-The following tabs show how each program reads the settings and stops with an
-error when the token is missing:
+The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+shows how to create an API token. The following tabs show how each program
+reads the settings and stops with an error when the token is missing:
 
 === "Python"
 
@@ -153,11 +155,12 @@ following tabs show the helper function from each program:
 ## Finding the Default Provider
 
 The `GET /api/v1/llm/providers` call lists the LLM providers that the Workbench
-has configured. Each provider has a `name`, a `display` name, and an `isDefault`
-flag, and the reply also has the `defaultModel`. A chat request that names
-neither a provider nor a model uses these defaults. The program prints the
-default provider and model, and stops with an error if the Workbench has no
-default. The following tabs show how each program finds the default provider:
+has configured. Each provider has a `name`, a `display` name, and an
+`isDefault` flag, and the reply also has the `defaultModel`. A chat request
+that names neither a provider nor a model uses these defaults. The program
+prints the default provider and model, and stops with an error if the Workbench
+has no default. The following tabs show how each program finds the default
+provider:
 
 === "Python"
 
@@ -187,8 +190,8 @@ default. The following tabs show how each program finds the default provider:
 
 The `POST /api/v1/llm/chat` call takes a `messages` list, where each message
 has a `role` of `user` or `assistant` and some `content`. The reply has a
-`content` list of blocks, where the blocks of type `text` hold the answer, and a
-`stop_reason`. The server keeps no conversation, so a client that wants a
+`content` list of blocks, where the blocks of type `text` hold the answer, and
+a `stop_reason`. The server keeps no conversation, so a client that wants a
 follow-up must send the earlier messages again, including the replies of the
 model. Because a small model may spread its answer over several lines, the
 helper function joins the text blocks and collapses the white space, and it
@@ -255,9 +258,9 @@ non-zero status. The following tabs show the main part of each program:
 
 The complete project for each language is available in the [cookbook
 repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/chat).
-Set `WORKBENCH_URL` and `WORKBENCH_TOKEN` for your server, and then run the command for your language from the
-corresponding project directory. The following tabs show the commands that
-build and run each example:
+Set `WORKBENCH_URL` and `WORKBENCH_TOKEN` for your server, and then run the
+command for your language from the corresponding project directory. The
+following tabs show the commands that build and run each example:
 
 === "Python"
 
@@ -320,10 +323,10 @@ The following tabs show the complete program for each language:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [Authenticating](authenticate.md) recipe explains how to create the API
-  token that these examples use.
-- The [Calling MCP Tools](mcp_tools.md) recipe shows how to run queries
-  against a monitored server from a program.
+- The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+  explains how to create the API token that these examples use.
+- The [Calling AI DBA Workbench MCP Tools](mcp_tools.md) recipe shows how to
+  run queries against a monitored server from a program.
 - The AI DBA Workbench [API
   reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

@@ -26,6 +26,9 @@ function settings(): Settings {
   if (!token || !connectionId) {
     throw new Error("WORKBENCH_TOKEN and WORKBENCH_CONNECTION_ID must be set");
   }
+  if (!/^\d+$/.test(connectionId)) {
+    throw new Error("WORKBENCH_CONNECTION_ID must be a number");
+  }
   const baseUrl = process.env.WORKBENCH_URL || "http://localhost:8080";
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
@@ -41,13 +44,25 @@ interface Blackout {
   is_active: boolean;
 }
 
+// Aborts the request in progress, and every later one that can be
+// interrupted, when the program receives SIGINT or SIGTERM. The handlers also
+// stop Node.js from exiting on those signals, which lets the cleanup run, and
+// a second signal during the cleanup does nothing.
+const interrupted = new AbortController();
+for (const name of ["SIGINT", "SIGTERM"] as const) {
+  process.on(name, () => interrupted.abort(new Error(`Interrupted by ${name}`)));
+}
+
 // Sends a request to the API and returns the response. A request that the
 // server rejects throws an error that includes the message from the server.
+// The cleanup passes interruptible as false, so that a signal cannot cancel
+// it.
 async function api(
   s: Settings,
   method: string,
   path: string,
   body?: unknown,
+  interruptible = true,
 ): Promise<Response> {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${s.token}`,
@@ -58,7 +73,9 @@ async function api(
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
+    signal: interruptible
+      ? AbortSignal.any([AbortSignal.timeout(30_000), interrupted.signal])
+      : AbortSignal.timeout(30_000),
   });
   if (!response.ok) {
     const text = (await response.text()).trim();
@@ -77,13 +94,22 @@ async function api(
 // The toISOString method writes the times in RFC 3339 format.
 async function createBlackout(s: Settings): Promise<Blackout> {
   const now = Date.now();
-  const response = await api(s, "POST", "/blackouts", {
-    scope: "server",
-    connection_id: s.connectionId,
-    reason: "Cookbook maintenance window",
-    start_time: new Date(now - 60_000).toISOString(),
-    end_time: new Date(now + 3_600_000).toISOString(),
-  });
+  // A signal cannot interrupt this request either, because the program
+  // would not know the ID of a blackout that the server created after the
+  // interruption. The next request notices the signal instead.
+  const response = await api(
+    s,
+    "POST",
+    "/blackouts",
+    {
+      scope: "server",
+      connection_id: s.connectionId,
+      reason: "Cookbook maintenance window",
+      start_time: new Date(now - 60_000).toISOString(),
+      end_time: new Date(now + 3_600_000).toISOString(),
+    },
+    false,
+  );
   return (await response.json()) as Blackout;
 }
 // --8<-- [end:create]
@@ -106,9 +132,10 @@ async function stopBlackout(s: Settings, id: number): Promise<Blackout> {
 // --8<-- [end:stop]
 
 // --8<-- [start:delete]
-// Deletes a blackout by its ID.
+// Deletes a blackout by its ID. A signal cannot interrupt this request,
+// because it is the cleanup.
 async function deleteBlackout(s: Settings, id: number): Promise<void> {
-  await api(s, "DELETE", `/blackouts/${id}`);
+  await api(s, "DELETE", `/blackouts/${id}`, undefined, false);
 }
 // --8<-- [end:delete]
 

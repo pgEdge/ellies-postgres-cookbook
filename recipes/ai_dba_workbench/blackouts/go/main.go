@@ -12,14 +12,17 @@ package main
 // --8<-- [start:imports]
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -73,8 +76,9 @@ type blackout struct {
 
 // api sends a request to the API and decodes the JSON reply into out, if
 // given. A request that the server rejects returns an error that includes
-// the message from the server.
-func api(s settings, method, path string, body, out any) error {
+// the message from the server. Cancelling ctx, which the program does when it
+// receives SIGINT or SIGTERM, abandons the request.
+func api(ctx context.Context, s settings, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -84,7 +88,7 @@ func api(s settings, method, path string, body, out any) error {
 		reader = bytes.NewReader(encoded)
 	}
 
-	req, err := http.NewRequest(method, s.baseURL+"/api/v1"+path, reader)
+	req, err := http.NewRequestWithContext(ctx, method, s.baseURL+"/api/v1"+path, reader)
 	if err != nil {
 		return err
 	}
@@ -116,10 +120,13 @@ func api(s settings, method, path string, body, out any) error {
 // it. The blackout starts a minute ago, so that a small difference between
 // the clocks of this machine and the server cannot leave it inactive, and
 // it ends in one hour. The times are in RFC 3339 format.
+//
+// A signal cannot interrupt this request, because the program would not
+// know the ID of a blackout that the server created after the interruption.
 func createBlackout(s settings) (blackout, error) {
 	now := time.Now().UTC()
 	var b blackout
-	err := api(s, "POST", "/blackouts", map[string]any{
+	err := api(context.Background(), s, "POST", "/blackouts", map[string]any{
 		"scope":         "server",
 		"connection_id": s.connectionID,
 		"reason":        "Cookbook maintenance window",
@@ -133,9 +140,9 @@ func createBlackout(s settings) (blackout, error) {
 
 // --8<-- [start:read]
 // getBlackout returns the blackout with the given ID.
-func getBlackout(s settings, id int64) (blackout, error) {
+func getBlackout(ctx context.Context, s settings, id int64) (blackout, error) {
 	var b blackout
-	err := api(s, "GET", fmt.Sprintf("/blackouts/%d", id), nil, &b)
+	err := api(ctx, s, "GET", fmt.Sprintf("/blackouts/%d", id), nil, &b)
 	return b, err
 }
 
@@ -144,18 +151,19 @@ func getBlackout(s settings, id int64) (blackout, error) {
 // --8<-- [start:stop]
 // stopBlackout stops a blackout that is in progress, which sets its end
 // time to now, and returns the stopped blackout.
-func stopBlackout(s settings, id int64) (blackout, error) {
+func stopBlackout(ctx context.Context, s settings, id int64) (blackout, error) {
 	var b blackout
-	err := api(s, "POST", fmt.Sprintf("/blackouts/%d/stop", id), nil, &b)
+	err := api(ctx, s, "POST", fmt.Sprintf("/blackouts/%d/stop", id), nil, &b)
 	return b, err
 }
 
 // --8<-- [end:stop]
 
 // --8<-- [start:delete]
-// deleteBlackout deletes a blackout by its ID.
+// deleteBlackout deletes a blackout by its ID. A signal cannot interrupt this
+// request, because it is the cleanup.
 func deleteBlackout(s settings, id int64) error {
-	return api(s, "DELETE", fmt.Sprintf("/blackouts/%d", id), nil, nil)
+	return api(context.Background(), s, "DELETE", fmt.Sprintf("/blackouts/%d", id), nil, nil)
 }
 
 // --8<-- [end:delete]
@@ -163,7 +171,7 @@ func deleteBlackout(s settings, id int64) error {
 // --8<-- [start:main]
 // run does the work. It returns the cleanup that the caller must run if the
 // program has created a blackout and not yet deleted it.
-func run(s settings) (cleanup func() error, err error) {
+func run(ctx context.Context, s settings) (cleanup func() error, err error) {
 	created, err := createBlackout(s)
 	if err != nil {
 		return nil, err
@@ -173,13 +181,13 @@ func run(s settings) (cleanup func() error, err error) {
 	cleanup = func() error { return deleteBlackout(s, created.ID) }
 	fmt.Printf("Created a blackout for the server (active: %t)\n", created.IsActive)
 
-	current, err := getBlackout(s, created.ID)
+	current, err := getBlackout(ctx, s, created.ID)
 	if err != nil {
 		return cleanup, err
 	}
 	fmt.Printf("Read the blackout back (active: %t)\n", current.IsActive)
 
-	stopped, err := stopBlackout(s, created.ID)
+	stopped, err := stopBlackout(ctx, s, created.ID)
 	if err != nil {
 		return cleanup, err
 	}
@@ -188,8 +196,10 @@ func run(s settings) (cleanup func() error, err error) {
 		return cleanup, errors.New("the blackout is still active")
 	}
 
+	// Report a failed delete here and clear the cleanup, so that main does not
+	// try again and print a second error.
 	if err := cleanup(); err != nil {
-		return cleanup, err
+		return nil, fmt.Errorf("could not delete the blackout: %w", err)
 	}
 	fmt.Println("Deleted the blackout")
 	return nil, nil
@@ -202,8 +212,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The handler replaces the default action for these signals, which would
+	// end the program before it could delete the blackout. It cancels ctx,
+	// which abandons the request in progress, and a second signal does
+	// nothing more.
+	ctx, stop := signal.NotifyContext(context.Background(),
+		os.Interrupt, syscall.SIGTERM)
+
 	failed := false
-	cleanup, err := run(s)
+	cleanup, err := run(ctx, s)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		failed = true
@@ -214,6 +231,7 @@ func main() {
 			failed = true
 		}
 	}
+	stop()
 	if failed {
 		os.Exit(1)
 	}

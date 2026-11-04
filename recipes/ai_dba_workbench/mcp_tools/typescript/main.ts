@@ -25,6 +25,9 @@ function settings(): Settings {
   if (!token || !connectionId) {
     throw new Error("WORKBENCH_TOKEN and WORKBENCH_CONNECTION_ID must be set");
   }
+  if (!/^\d+$/.test(connectionId)) {
+    throw new Error("WORKBENCH_CONNECTION_ID must be a number");
+  }
   const baseUrl = process.env.WORKBENCH_URL || "http://localhost:8080";
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),

@@ -15,5 +15,5 @@ grep -qE '^Reply: .*[^[:space:]]' <<<"$out" ||
     fail "missing or blank reply"
 grep -qE '^Follow-up reply: .*[^[:space:]]' <<<"$out" ||
     fail "missing or blank follow-up reply"
-grep -qx 'Stop reason: [a-z_]*' <<<"$out" ||
+grep -Eqx 'Stop reason: [a-z_]+' <<<"$out" ||
     fail "missing or malformed stop reason"

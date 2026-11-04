@@ -3,8 +3,8 @@
 This recipe shows how a program calls the tools that the pgEdge AI DBA
 Workbench offers through its Model Context Protocol (MCP) endpoint. These
 examples are for AI DBA Workbench 1.0.0. Each step shows the code in every
-supported language; selecting a language tab switches every tab on the site
-to that language.
+supported language; selecting a language tab switches every tab on the site to
+that language.
 
 MCP is a protocol in which a client lists the tools that a server offers and
 then calls them, and it is built on JSON-RPC 2.0 over HTTP. The Workbench
@@ -25,12 +25,14 @@ Plan starts with: Result
 
 ## Preparing the Ingredients
 
-The examples need a running Workbench server that monitors at least one PostgreSQL server, and an API token for a user that may use the tools. The Python example uses [httpx](https://www.python-httpx.org/), the
-TypeScript example uses the `fetch` function that Node.js provides, and the Go
-example uses the `net/http` package from the standard library. The curl
-example is a bash script that uses [jq](https://jqlang.org/) to build the
-requests and read the JSON replies. The following tabs show the dependency
-declaration from each example project:
+The examples need a running Workbench server that monitors at least one
+PostgreSQL server, and an API token for a user that may use the tools. The
+Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
+example uses the `fetch` function that Node.js provides, and the Go example
+uses the `net/http` package from the standard library. The curl example is a
+bash script that uses [jq](https://jqlang.org/) to build the requests and read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -91,11 +93,11 @@ examples read:
 | `WORKBENCH_TOKEN`         | An API token for the Workbench.               |
 | `WORKBENCH_CONNECTION_ID` | The ID of the server to query.                |
 
-The [Authenticating](authenticate.md) recipe shows how to create an API token.
-The MCP endpoint accepts the token as a `Bearer` credential and answers a
-request without one with a 401 status. The following tabs show how each
-program reads the settings and stops with an error when the token or the
-connection ID is missing:
+The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+shows how to create an API token. The MCP endpoint accepts the token as a
+`Bearer` credential and answers a request without one with a 401 status. The
+following tabs show how each program reads the settings and stops with an error
+when the token or the connection ID is missing:
 
 === "Python"
 
@@ -189,12 +191,12 @@ prints the name and version of the server:
 
 ## Listing the Tools
 
-The `tools/list` method returns every tool that the server offers, and each tool
-has a `name`, a `description`, and an `inputSchema` in JSON Schema form. The
-Workbench lists its tools in no fixed order, so the program looks the two tools
-that it needs up by name, stops with an error if either is missing, and prints
-the arguments that each one requires from the `required` member of its schema.
-The following tabs show how each program lists the tools:
+The `tools/list` method returns every tool that the server offers, and each
+tool has a `name`, a `description`, and an `inputSchema` in JSON Schema form.
+The Workbench lists its tools in no fixed order, so the program looks the two
+tools that it needs up by name, stops with an error if either is missing, and
+prints the arguments that each one requires from the `required` member of its
+schema. The following tabs show how each program lists the tools:
 
 === "Python"
 
@@ -260,8 +262,9 @@ and it takes the `connection_id` of the server and the `query` to run. The
 reply is text rather than JSON: it names the database, repeats the query, and
 then has a line that starts with `Results` followed by a row of tab-separated
 column names and the rows of data. The program prints only the part after the
-`Results` line, with the tabs replaced by commas. The following tabs show how
-each program runs the query:
+`Results` line, with the tabs replaced by commas. The parsing of the text
+depends on the layout of the output in Workbench 1.0.0, so check it again after
+an upgrade. The following tabs show how each program runs the query:
 
 === "Python"
 
@@ -291,9 +294,11 @@ each program runs the query:
 
 The `execute_explain` tool returns the execution plan for a query. Setting
 `analyze` to `false` plans the query without running it, whereas `true` runs
-the query to measure it. The plan follows a line of equals signs in the reply,
-and the program prints the type of the first plan node. The following tabs
-show how each program plans the query:
+the query to measure it. Do not also set `buffers` to `false`, because the
+Workbench 1.0.0 then sends `EXPLAIN ()` to PostgreSQL, which is a syntax error;
+the example leaves `buffers` at its default. The plan follows a line of equals
+signs in the reply, and the program prints the type of the first plan node. The
+following tabs show how each program plans the query:
 
 === "Python"
 
@@ -353,9 +358,10 @@ following tabs show the main part of each program:
 
 The complete project for each language is available in the [cookbook
 repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/mcp_tools).
-Set `WORKBENCH_URL`, `WORKBENCH_TOKEN`, and `WORKBENCH_CONNECTION_ID` for your server, and then run the command for your language from the
-corresponding project directory. The following tabs show the commands that
-build and run each example:
+Set `WORKBENCH_URL`, `WORKBENCH_TOKEN`, and `WORKBENCH_CONNECTION_ID` for your
+server, and then run the command for your language from the corresponding
+project directory. The following tabs show the commands that build and run each
+example:
 
 === "Python"
 
@@ -418,9 +424,10 @@ The following tabs show the complete program for each language:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [Authenticating](authenticate.md) recipe explains how to create the API
-  token that these examples use.
-- The [Registering a Server](register_server.md) recipe shows how to add the
-  server that the tools query.
-- The AI DBA Workbench [documentation](https://github.com/pgEdge/ai-dba-workbench/tree/v1.0.0/docs)
+- The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
+  explains how to create the API token that these examples use.
+- The [Registering a Server with the AI DBA Workbench API](register_server.md)
+  recipe shows how to add the server that the tools query.
+- The AI DBA Workbench
+  [documentation](https://github.com/pgEdge/ai-dba-workbench/tree/v1.0.0/docs)
   describes the full set of tools.

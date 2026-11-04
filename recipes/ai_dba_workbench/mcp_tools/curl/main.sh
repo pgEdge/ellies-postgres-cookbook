@@ -64,7 +64,7 @@ initialize() {
         "protocolVersion": "2024-11-05",
         "capabilities": {},
         "clientInfo": {"name": "cookbook", "version": "1.0.0"}
-    }')
+    }') || return 1
     jq -r '"Server: \(.serverInfo.name) \(.serverInfo.version)"' <<<"$result"
 }
 # --8<-- [end:initialize]
@@ -74,7 +74,7 @@ initialize() {
 # prints the arguments that each one requires.
 list_tools() {
     local result
-    result=$(rpc tools/list '{}')
+    result=$(rpc tools/list '{}') || return 1
     # The server lists its tools in no fixed order, so the filter looks up the
     # two tools by name, in the order that it names them.
     jq -r '.tools as $tools | ("query_database", "execute_explain") as $name |
@@ -98,7 +98,7 @@ call_tool() {
     local result
     result=$(rpc tools/call \
         "$(jq -nc --arg name "$name" --argjson arguments "$arguments" \
-            '{name: $name, arguments: $arguments}')")
+            '{name: $name, arguments: $arguments}')") || return 1
     if [[ "$(jq -r '.isError // false' <<<"$result")" == "true" ]]; then
         echo "$name failed: $(jq -r '.content[0].text' <<<"$result")" >&2
         return 1

@@ -92,17 +92,24 @@ delete_blackout() {
 # --8<-- [end:delete]
 
 # --8<-- [start:main]
-# This variable is global, because the EXIT trap runs after main returns.
-blackout_id=""
+# This variable is global, because the EXIT trap runs after main returns. It
+# holds the reply to the create call until the blackout is deleted. Bash
+# assigns it before it runs a signal handler, whereas it would not yet have
+# extracted the ID from the reply.
+created=""
 
 cleanup() {
     local status=$?
+    # Ignore further signals, so that a second one cannot abort the delete.
+    trap '' INT TERM
     # Delete the blackout when the script ends, even if a later step failed,
     # so that a failed run does not leave alerts suppressed. Report a delete
     # that fails, and make the exit status non-zero.
-    if [[ -n "$blackout_id" ]]; then
-        delete_blackout "$blackout_id" || {
-            echo "Error: could not delete the blackout $blackout_id" >&2
+    if [[ -n "$created" ]]; then
+        local id
+        id=$(jq -er '.id' <<<"$created") || id=""
+        delete_blackout "$id" || {
+            echo "Error: could not delete the blackout $id" >&2
             status=1
         }
     fi
@@ -110,9 +117,9 @@ cleanup() {
 }
 
 main() {
-    local created blackout stopped active
+    local blackout_id blackout stopped active
     created=$(create_blackout "$WORKBENCH_CONNECTION_ID")
-    blackout_id=$(jq -r '.id' <<<"$created")
+    blackout_id=$(jq -er '.id' <<<"$created")
     active=$(jq -r '.is_active' <<<"$created")
     echo "Created a blackout for the server (active: $active)"
 
@@ -129,10 +136,16 @@ main() {
     fi
 
     delete_blackout "$blackout_id"
-    blackout_id=""
+    created=""
     echo "Deleted the blackout"
 }
 
+# Without handlers for the signals, a second signal that arrives before bash
+# has run the EXIT trap would end the script before the delete. The handlers
+# exit with the usual status for a signal (128 plus the signal number), which
+# runs the EXIT trap.
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 main
 # --8<-- [end:main]
