@@ -1,0 +1,3 @@
+Inserted 'Jane Doe' with id 1
+Inserted 'John Smith' with id 2
+Inserted 'Alex Example' with id 3
