@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output: a query line, then numbered results with
+# a score between 0 and 1, and the password reset article ranked first.
+# Fails on empty or blank output, and never compares scores exactly.
+set -euo pipefail
+out="$(cat)"
+if [[ -z "${out//[[:space:]]/}" ]]; then
+    echo "output is empty" >&2
+    exit 1
+fi
+grep -q '^Query: .\+' <<<"$out" ||
+    { echo "missing Query line" >&2; exit 1; }
+grep -Eq '^1\. \[[01](\.[0-9]+)?\] .+' <<<"$out" ||
+    { echo "missing or malformed first result" >&2; exit 1; }
+grep -Eq '^2\. \[[01](\.[0-9]+)?\] .+' <<<"$out" ||
+    { echo "missing or malformed second result" >&2; exit 1; }
+grep -Eq '^1\. \[[^]]*\] .*reset' <<<"$out" ||
+    { echo "the reset article was not ranked first" >&2; exit 1; }
+if grep -qi '^Error' <<<"$out"; then
+    echo "output contains an error" >&2
+    exit 1
+fi
