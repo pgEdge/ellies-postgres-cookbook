@@ -174,9 +174,9 @@ following table describes the environment variables that the examples read:
 The host name matters more than usual in this recipe. With `verify-full`,
 the driver compares `PGHOST` with the names in the server certificate, so
 the connection fails if you connect by a name that the certificate does not
-list. Some older versions of libpq do not match an IP address against the
-certificate at all, so use a host name such as `localhost` rather than
-`127.0.0.1` if you see a host name mismatch.
+list. Versions of libpq before PostgreSQL 15 do not match an IP address
+against the `iPAddress` names in a certificate, so use a host name such as
+`localhost` rather than `127.0.0.1` if you see a host name mismatch.
 
 The `sslmode` setting controls how much a client checks. The following
 table lists the modes that libpq defines, and the drivers use the same
@@ -193,10 +193,14 @@ names or an equivalent:
 The Python, Go, Ruby, Java, and C programs pass `verify-full` and the
 certificate path as connection parameters, and the C# program sets the
 `VerifyFull` mode and the root certificate on the connection string
-builder. The TypeScript and Rust drivers do not take an `sslmode`
-parameter; instead, those programs load only the CA certificate into the
-TLS library and leave certificate and host name checks enabled, which is
-what `verify-full` means. The following tabs show how each program
+builder. The TypeScript driver does not take an `sslmode` parameter;
+instead, that program loads only the CA certificate into the TLS library
+and leaves certificate and host name checks enabled, which is what
+`verify-full` means. The Rust driver has an `ssl_mode` setting, but its
+`Require` value only insists on encryption (its default, `Prefer`, falls
+back to a plain connection if the server declines TLS), so the Rust
+program sets `Require` and leaves the verification to the TLS connector
+described in the next step. The following tabs show how each program
 assembles the connection settings:
 
 === "Python"
@@ -252,8 +256,9 @@ assembles the connection settings:
 Each program opens a connection to the server with the settings from the
 previous step. The C# program creates an Npgsql data source, which lends
 out pooled connections when the main part of the program asks for one. The
-Rust program first builds an OpenSSL connector that trusts only the CA
-certificate, and passes it to the driver in place of the `NoTls` value that
+Rust program first builds an OpenSSL connector whose certificate store
+holds only the CA certificate (the connector otherwise starts with the
+system root certificates), and passes it to the driver in place of the `NoTls` value that
 the first recipe uses. If the server certificate is not signed by that CA,
 has expired, or does not match the host name, the driver raises an error
 instead of connecting; the Handling Errors and Closing the Connection
@@ -315,7 +320,7 @@ holds one row for each connection to the server. The `pg_backend_pid()`
 function returns the process ID of the session that runs the query, so the
 `WHERE` clause selects the row for the current connection. The `ssl` column
 is `true` when the connection uses TLS, and the `version` column holds the
-protocol version, such as `TLSv1.3`. The programs read the version but do
+protocol version, such as `TLSv1.3`. The programs select the version but do
 not print it, because it varies with the server and the client library.
 
 The first output line comes from the server, so it reports what the server

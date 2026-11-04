@@ -11,6 +11,9 @@ use std::error::Error;
 use std::process::ExitCode;
 
 use openssl::ssl::{SslConnector, SslMethod};
+use openssl::x509::store::X509StoreBuilder;
+use openssl::x509::X509;
+use postgres::config::SslMode;
 use postgres::{Client, Config};
 use postgres_openssl::MakeTlsConnector;
 // --8<-- [end:imports]
@@ -30,9 +33,14 @@ fn env_or(name: &str, fallback: &str) -> String {
 
 /// Builds the connection configuration from the standard libpq
 /// environment variables, with defaults suitable for a local server.
+/// The default SSL mode of the crate is Prefer, which falls back to a
+/// plain connection if the server declines TLS, so Require is set
+/// explicitly. Require makes the connection fail instead; the TLS
+/// connector built below then verifies the certificate.
 fn config() -> Config {
     let mut config = Config::new();
     config
+        .ssl_mode(SslMode::Require)
         .host(&env_or("PGHOST", "localhost"))
         .port(env_or("PGPORT", "5432").parse().expect("PGPORT must be a number"))
         .dbname(&env_or("PGDATABASE", "postgres"))
@@ -53,12 +61,21 @@ fn root_cert_path() -> Result<String, Box<dyn Error>> {
 
 // --8<-- [start:connect]
 /// Builds a TLS connector that trusts only the given root certificate.
-/// A connector made by SslConnector::builder verifies the certificate
-/// chain and the host name by default, which is the equivalent of
-/// sslmode=verify-full; the host name checked is the one in the Config.
+/// SslConnector::builder starts with the system root certificates, so the
+/// certificate store is replaced with one that holds nothing but the
+/// certificates in the file; otherwise any publicly trusted certificate
+/// for the host name would also be accepted. The connector verifies the
+/// certificate chain and the host name by default, which together are the
+/// equivalent of sslmode=verify-full; the host name checked is the one in
+/// the Config.
 fn tls_connector(root_cert: &str) -> Result<MakeTlsConnector, Box<dyn Error>> {
+    let mut store = X509StoreBuilder::new()?;
+    for cert in X509::stack_from_pem(&std::fs::read(root_cert)?)? {
+        store.add_cert(cert)?;
+    }
+
     let mut builder = SslConnector::builder(SslMethod::tls())?;
-    builder.set_ca_file(root_cert)?;
+    builder.set_cert_store(store.build());
     Ok(MakeTlsConnector::new(builder.build()))
 }
 
