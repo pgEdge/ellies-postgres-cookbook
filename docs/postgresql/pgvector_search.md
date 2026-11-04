@@ -39,7 +39,7 @@ vectors to and from native types such as arrays:
 | Java       | [pgJDBC](https://jdbc.postgresql.org/)          | [com.pgvector:pgvector](https://github.com/pgvector/pgvector-java) |
 | C#         | [Npgsql](https://www.npgsql.org/)               | [Pgvector](https://github.com/pgvector/pgvector-dotnet) |
 | Go         | [pgx](https://github.com/jackc/pgx)             | [pgvector-go](https://github.com/pgvector/pgvector-go) |
-| Rust       | [rust-postgres](https://github.com/sfackler/rust-postgres) | [pgvector](https://github.com/pgvector/pgvector-rust) |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) | [pgvector](https://github.com/pgvector/pgvector-rust) |
 | Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)      | [pgvector](https://github.com/pgvector/pgvector-ruby) |
 | C          | [libpq](https://www.postgresql.org/docs/current/libpq.html) | None; use the text format |
 

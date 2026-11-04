@@ -54,8 +54,13 @@ def create_pool() -> ConnectionPool:
 
     # wait() blocks until the pool has opened its first connection, and
     # raises an error if that takes longer than the timeout, for example
-    # because the server is unreachable.
-    pool.wait(timeout=5)
+    # because the server is unreachable. Close the pool before re-raising,
+    # so that its background threads stop.
+    try:
+        pool.wait(timeout=5)
+    except psycopg.Error:
+        pool.close()
+        raise
     return pool
 # --8<-- [end:pool]
 

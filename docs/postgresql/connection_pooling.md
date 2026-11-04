@@ -41,7 +41,7 @@ following table lists the driver and the pool that each example uses:
 | Java       | [pgJDBC](https://jdbc.postgresql.org/)          | [HikariCP](https://github.com/brettwooldridge/HikariCP) |
 | C#         | [Npgsql](https://www.npgsql.org/)               | [NpgsqlDataSource](https://www.npgsql.org/doc/basic-usage.html), part of Npgsql |
 | Go         | [pgx](https://github.com/jackc/pgx)             | [pgxpool](https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool), part of pgx |
-| Rust       | [rust-postgres](https://github.com/sfackler/rust-postgres) | [r2d2_postgres](https://github.com/sfackler/r2d2-postgres) |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) | [r2d2_postgres](https://github.com/rust-postgres/r2d2-postgres) |
 | Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)      | [connection_pool](https://github.com/mperham/connection_pool) |
 | C          | [libpq](https://www.postgresql.org/docs/current/libpq.html) | None; use [PgBouncer](https://www.pgbouncer.org/) |
 
@@ -94,11 +94,10 @@ dependency declaration from each example project:
 
 === "C"
 
-    The C example has no dependencies to declare, because it has no program:
-    libpq has no connection pool, so this recipe has no C project. A C
-    application that needs pooling normally connects through
-    [PgBouncer](https://www.pgbouncer.org/), a separate pooling server that
-    runs between the application and PostgreSQL.
+    There is no C example, because libpq has no built-in connection pool, so
+    there are no dependencies to declare. A C application that needs pooling
+    normally connects through [PgBouncer](https://www.pgbouncer.org/), a
+    separate pooling server that runs between the application and PostgreSQL.
 
 ## Importing the Libraries
 

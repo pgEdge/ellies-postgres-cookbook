@@ -84,6 +84,11 @@ begin
 rescue PG::Error => e
   warn "Database error: #{e.message}"
   exit 1
+# The pool raises its own error, which is not a PG::Error, when no
+# connection becomes free within the timeout.
+rescue ConnectionPool::TimeoutError => e
+  warn "Database error: #{e.message}"
+  exit 1
 # The ensure block runs whether or not an error occurred. pool is nil if
 # it could not be created, and shutdown closes every connection that the
 # pool opened.
