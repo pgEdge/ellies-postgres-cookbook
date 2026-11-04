@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Checks the shape of the access_token output: three lines, and no token.
+set -euo pipefail
+
+output="$(cat)"
+[[ -n "${output//[[:space:]]/}" ]] || { echo "empty output" >&2; exit 1; }
+
+[[ "$(printf '%s\n' "$output" | wc -l)" -eq 3 ]] \
+    || { echo "expected three lines" >&2; exit 1; }
+printf '%s\n' "$output" | sed -n 1p | grep -qx 'Token type: Bearer' \
+    || { echo "bad token type line" >&2; exit 1; }
+printf '%s\n' "$output" | sed -n 2p | grep -Eqx 'Token length: [1-9][0-9]* characters' \
+    || { echo "bad token length line" >&2; exit 1; }
+printf '%s\n' "$output" | sed -n 3p | grep -Eqx 'Expires in: [1-9][0-9]* seconds' \
+    || { echo "bad expiry line" >&2; exit 1; }

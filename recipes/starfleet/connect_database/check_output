@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Checks the shape of the connect_database output: the placement, the new
+# database, the wait, the server version, and the deletion, in that order.
+set -euo pipefail
+
+output="$(cat)"
+[[ -n "${output//[[:space:]]/}" ]] || { echo "empty output" >&2; exit 1; }
+
+# Every pattern must match a line, in this order. The status lines
+# between "Created" and "available" vary, so the check allows any number.
+expected=(
+    '^Region: [a-z0-9-]+$'
+    '^Size: [a-z]+$'
+    '^Created database cookbook-[0-9a-f]{6}$'
+    '^Database status: [a-z]+$'
+    '^Database is available$'
+    '^Server version: PostgreSQL [0-9]+\.[0-9]+ '
+    '^Deleted database$'
+)
+
+position=0
+while IFS= read -r line; do
+    if [[ $position -lt ${#expected[@]} ]] && [[ "$line" =~ ${expected[$position]} ]]; then
+        position=$((position + 1))
+    elif [[ $position -ge 4 ]] && [[ "$line" =~ ^Database\ status:\ [a-z]+$ ]]; then
+        :
+    else
+        echo "unexpected line: $line" >&2
+        exit 1
+    fi
+done <<<"$output"
+
+[[ $position -eq ${#expected[@]} ]] \
+    || { echo "output stopped before: ${expected[$position]}" >&2; exit 1; }

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Checks the shape of the reference_data output: three headings, each
+# followed by at least one indented entry.
+set -euo pipefail
+
+output="$(cat)"
+[[ -n "${output//[[:space:]]/}" ]] || { echo "empty output" >&2; exit 1; }
+
+section=""
+regions=0 sizes=0 versions=0
+while IFS= read -r line; do
+    case "$line" in
+        "Regions:")                section=regions ;;
+        "Sizes (smallest first):") section=sizes ;;
+        "PostgreSQL versions:")    section=versions ;;
+        "  "[![:space:]]*)
+            case "$section" in
+                regions)  regions=$((regions + 1)) ;;
+                sizes)    sizes=$((sizes + 1)) ;;
+                versions) versions=$((versions + 1)) ;;
+                *) echo "entry before a heading: $line" >&2; exit 1 ;;
+            esac
+            ;;
+        *) echo "unexpected line: $line" >&2; exit 1 ;;
+    esac
+done <<<"$output"
+
+[[ $regions -gt 0 ]] || { echo "no regions listed" >&2; exit 1; }
+[[ $sizes -gt 0 ]] || { echo "no sizes listed" >&2; exit 1; }
+[[ $versions -gt 0 ]] || { echo "no versions listed" >&2; exit 1; }
+
+# A size line names the size and its resources.
+grep -Eq '^  [a-z]+: [0-9]+ connections, [0-9A-Za-z]+ storage' <<<"$output" \
+    || { echo "no well-formed size line" >&2; exit 1; }
+# A version is a number, optionally marked as the default.
+grep -Eq '^  [0-9]+( \(default\))?$' <<<"$output" \
+    || { echo "no well-formed version line" >&2; exit 1; }
