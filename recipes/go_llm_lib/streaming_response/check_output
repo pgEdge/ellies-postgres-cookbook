@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the streaming_response example. The
+# reply text varies from run to run, so this checks only that the reply is
+# not blank, that at least one text chunk arrived, and that the provider,
+# model, and token usage lines are present.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+grep -q '^Provider: .\+' <<<"$out" || fail "missing Provider line"
+grep -q '^Model: .\+' <<<"$out" || fail "missing Model line"
+grep -qE '^Tokens: [0-9]+ prompt, [0-9]+ completion$' <<<"$out" ||
+    fail "missing or malformed Tokens line"
+grep -qE '^Chunks: [1-9][0-9]*$' <<<"$out" ||
+    fail "missing Chunks line, or no text chunks arrived"
+
+# The reply is whatever lies between the "Reply:" line and the "Tokens:"
+# line; it must hold at least one non-blank character.
+reply="$(sed -n '/^Reply:$/,/^Tokens: /p' <<<"$out" | sed '1d;$d')"
+[[ -n "${reply//[[:space:]]/}" ]] || fail "the reply is empty or blank"
