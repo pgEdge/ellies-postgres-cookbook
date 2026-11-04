@@ -402,17 +402,41 @@ func isTransient(err error) bool {
 		apiErr.Status >= 500
 }
 
+// outcomeUnknown reports whether a failed create request might still have
+// created the database: no reply arrived, the reply could not be decoded,
+// or the service failed with a 5xx status. A 4xx reply is a definite
+// refusal.
+func outcomeUnknown(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return true
+	}
+	return apiErr.Status >= 500
+}
+
 // findDatabase returns the ID of the database with the given name, or an
-// empty string. The program uses it when the reply to the create request
-// was lost.
+// empty string. The program uses it when it cannot tell whether a create
+// request worked. It repeats the request, as the delete does, because the
+// fault that lost the reply to the create request may still be there. The
+// request asks for the newest databases first, but the API does not say
+// which property it sorts on.
 func findDatabase(ctx context.Context, token, name string) (string, error) {
 	var databases []struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	err := api(ctx, token, http.MethodGet, "/databases?limit=100&descending=true", nil, &databases)
-	if err != nil {
-		return "", err
+	deadline := time.Now().Add(timeout)
+	for {
+		err := api(ctx, token, http.MethodGet, "/databases?limit=100&descending=true", nil, &databases)
+		if err == nil {
+			break
+		}
+		if !isTransient(err) || time.Now().After(deadline) {
+			return "", err
+		}
+		if err := sleep(ctx); err != nil {
+			return "", err
+		}
 	}
 	for _, database := range databases {
 		if database.Name == name {
@@ -495,12 +519,14 @@ func run() (err error) {
 	// signal handler above keeps absorbing any further signals until run
 	// returns.
 	var databaseID string
+	lookup := false
 	defer func() {
 		cleanup := context.Background()
-		if databaseID == "" {
+		if databaseID == "" && lookup {
 			id, findErr := findDatabase(cleanup, token, name)
 			if findErr != nil {
-				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr))
+				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr),
+					fmt.Errorf("delete the database %s by hand, because it may still be billing", name))
 				return
 			}
 			databaseID = id
@@ -515,8 +541,13 @@ func run() (err error) {
 		fmt.Println("Deleted database")
 	}()
 
+	// Look the database up by name afterwards only if the outcome of the
+	// request is unknown, so that a refusal cannot lead the cleanup to
+	// delete another database that has the same name.
+	lookup = true
 	database, err := createDatabase(ctx, token, name, displayName, region, size)
 	if err != nil {
+		lookup = outcomeUnknown(err)
 		return err
 	}
 	databaseID = database.ID

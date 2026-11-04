@@ -38,7 +38,8 @@ to curl on standard input.
     deletes the database that it creates whether the example succeeds, fails,
     or is interrupted with Ctrl-C, and waits until the API no longer lists it.
     If the reply to the create request is lost, the program looks the database
-    up by its name before it deletes it. A program that is killed outright,
+    up by its name before it deletes it, and if that fails it tells you the
+    name so that you can delete it by hand. A program that is killed outright,
     with `kill -9` for instance, cannot clean up, so check your account for
     databases whose display names start with `cookbook-` if you stop a run that
     way.
@@ -366,10 +367,17 @@ repeats the request after a 409, after a 429 or 5xx status, and after a failure
 to get any reply, until the time limit passes. A 404 means that the database
 has gone already. A delete only starts the teardown, so the program then polls
 until the API answers 404, which in testing was the sign that the database had
-gone. The following code deletes the database. If the program has no database
-ID, because the reply to the create request was lost, it first lists the
-databases (newest first, up to 100) and picks the one with the name that it
-chose before the request:
+gone. The following code deletes the database. If the outcome of the create
+request is unknown (no reply arrived, the service answered with a 5xx status,
+the reply could not be read, or you interrupted the program during the
+request), the program has no database ID, so it first lists the databases and
+picks the one with the name that it chose before the request. It does not look
+after a 4xx reply, because that is a definite refusal. The request passes
+`limit=100` and `descending=true`, but the API specification does not say which
+property it sorts on, so the program cannot be sure that a new database is on
+the first page of an account with more than 100 databases. The program repeats
+the listing in the same way as the delete, and if it still fails, prints the
+name of the database and tells you to delete it by hand:
 
 === "Python"
 

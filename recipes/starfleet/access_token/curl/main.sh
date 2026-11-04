@@ -52,15 +52,25 @@ get_token() {
 
 # --8<-- [start:main]
 main() {
-    local reply
+    local reply token_type token_length expires_in
     reply="$(get_token)" || return 1
 
-    # Never print the token itself; it grants access to the account. The
-    # strings and numbers filters produce nothing for a missing or null
-    # field, and -e then makes jq exit non-zero instead of printing null.
-    jq -er '"Token type: \(.token_type | strings)",
-            "Token length: \(.access_token | strings | length) characters",
-            "Expires in: \(.expires_in | numbers) seconds"' <<<"$reply"
+    # Read each field on its own, because jq -e takes its exit status from
+    # the last value that it prints, and so would not notice a missing
+    # field earlier in a list. The strings and numbers filters produce
+    # nothing for a missing or null field, and -e then makes jq exit
+    # non-zero. Never print the token itself; it grants access to the
+    # account.
+    token_type="$(jq -er '.token_type | strings' <<<"$reply")" || {
+        echo "Error: the token response has no token type" >&2; return 1; }
+    token_length="$(jq -er '.access_token | strings | length' <<<"$reply")" || {
+        echo "Error: the token response has no access token" >&2; return 1; }
+    expires_in="$(jq -er '.expires_in | numbers' <<<"$reply")" || {
+        echo "Error: the token response has no lifetime" >&2; return 1; }
+
+    echo "Token type: $token_type"
+    echo "Token length: $token_length characters"
+    echo "Expires in: $expires_in seconds"
 }
 
 main

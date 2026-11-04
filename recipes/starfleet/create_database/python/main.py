@@ -175,12 +175,35 @@ def is_gone(error: Exception) -> bool:
 
 def find_database(config: dict, token: str, name: str):
     """Returns the ID of the database with the given name, or None. The
-    program uses this when the reply to the create request was lost."""
-    databases = api(config, token, "GET", "/databases?limit=100&descending=true")
+    program uses this when it cannot tell whether a create request worked.
+    It repeats the request, as the delete does, because the fault that
+    lost the reply to the create request may still be there. The request
+    asks for the newest databases first, but the API does not say which
+    property it sorts on."""
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    while True:
+        try:
+            databases = api(
+                config, token, "GET", "/databases?limit=100&descending=true"
+            )
+            break
+        except httpx.HTTPError as e:
+            if not is_transient(e) or time.monotonic() > deadline:
+                raise
+            time.sleep(POLL_SECONDS)
     for database in databases or []:
         if database["name"] == name:
             return database["id"]
     return None
+
+
+def outcome_unknown(error: Exception) -> bool:
+    """Reports whether a failed create request might still have created
+    the database: no reply arrived, or the service failed with a 5xx
+    status. A 4xx reply is a definite refusal."""
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code >= 500
+    return True
 
 
 def delete_database(config: dict, token: str, database_id: str) -> None:
@@ -227,6 +250,7 @@ def main() -> int:
     token = None
     name = None
     database_id = None
+    lookup = False
     try:
         token = get_token(config)
 
@@ -238,7 +262,17 @@ def main() -> int:
         # the database even if the reply to the request never arrives.
         suffix = secrets.token_hex(3)
         name, display_name = f"cookbook{suffix}", f"cookbook-{suffix}"
-        database = create_database(config, token, name, display_name, region, size)
+        # Look the database up by name afterwards only if the outcome of
+        # the request is unknown, so that a refusal cannot lead the
+        # cleanup to delete another database that has the same name.
+        lookup = True
+        try:
+            database = create_database(
+                config, token, name, display_name, region, size
+            )
+        except (httpx.HTTPError, ValueError) as e:
+            lookup = outcome_unknown(e)
+            raise
         database_id = database["id"]
         print(f"Created database {database['display_name']}")
 
@@ -260,13 +294,18 @@ def main() -> int:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         if token is not None and name is not None:
             try:
-                if database_id is None:
+                if database_id is None and lookup:
                     database_id = find_database(config, token, name)
                 if database_id is not None:
                     delete_database(config, token, database_id)
                     print("Deleted database")
-            except (httpx.HTTPError, KeyError, TimeoutError) as e:
-                print(f"Error deleting database {database_id or name}: {e}", file=sys.stderr)
+            except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
+                print(f"Error: {e}", file=sys.stderr)
+                print(
+                    f"Delete the database {database_id or name} by hand, "
+                    "because it may still be billing",
+                    file=sys.stderr,
+                )
                 exit_code = 1
 
     return exit_code

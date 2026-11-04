@@ -208,21 +208,42 @@ function isTransient(err: unknown): boolean {
   return err.status === 409 || err.status === 429 || err.status >= 500;
 }
 
+// Reports whether a failed create request might still have created the
+// database: no reply arrived, the reply could not be decoded, or the
+// service failed with a 5xx status. A 4xx reply is a definite refusal.
+function outcomeUnknown(err: unknown): boolean {
+  return !(err instanceof ApiError) || err.status >= 500;
+}
+
 // Returns the ID of the database with the given name, or undefined. The
-// program uses this when the reply to the create request was lost.
+// program uses this when it cannot tell whether a create request worked.
+// It repeats the request, as the delete does, because the fault that lost
+// the reply to the create request may still be there. The request asks for
+// the newest databases first, but the API does not say which property it
+// sorts on.
 async function findDatabase(
   token: string,
   name: string,
   signal: AbortSignal,
 ): Promise<string | undefined> {
-  const databases = await api<{ id: string; name: string }[]>(
-    token,
-    "GET",
-    "/databases?limit=100&descending=true",
-    undefined,
-    signal,
-  );
-  return databases?.find((database) => database.name === name)?.id;
+  const deadline = Date.now() + TIMEOUT_MS;
+  for (;;) {
+    try {
+      const databases = await api<{ id: string; name: string }[]>(
+        token,
+        "GET",
+        "/databases?limit=100&descending=true",
+        undefined,
+        signal,
+      );
+      return databases?.find((database) => database.name === name)?.id;
+    } catch (err) {
+      if (!isTransient(err) || Date.now() > deadline) {
+        throw err;
+      }
+      await sleep(POLL_MS);
+    }
+  }
 }
 
 // Deletes the database and waits until the API no longer lists it. The
@@ -284,6 +305,7 @@ async function main(): Promise<number> {
   let token: string | undefined;
   let name: string | undefined;
   let databaseId: string | undefined;
+  let lookup = false;
   try {
     token = await getToken();
 
@@ -295,13 +317,23 @@ async function main(): Promise<number> {
     // the database even if the reply to the request never arrives.
     const suffix = randomBytes(3).toString("hex");
     name = `cookbook${suffix}`;
-    const database = await createDatabase(
-      token,
-      name,
-      `cookbook-${suffix}`,
-      region,
-      size,
-    );
+    // Look the database up by name afterwards only if the outcome of the
+    // request is unknown, so that a refusal cannot lead the cleanup to
+    // delete another database that has the same name.
+    lookup = true;
+    let database;
+    try {
+      database = await createDatabase(
+        token,
+        name,
+        `cookbook-${suffix}`,
+        region,
+        size,
+      );
+    } catch (err) {
+      lookup = outcomeUnknown(err);
+      throw err;
+    }
     databaseId = database.id;
     console.log(`Created database ${database.display_name}`);
 
@@ -320,13 +352,18 @@ async function main(): Promise<number> {
     // interrupted, because the service bills for it until then.
     if (token && name) {
       try {
-        databaseId ??= await findDatabase(token, name, new AbortController().signal);
+        if (!databaseId && lookup) {
+          databaseId = await findDatabase(token, name, new AbortController().signal);
+        }
         if (databaseId) {
           await deleteDatabase(token, databaseId);
           console.log("Deleted database");
         }
       } catch (err) {
-        console.error(`Error deleting database ${databaseId ?? name}: ${describe(err)}`);
+        console.error(`Error: ${describe(err)}`);
+        console.error(
+          `Delete the database ${databaseId ?? name} by hand, because it may still be billing`,
+        );
         exitCode = 1;
       }
     }
