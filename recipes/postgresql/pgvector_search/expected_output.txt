@@ -1,0 +1,4 @@
+Colours nearest to [0.9,0.7,0.2]:
+1. yellow
+2. red
+3. white
