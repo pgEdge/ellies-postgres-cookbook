@@ -325,13 +325,30 @@ func run(s settings, undo *[]func() error) error {
 		stillActive, listErr := activeAlerts(s, ruleID)
 		for _, a := range stillActive {
 			if a.ID == raised.ID {
+				// The server did not acknowledge it, so there is nothing
+				// to undo.
+				*undo = (*undo)[:len(*undo)-1]
 				return err
 			}
 		}
 		if listErr != nil {
 			return listErr
 		}
-		_ = unacknowledgeAlert(s, raised.ID)
+		// If the server acted on a request that timed out, the alert is
+		// acknowledged and must go back to active. When that fails, the
+		// undo step stays in place, so the clean-up tries again.
+		acknowledged, listErr := listAlerts(s, "acknowledged")
+		if listErr != nil {
+			return listErr
+		}
+		for _, a := range acknowledged {
+			if a.ID == raised.ID {
+				if err := unacknowledgeAlert(s, raised.ID); err != nil {
+					return err
+				}
+				break
+			}
+		}
 		*undo = (*undo)[:len(*undo)-1]
 		fmt.Fprintln(os.Stderr, "The alert cleared first; waiting for the next one")
 	}

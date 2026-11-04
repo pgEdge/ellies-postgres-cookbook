@@ -32,12 +32,15 @@ WORKBENCH_URL="${WORKBENCH_URL%/}"
 # api PATH [curl options]. With --fail-with-body, a request that the server
 # rejects leaves the server's error message in the reply, and the function
 # prints it to standard error.
+# The token goes to curl in a header file that bash supplies through a pipe,
+# so that it never appears in the arguments of the curl process, which other
+# users can read in the process list.
 api() {
     local path="$1"
     shift
     local response
     response=$(curl --silent --show-error --fail-with-body --get \
-        --header "Authorization: Bearer $WORKBENCH_TOKEN" \
+        --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
         "$@" "$WORKBENCH_URL/api/v1$path") || {
         echo "GET $path failed: $response" >&2
         return 1

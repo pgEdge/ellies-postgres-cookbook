@@ -412,11 +412,15 @@ Each program records an undo step as soon as it makes a change, and runs the
 steps that remain when it finishes or fails, so that a failed run does not
 leave the server raising alerts. The program records the step that returns the
 alert to the active state before it sends the acknowledgement, so that a
-request which times out after the server has acted on it is still reversed. The
-Python program uses a `finally` block, the TypeScript and Go programs keep a
-list of undo steps, and the curl script uses an `EXIT` trap. Each program
-reports a failure on `stderr` and exits with a non-zero status. The following
-tabs show the main part of each program:
+request which times out after the server has acted on it is still reversed.
+When the acknowledgement fails and the alert is still active, the server did
+not acknowledge it, so the program drops that step and reports the error; when
+the alert is no longer active, the program removes the acknowledgement only if
+the list of acknowledged alerts contains the alert, and keeps the step for the
+clean-up to retry if that fails. The Python program uses a `finally` block, the
+TypeScript and Go programs keep a list of undo steps, and the curl script uses
+an `EXIT` trap. Each program reports a failure on `stderr` and exits with a
+non-zero status. The following tabs show the main part of each program:
 
 === "Python"
 

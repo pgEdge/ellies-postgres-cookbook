@@ -257,9 +257,20 @@ async function main(): Promise<number> {
         // override is still in place, so the rule fires again at the next
         // evaluation; any other failure is real.
         if ((await activeAlerts(cfg, ruleId)).some((a) => a.id === alertId)) {
+          // The server did not acknowledge it, so there is nothing to undo.
+          undo.pop();
           throw err;
         }
-        await undo.pop()!().catch(() => undefined);
+        // If the server acted on a request that timed out, the alert is
+        // acknowledged and must go back to active. When that fails, the
+        // error propagates with the undo step still in place, so the
+        // clean-up tries again.
+        if (
+          (await listAlerts(cfg, "acknowledged")).some((a) => a.id === alertId)
+        ) {
+          await undo[undo.length - 1]();
+        }
+        undo.pop();
         console.error("The alert cleared first; waiting for the next one");
       }
     }

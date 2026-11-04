@@ -43,14 +43,17 @@ POLL_SECONDS=0.5
 # Sends an authenticated request and prints the JSON reply:
 # api METHOD PATH [curl options]. With --fail-with-body, a request that the
 # server rejects leaves the server's error message in the reply, and the
-# function prints it to standard error.
+# function prints it to standard error. The token goes to curl in a header
+# file that bash supplies through a pipe, so that it never appears in the
+# arguments of the curl process, which other users can read in the process
+# list.
 api() {
     local method="$1" path="$2"
     shift 2
     local response
     response=$(curl --silent --show-error --fail-with-body \
         --request "$method" \
-        --header "Authorization: Bearer $WORKBENCH_TOKEN" \
+        --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
         "$@" "$WORKBENCH_URL/api/v1$path") || {
         echo "$method $path failed: $response" >&2
         return 1
@@ -116,15 +119,17 @@ wait_until_quiet() {
     done
 }
 
-# Polls until the rule raises an alert, and prints its ID and severity. The
-# alert clears itself within 30 seconds of firing, so the script polls twice
-# a second.
+# Polls until the rule raises an alert, and sets ALERT_ID and ALERT_SEVERITY
+# to its ID and severity. The alert clears itself within 30 seconds of
+# firing, so the script polls twice a second. The caller must not run this
+# function inside $(...), where errexit is off, because an error from the API
+# would then go unnoticed until the deadline.
 wait_for_alert() {
     local rule_id="$1" deadline="$2" active
     while true; do
         active=$(active_alerts "$rule_id")
         if [[ -n "$active" ]]; then
-            printf '%s' "${active%%$'\n'*}"
+            read -r ALERT_ID ALERT_SEVERITY <<<"${active%%$'\n'*}"
             return 0
         fi
         if ((SECONDS >= deadline)); then
@@ -148,12 +153,17 @@ acknowledge_alert() {
 # --8<-- [end:acknowledge]
 
 # --8<-- [start:check]
+# Prints the acknowledged threshold alerts for the server, as JSON.
+list_acknowledged() {
+    api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=acknowledged&alert_type=threshold&limit=1000"
+}
+
 # Prints the status of an alert, found by its ID in the list of acknowledged
 # alerts. The function fails when the alert is not in the list, because jq
 # prints nothing for it.
 alert_status() {
     local alert_id="$1" status
-    status=$(api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=acknowledged&alert_type=threshold&limit=1000" |
+    status=$(list_acknowledged |
         jq -r --argjson id "$alert_id" \
            'first(.alerts[] | select(.id == $id)) | .status')
     if [[ -z "$status" ]]; then
@@ -209,7 +219,7 @@ cleanup() {
 }
 
 main() {
-    local rule_id alert alert_id severity status still_active
+    local rule_id alert_id severity status still_active acknowledged
     local deadline=$((SECONDS + WAIT_SECONDS))
 
     rule_id=$(find_rule "$RULE_NAME")
@@ -224,8 +234,9 @@ main() {
 
     echo "Waiting for the alerter to raise an alert"
     while true; do
-        alert=$(wait_for_alert "$rule_id" "$deadline")
-        read -r alert_id severity <<<"$alert"
+        wait_for_alert "$rule_id" "$deadline"
+        alert_id="$ALERT_ID"
+        severity="$ALERT_SEVERITY"
 
         # Record the alert before acknowledging it, so that the EXIT trap
         # returns it to the active state even if the request times out
@@ -238,9 +249,20 @@ main() {
         # evaluation; any other failure is real.
         still_active=$(active_alerts "$rule_id")
         if [[ $'\n'"$still_active" == *$'\n'"$alert_id "* ]]; then
+            # The server did not acknowledge it, so there is nothing to
+            # undo.
+            acknowledged_alert=""
             return 1
         fi
-        unacknowledge_alert "$alert_id" 2>/dev/null || true
+        # If the server acted on a request that timed out, the alert is
+        # acknowledged and must go back to active. When that fails, the
+        # script stops with the alert still recorded, so that the EXIT trap
+        # tries again.
+        acknowledged=$(list_acknowledged)
+        if jq -e --argjson id "$alert_id" 'any(.alerts[]; .id == $id)' \
+            <<<"$acknowledged" >/dev/null; then
+            unacknowledge_alert "$alert_id"
+        fi
         acknowledged_alert=""
         echo "The alert cleared first; waiting for the next one" >&2
     done

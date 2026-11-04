@@ -153,14 +153,18 @@ def acknowledge_alert(cfg: dict, alert_id: int) -> None:
 
 
 # --8<-- [start:check]
-def alert_status(cfg: dict, alert_id: int) -> str:
-    """Returns the status of an alert, found by its ID in the list of
-    acknowledged alerts."""
-    alerts = api("GET", cfg, "/alerts", params={
+def acknowledged_alerts(cfg: dict) -> list:
+    """Returns the acknowledged threshold alerts for the server."""
+    return api("GET", cfg, "/alerts", params={
         "connection_id": cfg["connection_id"], "status": "acknowledged",
         "alert_type": "threshold", "limit": 1000,
     }).json()["alerts"]
-    for alert in alerts:
+
+
+def alert_status(cfg: dict, alert_id: int) -> str:
+    """Returns the status of an alert, found by its ID in the list of
+    acknowledged alerts."""
+    for alert in acknowledged_alerts(cfg):
         if alert["id"] == alert_id:
             return alert["status"]
     raise RuntimeError("The alert is missing from the acknowledged alerts")
@@ -226,13 +230,17 @@ def main() -> int:
                 # at the next evaluation; any other failure is real.
                 if any(a["id"] == alert["id"]
                        for a in active_alerts(cfg, rule_id)):
+                    # The server did not acknowledge it, so there is
+                    # nothing to undo.
+                    acknowledged_alert = None
                     raise
                 # If the server acted on a request that timed out, the
-                # alert is acknowledged and must go back to active.
-                try:
+                # alert is acknowledged and must go back to active. When
+                # that fails, the error propagates and the finally block
+                # tries again, because acknowledged_alert is still set.
+                if any(a["id"] == alert["id"]
+                       for a in acknowledged_alerts(cfg)):
                     unacknowledge_alert(cfg, alert["id"])
-                except (httpx.HTTPError, RuntimeError):
-                    pass
                 acknowledged_alert = None
                 print("The alert cleared first; waiting for the next one",
                       file=sys.stderr)
