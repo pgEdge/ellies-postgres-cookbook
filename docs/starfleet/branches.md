@@ -57,7 +57,7 @@ clean up:
     Creating a branch also takes a backup of the source database, which the API
     documents with the purpose `prebranch`. The API has no way to delete a
     backup, and its specification does not document how long backups are kept
-    or whether they are billed, so every run of this recipe probably leaves a
+    or whether they are billed, so every run of this recipe leaves a
     backup behind. For that reason the scheduled test job for this repository
     does not run this recipe.
 
