@@ -172,8 +172,14 @@ public class Main {
                     return;
                 } catch (SQLException e) {
                     // End the failed transaction so that the session can
-                    // start another.
-                    conn.rollback();
+                    // start another. If the connection is lost the
+                    // rollback fails too, and that error must not hide
+                    // the original one, so it is attached to it instead.
+                    try {
+                        conn.rollback();
+                    } catch (SQLException rollbackError) {
+                        e.addSuppressed(rollbackError);
+                    }
 
                     // Any other error, or running out of attempts, is a
                     // real failure that the caller must handle.

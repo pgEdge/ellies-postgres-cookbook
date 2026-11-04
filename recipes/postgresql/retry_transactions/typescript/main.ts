@@ -135,7 +135,9 @@ async function runWithRetry(
       return;
     } catch (err) {
       // End the failed transaction so that the session can start another.
-      await client.query("ROLLBACK");
+      // If the connection is lost the rollback fails too, and that error
+      // must not hide the original one.
+      await client.query("ROLLBACK").catch(() => undefined);
 
       // Any other error, or running out of attempts, is a real failure
       // that the caller must handle.

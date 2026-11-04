@@ -124,7 +124,13 @@ def run_with_retry(conn)
       return
     rescue PG::Error => e
       # End the failed transaction so that the session can start another.
-      conn.exec("ROLLBACK") unless conn.finished?
+      # If the connection is lost the rollback fails too, and that error
+      # must not hide the original one.
+      begin
+        conn.exec("ROLLBACK")
+      rescue PG::Error
+        nil
+      end
 
       # Any other error, or running out of attempts, is a real failure
       # that the caller must handle.

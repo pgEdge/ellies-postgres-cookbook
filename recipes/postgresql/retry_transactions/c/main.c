@@ -162,10 +162,11 @@ read_counter(PGconn *conn, int *counter, char *sqlstate)
 /*
  * Simulate another client by incrementing the counter on a second
  * connection, which commits straight away because it has no open
- * transaction.
+ * transaction. On failure, the SQLSTATE code and error message of the
+ * second connection are copied into the caller's buffers.
  */
 static bool
-update_from_other_connection(char *sqlstate)
+update_from_other_connection(char *sqlstate, char *message, size_t size)
 {
     const char *params[] = {"1"};
     PGconn *other = connect_to_server();
@@ -176,14 +177,18 @@ update_from_other_connection(char *sqlstate)
                 1, params, sqlstate, NULL, 0);
 
     if (!ok)
-        fprintf(stderr, "Database error: %s", PQerrorMessage(other));
+        snprintf(message, size, "%s", PQerrorMessage(other));
     PQfinish(other);
     return ok;
 }
 
-/* Read the counter and write back the value plus one. */
+/*
+ * Read the counter and write back the value plus one. A failure on conn
+ * leaves message empty, because PQerrorMessage(conn) describes it.
+ */
 static bool
-increment_counter(PGconn *conn, int attempt, char *sqlstate)
+increment_counter(PGconn *conn, int attempt, char *sqlstate,
+                  char *message, size_t size)
 {
     int counter;
     char next[32];
@@ -197,7 +202,8 @@ increment_counter(PGconn *conn, int attempt, char *sqlstate)
      * connection, after this transaction has read the row but before it
      * writes. This happens on the first attempt only.
      */
-    if (attempt == 1 && !update_from_other_connection(sqlstate))
+    if (attempt == 1 &&
+        !update_from_other_connection(sqlstate, message, size))
         return false;
 
     /*
@@ -217,7 +223,8 @@ increment_counter(PGconn *conn, int attempt, char *sqlstate)
 
 /* --8<-- [start:retry] */
 /* The type of a function that does the work of one transaction. */
-typedef bool (*work_fn)(PGconn *conn, int attempt, char *sqlstate);
+typedef bool (*work_fn)(PGconn *conn, int attempt, char *sqlstate,
+                        char *message, size_t size);
 
 /* Sleep for the given number of milliseconds. */
 static void
@@ -238,12 +245,16 @@ static bool
 run_with_retry(PGconn *conn, work_fn work)
 {
     char sqlstate[6];
+    char message[512];
 
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)
     {
-        bool ok = run_sql(conn, "BEGIN ISOLATION LEVEL REPEATABLE READ",
-                          0, NULL, sqlstate, NULL, 0) &&
-            work(conn, attempt, sqlstate) &&
+        bool ok;
+
+        message[0] = '\0';
+        ok = run_sql(conn, "BEGIN ISOLATION LEVEL REPEATABLE READ",
+                     0, NULL, sqlstate, NULL, 0) &&
+            work(conn, attempt, sqlstate, message, sizeof(message)) &&
             run_sql(conn, "COMMIT", 0, NULL, sqlstate, NULL, 0);
 
         if (ok)
@@ -255,12 +266,13 @@ run_with_retry(PGconn *conn, work_fn work)
         /*
          * End the failed transaction so that the session can start
          * another. The error message is kept, because the ROLLBACK
-         * would otherwise replace it.
+         * would otherwise replace it; the work may already have supplied
+         * a message from another connection.
          */
-        char message[512];
         char ignored[6];
 
-        snprintf(message, sizeof(message), "%s", PQerrorMessage(conn));
+        if (message[0] == '\0')
+            snprintf(message, sizeof(message), "%s", PQerrorMessage(conn));
         run_sql(conn, "ROLLBACK", 0, NULL, ignored, NULL, 0);
 
         /*
