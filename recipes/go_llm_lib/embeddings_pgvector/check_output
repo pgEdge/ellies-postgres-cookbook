@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output: the nearest document must be the one
+# about a cat. Fails on empty or blank output.
+set -euo pipefail
+out="$(cat)"
+if [[ -z "${out//[[:space:]]/}" ]]; then
+    echo "output is empty" >&2
+    exit 1
+fi
+grep -q '^Question: Which animal purrs?$' <<<"$out" ||
+    { echo "missing Question line" >&2; exit 1; }
+grep -q '^Nearest document: .*cat' <<<"$out" ||
+    { echo "the cat document did not win" >&2; exit 1; }
