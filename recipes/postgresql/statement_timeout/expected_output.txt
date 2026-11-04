@@ -1,0 +1,2 @@
+Query cancelled after exceeding the statement timeout
+Connection still usable: true
