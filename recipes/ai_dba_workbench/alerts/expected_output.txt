@@ -1,0 +1,8 @@
+Found the rule 'metric_staleness'
+Set an override that makes the rule fire
+Waiting for the alerter to raise an alert
+An alert is active (severity: info)
+Acknowledged the alert
+The alert is now acknowledged
+Returned the alert to the active state
+Removed the override

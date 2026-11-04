@@ -1,0 +1,4 @@
+Registered the server 'cookbook-register-server'
+Found 'cookbook-register-server' in the list (monitored: true)
+Deleted the connection
+The connection is no longer in the list

@@ -1,0 +1,5 @@
+Logged in with a session token
+Session token belongs to cookbook (superuser: true)
+Created the API token 'cookbook-authenticate'
+API token belongs to cookbook (superuser: true)
+Deleted the API token
