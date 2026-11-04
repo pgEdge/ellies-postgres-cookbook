@@ -85,7 +85,13 @@ signalled=""
 # reaches the program and anything that it started, but not this script.
 forward_signal() {
     signalled="$1"
-    [[ -n "$child" ]] && kill -s "$1" -- "-$child" 2>/dev/null
+    if [[ -z "$child" ]]; then
+        # No program is running, so there is nothing to clean up.
+        echo "Interrupted by SIG$1" >&2
+        [[ "$1" == INT ]] && exit 130
+        exit 143
+    fi
+    kill -s "$1" -- "-$child" 2>/dev/null
     return 0
 }
 trap 'forward_signal INT' INT

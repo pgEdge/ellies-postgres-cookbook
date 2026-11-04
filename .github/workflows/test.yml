@@ -433,7 +433,7 @@ jobs:
               "$@"
           }
 
-          databases="$(api --fail "$base/managed/v1/databases?limit=1000&descending=true")"
+          databases="$(api --fail "$base/managed/v1/databases?limit=100&descending=true")"
 
           # Reads a creation time as RFC 3339, with or without fractions of
           # a second; any other form gives null.
