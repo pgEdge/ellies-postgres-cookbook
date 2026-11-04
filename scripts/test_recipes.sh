@@ -26,6 +26,11 @@
 #      curl programs, which never use the PG* variables, take part in this
 #      test only when the recipe has a failure_env.txt file.
 #
+# If this script receives SIGINT or SIGTERM (a cancelled CI run, say), it
+# passes the signal to the program that is running and waits for the program
+# to finish, so that a program that deletes what it created gets the chance
+# to do so.
+#
 # Recipes that need more than a plain PostgreSQL server (for example, the
 # pgEdge Starfleet API) contain a requires.txt file listing the
 # environment variables they need; they are skipped when any are unset or
@@ -69,6 +74,52 @@ excluded() {
 
 failures=0
 tested=0
+
+# The process group of the program that is running, and the signal that
+# this script has received, if any.
+child=""
+signalled=""
+
+# Passes a signal to the whole process group of the running program. The
+# program runs in a group of its own (see run_program), so the signal
+# reaches the program and anything that it started, but not this script.
+forward_signal() {
+    signalled="$1"
+    [[ -n "$child" ]] && kill -s "$1" -- "-$child" 2>/dev/null
+    return 0
+}
+trap 'forward_signal INT' INT
+trap 'forward_signal TERM' TERM
+
+# Runs a command with its standard output in the file named by the first
+# argument and its standard error appended to the file named by the second,
+# and returns the command's exit status. The command runs in the background
+# and in a process group of its own, because bash holds a trap until a
+# foreground command ends, which would stop forward_signal from running
+# until the program had finished. If a signal arrives, the function waits
+# for the command to finish and then exits.
+run_program() {
+    local out="$1" err="$2" status
+    shift 2
+    set -m
+    "$@" >"$out" 2>>"$err" &
+    child=$!
+    set +m
+    wait "$child"
+    status=$?
+    # A trapped signal ends wait early with a status above 128.
+    while [[ -n "$signalled" ]] && kill -0 "$child" 2>/dev/null; do
+        wait "$child"
+        status=$?
+    done
+    child=""
+    if [[ -n "$signalled" ]]; then
+        echo "Interrupted by SIG$signalled" >&2
+        [[ "$signalled" == INT ]] && exit 130
+        exit 143
+    fi
+    return "$status"
+}
 
 # Any port with nothing listening on it will do for the failure test.
 bad_port=1
@@ -138,7 +189,12 @@ while IFS= read -r marker; do
         tested=$((tested + 1))
 
         log="$(mktemp)"
-        if ! actual="$(scripts/run_example.sh "$dir" 2>"$log")"; then
+        out="$(mktemp)"
+        run_program "$out" "$log" scripts/run_example.sh "$dir"
+        run_status=$?
+        actual="$(cat "$out")"
+        rm -f "$out"
+        if [[ $run_status -ne 0 ]]; then
             echo "FAIL $dir (exited with an error)"
             sed 's/^/     /' "$log"
             failures=$((failures + 1))
@@ -153,7 +209,7 @@ while IFS= read -r marker; do
             sed 's/^/     /' "$log"
             failures=$((failures + 1))
         elif [[ "$language" != "curl" || -f "$recipe/failure_env.txt" ]] && \
-             run_unreachable "$recipe" "$dir" >/dev/null 2>"$log"; then
+             run_program /dev/null "$log" run_unreachable "$recipe" "$dir"; then
             echo "FAIL $dir (succeeded when the server was unreachable)"
             failures=$((failures + 1))
         else

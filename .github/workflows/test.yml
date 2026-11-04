@@ -130,6 +130,8 @@ jobs:
       PGPORT: 5432
       PGDATABASE: postgres
       PGUSER: postgres
+      # The prepare_data recipe runs only when this is set.
+      OLLAMA_URL: http://localhost:11434
 
     steps:
       - uses: actions/checkout@v4
@@ -310,23 +312,38 @@ jobs:
   # on the weekly schedule, one run at a time. Without the credentials
   # (before they are configured, say, or on a fork) the job skips its
   # steps and succeeds.
+  #
+  # The programs delete what they create, but a cancelled run is stopped
+  # before they can finish, and a run that exceeds a time limit is killed
+  # the same way, so the last step sweeps up whatever is left. The
+  # credentials go only to the steps that call the API, so that the setup
+  # actions and the dependency installs never see them.
   starfleet:
     name: Recipes (Starfleet)
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    # The test step has 180 minutes, which is 15 minutes for each of the 12
+    # programs that create a database (the create_database,
+    # connect_database, and rotate_password recipes, in four languages
+    # each); a database takes a few minutes to become available and a few
+    # more to delete. The rest is for setting up the tools and for the
+    # sweep, with time to spare, so the job ends before the 360-minute
+    # default could cut a clean-up short.
+    timeout-minutes: 210
     concurrency:
       group: starfleet-recipes
       cancel-in-progress: false
 
-    env:
-      STARFLEET_CLIENT_ID: ${{ secrets.STARFLEET_CLIENT_ID }}
-      STARFLEET_CLIENT_SECRET: ${{ secrets.STARFLEET_CLIENT_SECRET }}
-
     steps:
-      # Secrets cannot appear in an if: condition, so check them here.
+      # Secrets cannot appear in an if: condition, so check them here. The
+      # step also records when the job started, for the final sweep.
       - name: Check for the Starfleet credentials
         id: credentials
+        env:
+          STARFLEET_CLIENT_ID: ${{ secrets.STARFLEET_CLIENT_ID }}
+          STARFLEET_CLIENT_SECRET: ${{ secrets.STARFLEET_CLIENT_SECRET }}
         run: |
+          echo "started=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           missing=""
           for name in STARFLEET_CLIENT_ID STARFLEET_CLIENT_SECRET; do
             if [[ -z "${!name:-}" ]]; then missing+=" $name"; fi
@@ -340,6 +357,14 @@ jobs:
 
       - uses: actions/checkout@v4
         if: steps.credentials.outputs.available == 'true'
+
+      - name: Install psql and jq
+        if: steps.credentials.outputs.available == 'true'
+        run: |
+          if ! command -v psql >/dev/null || ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client jq
+          fi
 
       - uses: actions/setup-python@v5
         if: steps.credentials.outputs.available == 'true'
@@ -360,6 +385,10 @@ jobs:
         if: >-
           steps.credentials.outputs.available == 'true' &&
           hashFiles('recipes/starfleet/**') != ''
+        timeout-minutes: 180
+        env:
+          STARFLEET_CLIENT_ID: ${{ secrets.STARFLEET_CLIENT_ID }}
+          STARFLEET_CLIENT_SECRET: ${{ secrets.STARFLEET_CLIENT_SECRET }}
         # The backups and branches recipes are not run here: the API has no
         # way to delete a backup, and each run leaves one behind (a branch
         # create also cuts a backup).
@@ -368,6 +397,85 @@ jobs:
           --exclude recipes/starfleet/backups
           --exclude recipes/starfleet/branches
           python typescript go curl
+
+      # Runs after a failure, a cancellation, and a timeout of the test
+      # step. The account may hold other people's databases, so the step
+      # deletes only a database that has a name starting with cookbook,
+      # a display name starting with cookbook-, and a creation time at or
+      # after the start of this job. The API reports creation times as
+      # strings with no stated format, so a database whose time the step
+      # cannot read is reported and left alone.
+      - name: Delete any database that the run left behind
+        if: always() && steps.credentials.outputs.available == 'true'
+        timeout-minutes: 20
+        env:
+          STARFLEET_CLIENT_ID: ${{ secrets.STARFLEET_CLIENT_ID }}
+          STARFLEET_CLIENT_SECRET: ${{ secrets.STARFLEET_CLIENT_SECRET }}
+          STARTED: ${{ steps.credentials.outputs.started }}
+        run: |
+          set -euo pipefail
+          base="${STARFLEET_API_URL:-https://api.pgedge.com}"
+
+          # jq builds the body from the environment and curl reads it from
+          # standard input, so the secret never appears in a process list.
+          token="$(jq -n '{grant_type: "client_credentials",
+                           client_id: env.STARFLEET_CLIENT_ID,
+                           client_secret: env.STARFLEET_CLIENT_SECRET}' |
+            curl --silent --show-error --fail --max-time 30 \
+              --header 'Content-Type: application/json' --data @- \
+              "$base/account/v1/oauth/token" | jq -er '.access_token')"
+          echo "::add-mask::$token"
+
+          # The --config option keeps the token off the command line.
+          api() {
+            curl --silent --show-error --max-time 30 \
+              --config <(printf 'header = "Authorization: Bearer %s"\n' "$token") \
+              "$@"
+          }
+
+          databases="$(api --fail "$base/managed/v1/databases?limit=1000&descending=true")"
+
+          # Reads a creation time as RFC 3339, with or without fractions of
+          # a second; any other form gives null.
+          filter='
+            def seconds: sub("\\.[0-9]+"; "") | sub("[+-]00:?00$"; "Z")
+              | try fromdateiso8601 catch null;
+            ($started | fromdateiso8601) as $start
+            | .[]
+            | select((.name // "" | startswith("cookbook"))
+                     and (.display_name // "" | startswith("cookbook-")))
+            | (.created_at // "" | seconds) as $created
+            | if $created == null then "skip \(.id)"
+              elif $created >= $start then "delete \(.id)"
+              else empty end'
+          plan="$(jq -r --arg started "$STARTED" "$filter" <<<"$databases")"
+
+          failed=0
+          deadline=$((SECONDS + 900))
+          while read -r action id; do
+            [[ -n "${action:-}" ]] || continue
+            if [[ "$action" == skip ]]; then
+              echo "::warning::Not deleting cookbook database $id: its creation time could not be read"
+              continue
+            fi
+            echo "Deleting leftover database $id"
+            while true; do
+              status="$(api --output /dev/null --write-out '%{http_code}' \
+                --request DELETE "$base/managed/v1/databases/$id" || true)"
+              case "$status" in
+                204|404) break ;;
+                000|409|429|5??) ;;
+                *) echo "::error::Deleting database $id returned HTTP status $status"
+                   failed=1; break ;;
+              esac
+              if ((SECONDS >= deadline)); then
+                echo "::error::Database $id was still not deleted after the time limit; delete it by hand"
+                failed=1; break
+              fi
+              sleep 15
+            done
+          done <<<"$plan"
+          exit "$failed"
 
   docs:
     name: Documentation
