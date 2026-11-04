@@ -46,6 +46,7 @@ api() {
     [[ -z "${allow_status:-}" ]] || show_error=--silent
     # The --write-out option appends the HTTP status on a line of its own.
     output=$(curl --silent "$show_error" --fail-with-body \
+        --connect-timeout 10 --max-time 30 \
         --write-out '\n%{http_code}' \
         --request "$method" \
         --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \

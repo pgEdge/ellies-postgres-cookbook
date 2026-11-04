@@ -74,9 +74,13 @@ read_events() {
         }
         case "$kind" in
             chunk)
-                # The last chunk has no content. The -j option prints
-                # without a trailing newline.
-                content="$(jq -r '.content // ""' <<<"$data")" || return 1
+                # The last chunk has no content. A command substitution
+                # strips trailing newlines, which would run paragraphs
+                # together, so jq -j appends an x after the content and
+                # the next line removes it again.
+                content="$(jq -j '(.content // "") + "x"' <<<"$data")" ||
+                    return 1
+                content="${content%x}"
                 if [[ -n "$content" ]]; then
                     printf '%s' "$content"
                     chunks=$((chunks + 1))

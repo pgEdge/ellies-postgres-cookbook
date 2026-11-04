@@ -40,6 +40,7 @@ api() {
     shift
     local response
     response=$(curl --silent --show-error --fail-with-body --get \
+        --connect-timeout 10 --max-time 30 \
         --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
         "$@" "$WORKBENCH_URL/api/v1$path") || {
         echo "GET $path failed: $response" >&2

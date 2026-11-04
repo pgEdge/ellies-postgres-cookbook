@@ -41,6 +41,7 @@ rpc() {
     response=$(jq -n --arg method "$method" --argjson params "$params" \
         '{jsonrpc: "2.0", id: 1, method: $method, params: $params}' |
         curl --silent --show-error --fail-with-body \
+            --connect-timeout 10 --max-time 30 \
             --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
             --header 'Content-Type: application/json' \
             --data @- "$WORKBENCH_URL/mcp/v1") || {

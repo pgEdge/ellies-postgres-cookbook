@@ -52,6 +52,7 @@ api() {
     shift 2
     local response
     response=$(curl --silent --show-error --fail-with-body \
+        --connect-timeout 10 --max-time 30 \
         --request "$method" \
         --header @<(printf 'Authorization: Bearer %s\n' "$WORKBENCH_TOKEN") \
         "$@" "$WORKBENCH_URL/api/v1$path") || {

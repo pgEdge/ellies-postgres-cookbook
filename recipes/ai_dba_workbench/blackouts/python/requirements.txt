@@ -1,4 +1,4 @@
 # --8<-- [start:deps]
 # httpx, an HTTP client with a requests-like interface.
-httpx>=0.28.1,<0.29
+httpx>=0.28,<1
 # --8<-- [end:deps]

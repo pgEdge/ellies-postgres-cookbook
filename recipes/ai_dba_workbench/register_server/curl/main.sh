@@ -46,6 +46,7 @@ api() {
     shift 3
     local response
     response=$(curl --silent --show-error --fail-with-body \
+        --connect-timeout 10 --max-time 30 \
         --request "$method" \
         --header @<(printf 'Authorization: Bearer %s\n' "$token") \
         "$@" "$WORKBENCH_URL/api/v1$path") || {
@@ -67,6 +68,7 @@ login() {
     response=$(jq -n '{username: env.WORKBENCH_USERNAME,
                        password: env.WORKBENCH_PASSWORD}' |
         curl --silent --show-error --fail-with-body --include \
+             --connect-timeout 10 --max-time 30 \
              --request POST \
              --header 'Content-Type: application/json' \
              --data @- \

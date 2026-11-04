@@ -51,6 +51,11 @@
 #
 # Environment:
 #   COOKBOOK_WORKBENCH_VERSION  release to run (default: 1.0.0)
+#   COOKBOOK_WORKBENCH_SHA256   SHA-256 of that release's tag tarball from
+#                               codeload.github.com; the script checks it
+#                               before it runs anything from the download.
+#                               It is built in for 1.0.0 and required for
+#                               any other version.
 #
 # Stop the Workbench, and remove its volumes, with:
 #   docker compose -p NAME down -v
@@ -61,6 +66,13 @@
 set -euo pipefail
 
 version="${COOKBOOK_WORKBENCH_VERSION:-1.0.0}"
+# The SHA-256 of the v1.0.0 tag tarball, so that a tag that is moved or
+# pushed again cannot change what the script runs.
+sha256=""
+if [[ "$version" == "1.0.0" ]]; then
+    sha256="36ac14e280d16e88e6d94c787198ede87b79516173dd008df7c5753b55acdc3c"
+fi
+sha256="${COOKBOOK_WORKBENCH_SHA256:-$sha256}"
 name="cookbook-workbench"
 port=8080
 network=""
@@ -77,7 +89,7 @@ while [[ $# -gt 0 ]]; do
         --pg-host)    pg_host="${2:?--pg-host needs a value}"; shift 2 ;;
         --pg-port)    pg_port="${2:?--pg-port needs a value}"; shift 2 ;;
         --ollama-url) ollama_url="${2:?--ollama-url needs a value}"; shift 2 ;;
-        -h|--help)    sed -n '3,57p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '3,61p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)            echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -85,6 +97,18 @@ done
 for tool in curl jq openssl docker; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
+if [[ -z "$sha256" ]]; then
+    echo "Set COOKBOOK_WORKBENCH_SHA256 to the SHA-256 of the v$version tarball" >&2
+    exit 1
+fi
+if command -v sha256sum >/dev/null; then
+    checksum() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null; then
+    checksum() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+    echo "sha256sum or shasum is required" >&2
+    exit 1
+fi
 
 work="$(mktemp -d)"
 chmod 700 "$work"
@@ -106,8 +130,14 @@ src="$work/ai-dba-workbench"
 mkdir -p "$src"
 
 echo "Downloading AI DBA Workbench v$version into $work" >&2
-curl -fsSL "https://codeload.github.com/pgEdge/ai-dba-workbench/tar.gz/refs/tags/v$version" \
-    | tar -xz -C "$src" --strip-components 1
+curl -fsSL -o "$work/workbench.tar.gz" \
+    "https://codeload.github.com/pgEdge/ai-dba-workbench/tar.gz/refs/tags/v$version"
+if [[ "$(checksum "$work/workbench.tar.gz")" != "$sha256" ]]; then
+    echo "The v$version tarball does not match the expected SHA-256" >&2
+    exit 1
+fi
+tar -xz -f "$work/workbench.tar.gz" -C "$src" --strip-components 1
+rm -f "$work/workbench.tar.gz"
 
 # The secrets and passwords, generated afresh each time. The containers
 # run as unprivileged users, so the mounted files must be readable by
@@ -274,7 +304,7 @@ connection="$(jq -n \
       database_name: $database, username: $username, password: $password,
       ssl_mode: "prefer", is_monitored: true, is_shared: true}' \
     | curl -fsS "$url/api/v1/connections" \
-        -H "Authorization: Bearer $session" \
+        --header @<(printf 'Authorization: Bearer %s\n' "$session") \
         -H 'Content-Type: application/json' --data-binary @-)"
 connection_id="$(jq -r '.id // empty' <<<"$connection")"
 if [[ -z "$connection_id" ]]; then
@@ -294,7 +324,7 @@ echo "Waiting for the collector to store metrics for connection" \
 # both. The collector runs each probe at once when it has no earlier
 # collection.
 has_rows() {
-    curl -fsS -H "Authorization: Bearer $token" \
+    curl -fsS --header @<(printf 'Authorization: Bearer %s\n' "$token") \
         "$url/api/v1/metrics/latest?connection_id=$connection_id&probe_name=$1" \
         2>/dev/null | jq -e '.rows | length > 0' >/dev/null 2>&1
 }
@@ -304,7 +334,8 @@ for _ in $(seq 1 60); do
         # when the test server has pg_stat_statements. Give them up to 30
         # seconds, and carry on without them if they do not appear.
         for _ in $(seq 1 6); do
-            curl -fsS -H "Authorization: Bearer $token" \
+            curl -fsS \
+                --header @<(printf 'Authorization: Bearer %s\n' "$token") \
                 "$url/api/v1/metrics/top-queries?connection_id=$connection_id&limit=1" \
                 2>/dev/null | jq -e 'length > 0' >/dev/null 2>&1 && break
             sleep 5
