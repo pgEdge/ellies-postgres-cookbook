@@ -1,0 +1,2 @@
+Embedded 3 documents with nomic-embed-text
+Stored 3 rows with 768-dimension embeddings in cookbook_prepare_data

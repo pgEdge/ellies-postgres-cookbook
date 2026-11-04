@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the include_sources example. The answer
+# varies from run to run, so this checks that the question and answer are
+# present and not blank, and that the answer mentions the one fact the
+# sample documents give for the question. The retrieved sources are far
+# steadier than the answer, so this also requires a "Sources (N):" heading
+# and a line for document 3, the document that holds that fact.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+grep -q '^Question: .\+' <<<"$out" || fail "missing Question line"
+grep -qE '^Sources \([1-9][0-9]*\):$' <<<"$out" ||
+    fail "missing or malformed Sources heading"
+grep -qE '^- [^:]+: .+' <<<"$out" || fail "no source lines"
+grep -q '^- 3: .\+' <<<"$out" || fail "document 3 is not among the sources"
+
+# The answer is whatever lies between the "Answer:" line and the "Sources"
+# heading.
+answer="$(sed -n '/^Answer:$/,/^Sources (/p' <<<"$out" | sed '1d;$d')"
+[[ -n "${answer//[[:space:]]/}" ]] || fail "the answer is empty or blank"
+grep -qi 'ninety minutes' <<<"$answer" ||
+    fail "the answer does not mention ninety minutes"

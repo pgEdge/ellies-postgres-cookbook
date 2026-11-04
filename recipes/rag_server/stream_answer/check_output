@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output of the stream_answer example. The answer
+# varies from run to run, so this checks that the question, the answer and
+# the chunk count are present, that the answer is not blank, and that it
+# mentions the one fact the sample documents give for the question.
+set -uo pipefail
+
+out="$(cat)"
+
+fail() { echo "check_output: $1" >&2; exit 1; }
+
+grep -q '^Question: .\+' <<<"$out" || fail "missing Question line"
+grep -qE '^Chunks received: [1-9][0-9]*$' <<<"$out" ||
+    fail "missing or malformed Chunks received line"
+
+# The answer is whatever lies between the "Answer:" line and the "Chunks
+# received:" line.
+answer="$(sed -n '/^Answer:$/,/^Chunks received: /p' <<<"$out" | sed '1d;$d')"
+[[ -n "${answer//[[:space:]]/}" ]] || fail "the answer is empty or blank"
+grep -qi 'ninety minutes' <<<"$answer" ||
+    fail "the answer does not mention ninety minutes"
