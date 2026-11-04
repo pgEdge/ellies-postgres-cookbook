@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/mail"
 	"net/url"
@@ -126,11 +127,13 @@ type Customer struct {
 	Email string `json:"email"`
 }
 
-// Item is one line of the order.
+// Item is one line of the order. The numbers are pointers because a
+// pointer stays nil when the model leaves the field out, whereas a plain
+// number would silently become zero and look like a real value.
 type Item struct {
-	Description string  `json:"description"`
-	Quantity    int     `json:"quantity"`
-	UnitPrice   float64 `json:"unit_price"`
+	Description string   `json:"description"`
+	Quantity    *int     `json:"quantity"`
+	UnitPrice   *float64 `json:"unit_price"`
 }
 
 // orderSchema is a JSON Schema that describes Order. Providers that
@@ -200,6 +203,11 @@ func extractOrder(ctx context.Context, client llm.Client, text string) (*Order, 
 	if err := decoder.Decode(&order); err != nil {
 		return nil, fmt.Errorf("the model did not return valid JSON for an order: %w\nreply: %s", err, reply.String())
 	}
+	// A second read must hit the end of the reply; anything else means
+	// that text followed the JSON object.
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, fmt.Errorf("the model sent data after the JSON object\nreply: %s", reply.String())
+	}
 	return &order, nil
 }
 
@@ -208,14 +216,20 @@ func extractOrder(ctx context.Context, client llm.Client, text string) (*Order, 
 // --8<-- [start:validate]
 // validateOrder checks the values that the model returned. The schema
 // guarantees the types on providers that enforce it, but never that the
-// values make sense, and a small model can get them wrong.
+// values make sense, and a small model can get them wrong. The function
+// also replaces the email with the bare address that it parsed.
 func validateOrder(order *Order) error {
 	if strings.TrimSpace(order.Customer.Name) == "" {
 		return errors.New("the order has no customer name")
 	}
-	if _, err := mail.ParseAddress(order.Customer.Email); err != nil {
-		return fmt.Errorf("the customer email %q is not valid", order.Customer.Email)
+	// ParseAddress accepts forms such as "Jane <jane@example.com>", so
+	// insist that the parsed address is the whole of the text, and store
+	// only the address.
+	addr, err := mail.ParseAddress(order.Customer.Email)
+	if err != nil || addr.Name != "" || addr.Address != order.Customer.Email {
+		return fmt.Errorf("the customer email %q is not a bare address", order.Customer.Email)
 	}
+	order.Customer.Email = addr.Address
 	if len(order.Items) == 0 {
 		return errors.New("the order has no items")
 	}
@@ -223,11 +237,11 @@ func validateOrder(order *Order) error {
 		if strings.TrimSpace(item.Description) == "" {
 			return fmt.Errorf("item %d has no description", i+1)
 		}
-		if item.Quantity < 1 {
-			return fmt.Errorf("item %d has a quantity of %d", i+1, item.Quantity)
+		if item.Quantity == nil || *item.Quantity < 1 {
+			return fmt.Errorf("item %d has a missing or invalid quantity", i+1)
 		}
-		if item.UnitPrice < 0 {
-			return fmt.Errorf("item %d has a negative price", i+1)
+		if item.UnitPrice == nil || *item.UnitPrice < 0 {
+			return fmt.Errorf("item %d has a missing or invalid price", i+1)
 		}
 	}
 	return nil
@@ -281,7 +295,7 @@ func storeOrder(ctx context.Context, conn *pgx.Conn, order *Order) error {
 		_, err = tx.Exec(ctx,
 			`INSERT INTO order_items (customer_id, description, quantity, unit_price)
 			 VALUES ($1, $2, $3, $4)`,
-			customerID, item.Description, item.Quantity, item.UnitPrice)
+			customerID, item.Description, *item.Quantity, *item.UnitPrice)
 		if err != nil {
 			return fmt.Errorf("inserting an item failed: %w", err)
 		}

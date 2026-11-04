@@ -143,16 +143,22 @@ The `answerWithTool` function makes two requests. The first request lists
 the tool and uses `ToolChoiceSpecific` to require a call to `count_types`.
 The program then runs the tool, and the second request sends back the
 conversation so far, including the model's tool call and the result, which
-`ToolResultMessage` links to the call by its ID. The model replies with a
-final answer in plain text.
+`ToolResultMessage` links to the call by its ID. The second request lists
+no tools, so the model has nothing to call and replies with a final answer
+in plain text. Setting `ToolChoiceNone` would not do the same job:
+Ollama ignores `ToolChoice`, and the library sends Anthropic `auto` in
+its place. If your provider rejects a conversation that contains tool
+calls but no tool definitions, list the tools again in the second request.
 
 !!! note
 
     Ollama has no native setting that forces a tool call, so the library
     ignores `ToolChoice` for that provider and asks the model for a call in
     the system prompt instead. The program therefore also checks that the
-    reply contains a tool call, and stops with an error if it does not.
-    Providers such as Anthropic and OpenAI honour the setting.
+    reply contains a tool call, and stops with an error if it does not. The
+    OpenAI provider sends `ToolChoiceSpecific` as a `tool_choice` request
+    field that names the function, and the library source maps the choice
+    for the Anthropic and Gemini providers as well.
 
 The following code asks the question:
 

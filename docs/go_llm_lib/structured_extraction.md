@@ -112,8 +112,10 @@ The `extractOrder` function sends the email with `ResponseFormatJSONSchema`
 and the schema. Ollama passes the schema to the model runtime, which only
 allows output that matches it, so even a small model returns well-formed
 JSON of the right shape. The function decodes the reply and rejects any
-field that the structs do not define. The following code extracts the
-order:
+field that the structs do not define, and any text after the JSON object.
+The quantity and price are pointers, so that a field the model leaves out
+stays `nil` instead of becoming a zero that looks like a real value. The
+following code extracts the order:
 
 ```go
 --8<-- "recipes/go_llm_lib/structured_extraction/go/main.go:extract"
@@ -129,8 +131,9 @@ order:
 ## Validating the Values
 
 A reply that matches the schema can still be wrong; the model might return
-an empty name, a quantity of zero, or an email address that is not an
-address. The `validateOrder` function checks each value and returns a
+an empty name, a missing or zero quantity, or an email address that is not
+a bare address (the function stores the address that `mail.ParseAddress`
+returns). The `validateOrder` function checks each value and returns a
 clear message for the first problem that it finds, so that the program
 stops before it writes anything to the database. The following code
 validates the order:

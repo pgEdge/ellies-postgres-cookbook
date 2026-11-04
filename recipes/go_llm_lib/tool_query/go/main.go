@@ -174,7 +174,7 @@ func answerWithTool(ctx context.Context, client llm.Client, conn *pgx.Conn, ques
 	tools := []llm.Tool{countTypesTool}
 
 	// Force the first reply to be a call to count_types. Providers with a
-	// native tool choice setting obey it; Ollama has none, so the check
+	// native tool choice setting receive it; Ollama has none, so the check
 	// below is what guarantees that a tool was called.
 	first, err := client.Chat(ctx, llm.ChatRequest{
 		Messages: messages,
@@ -211,13 +211,11 @@ func answerWithTool(ctx context.Context, client llm.Client, conn *pgx.Conn, ques
 		llm.ToolResultMessage(call.ID, result, false),
 	)
 
-	// Some providers require the tools to be listed while the history
-	// contains tool calls, so list them again but forbid another call.
-	final, err := client.Chat(ctx, llm.ChatRequest{
-		Messages:   messages,
-		Tools:      tools,
-		ToolChoice: &llm.ToolChoice{Mode: llm.ToolChoiceNone},
-	})
+	// Leave the tools out of this request, so that the model has nothing
+	// to call and can only answer. ToolChoiceNone would not do the same
+	// job: Ollama ignores ToolChoice, and Anthropic treats "none" as
+	// "auto".
+	final, err := client.Chat(ctx, llm.ChatRequest{Messages: messages})
 	if err != nil {
 		return "", "", fmt.Errorf("second request failed: %w", err)
 	}
