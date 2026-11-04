@@ -1,0 +1,4 @@
+Created a blackout for the server (active: true)
+Read the blackout back (active: true)
+Stopped the blackout (active: false)
+Deleted the blackout

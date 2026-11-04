@@ -1,0 +1,6 @@
+Server: pgedge-postgres-mcp 1.0.0
+query_database requires: query
+execute_explain requires: query
+Columns: greeting, answer
+Row: Hello from the Workbench, 42
+Plan starts with: Result
