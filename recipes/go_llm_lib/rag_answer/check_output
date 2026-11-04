@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the output: a question line, a non-blank answer, and
+# a Sources line of two ids that includes fact 1 (the warranty fact).
+# Fails on empty or blank output, and never compares the answer text.
+set -euo pipefail
+out="$(cat)"
+if [[ -z "${out//[[:space:]]/}" ]]; then
+    echo "output is empty" >&2
+    exit 1
+fi
+grep -q '^Question: .\+' <<<"$out" ||
+    { echo "missing Question line" >&2; exit 1; }
+grep -q '^Answer: [^[:space:]]' <<<"$out" ||
+    { echo "missing or blank Answer line" >&2; exit 1; }
+grep -Eq '^Sources: [0-9]+, [0-9]+$' <<<"$out" ||
+    { echo "missing or malformed Sources line" >&2; exit 1; }
+grep -Eq '^Sources: (1, [0-9]+|[0-9]+, 1)$' <<<"$out" ||
+    { echo "the warranty fact (1) was not retrieved" >&2; exit 1; }
+if grep -qi '^Error' <<<"$out"; then
+    echo "output contains an error" >&2
+    exit 1
+fi
