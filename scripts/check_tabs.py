@@ -23,7 +23,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from languages import CURL, LABELS
+from languages import CURL, LABELS, PLACEHOLDER
 
 TAB = re.compile(r'^(?P<indent>\s*)===[+!]? "(?P<label>[^"]+)"')
 LANGUAGE_LABELS = set(LABELS) | {CURL.label}
@@ -64,6 +64,11 @@ def tab_groups(path: Path):
 
 def check(path: Path) -> list[str]:
     problems = []
+    unfilled = PLACEHOLDER.split("{label}")[-1]
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if unfilled in line:
+            problems.append(f"{path}:{number}: placeholder tab text from "
+                            "scripts/tabs.py was not replaced")
     for line, labels in tab_groups(path):
         if not LANGUAGE_LABELS.intersection(labels):
             continue

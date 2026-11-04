@@ -1,0 +1,6 @@
+# --8<-- [start:deps]
+# psycopg 3, with the pre-built binary package that bundles libpq, and
+# its connection pool package.
+psycopg[binary]>=3.2,<4
+psycopg-pool>=3.2,<4
+# --8<-- [end:deps]

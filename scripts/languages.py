@@ -45,4 +45,8 @@ LANGUAGES = [
 # directly do not use it.
 CURL = Language("curl", "curl", "main.sh", "bash", "", "")
 
+# scripts/tabs.py writes this sentence into the tab of a language that a
+# recipe omits, and scripts/check_tabs.py rejects any page that keeps it.
+PLACEHOLDER = "This recipe has no {label} program; replace this sentence."
+
 LABELS = [language.label for language in LANGUAGES]

@@ -1,0 +1,9 @@
+# --8<-- [start:deps]
+source "https://rubygems.org"
+
+# The pg gem wraps libpq, so libpq and its headers must be installed.
+gem "pg", "~> 1.6"
+
+# The connection_pool gem is a general-purpose, thread-safe pool.
+gem "connection_pool", "~> 3.0"
+# --8<-- [end:deps]

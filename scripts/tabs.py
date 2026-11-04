@@ -15,6 +15,13 @@ canonical order. Two section names are special:
     full    includes the whole of each main source file; the snippets
             extension strips the section markers automatically.
 
+A recipe may omit a language, for example C where the library has no
+equivalent of the feature. For a language whose directory is missing, the
+tab holds a placeholder sentence instead of an include (and the script
+warns on stderr), so that the author replaces it by hand with a short
+explanation. Every tab group still lists all the canonical languages, which
+is what scripts/check_tabs.py enforces.
+
 Example:
     scripts/tabs.py recipes/postgresql/connect_and_query deps imports
 
@@ -25,7 +32,7 @@ This code is released under the PostgreSQL License.
 import sys
 from pathlib import Path
 
-from languages import LANGUAGES
+from languages import LANGUAGES, PLACEHOLDER
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -56,6 +63,13 @@ def include(recipe: Path, language, section: str) -> tuple[str, str]:
 def tab_group(recipe: Path, section: str) -> str:
     lines = []
     for language in LANGUAGES:
+        if not (recipe / language.directory).is_dir():
+            print(f"warning: {recipe.name} has no {language.directory} "
+                  "directory; edit the placeholder tab by hand",
+                  file=sys.stderr)
+            lines += [f'=== "{language.label}"', "",
+                      f"    {PLACEHOLDER.format(label=language.label)}", ""]
+            continue
         ref, lexer = include(recipe, language, section)
         lines += [
             f'=== "{language.label}"',

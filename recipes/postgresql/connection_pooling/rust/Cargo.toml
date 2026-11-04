@@ -1,0 +1,12 @@
+[package]
+name = "connection_pooling"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The r2d2 connection pool, with its adapter for the synchronous postgres
+# crate. The adapter re-exports both the pool and the client crate.
+r2d2_postgres = "0.18"
+# --8<-- [end:deps]

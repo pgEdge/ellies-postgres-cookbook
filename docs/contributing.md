@@ -156,6 +156,13 @@ A step that needs no code in a particular language should still keep the
 tab for that language, with a sentence that explains why; the Closing the
 Connection step of the first recipe demonstrates this approach.
 
+A recipe may omit a language altogether, by leaving out its directory.
+Where the directory is missing, `scripts/tabs.py` writes a placeholder
+sentence into that language's tab, and the author replaces it by hand with
+an explanation; `scripts/check_tabs.py` fails the build while any
+placeholder remains. The Using a Connection Pool recipe has no C program
+for this reason.
+
 ## Sharing the Test Server
 
 Recipes run concurrently against one shared server during development, so
