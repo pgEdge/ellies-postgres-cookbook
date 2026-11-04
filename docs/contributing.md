@@ -78,7 +78,9 @@ following example marks the `connect` section of a Python program:
 
 ```python
 # ;--8<-- [start:connect]
-with psycopg.connect(**conninfo) as conn:
+def connect() -> psycopg.Connection:
+    """Opens a connection with the settings from the environment."""
+    return psycopg.connect(**connection_settings())
 # ;--8<-- [end:connect]
 ```
 
@@ -94,13 +96,19 @@ following sections:
 - `config` for reading the connection settings.
 - `connect` for opening the connection.
 - `query` for running the query and reading the result.
-- `errors` for reporting failures.
-- `cleanup` for closing the connection.
+- `main` for calling the other functions, reporting failures, and closing
+  the connection.
 
 Each section must be a single contiguous block, because the extension
 includes only the first block when a name appears more than once in a
-file. A section may include structural lines, such as the opening of a
-function or a `try` block, when the code requires them. The dependency
+file. Each section must also be complete code that a reader can copy, so
+a section never opens a function, a block, or a `try` statement that a
+later section closes. The programs therefore put each step in its own
+function, and the `main` section holds the error handling and cleanup
+that wrap the calls. The `scripts/check_tabs.py` script rejects a section
+whose brackets do not balance, a section that starts with a keyword such
+as `catch` or `rescue`, and a Python section that does not parse on its
+own. The dependency
 manifest of each project marks a
 `deps` section in the same way, except for `package.json`, which cannot
 contain comments and so appears in full. XML does not allow two

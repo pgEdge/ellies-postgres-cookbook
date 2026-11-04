@@ -33,8 +33,8 @@ language. The following table lists the driver that each example uses:
 The C example links against libpq, so the example requires the libpq
 client library and headers; on Debian and Ubuntu, the `libpq-dev` package
 provides both. The Ruby gem also uses libpq, and may require the same
-package on platforms without a pre-built gem. The following tabs show the dependency
-declaration from each example project:
+package on platforms without a pre-built gem. The following tabs show the
+dependency declaration from each example project:
 
 === "Python"
 
@@ -215,11 +215,13 @@ The following tabs show how each program assembles the connection settings:
 
 ## Opening a Connection
 
-The program opens a connection to the server with the settings from the
-previous step. The driver reports a failure if the server is unreachable or
-rejects the credentials; the Handling Errors section describes how each
-program reports the failure. The following tabs show how each program
-opens the connection:
+Each program opens a connection to the server with the settings from the
+previous step. The C# program creates an Npgsql data source instead, which
+lends out pooled connections when the main part of the program asks for
+one. The driver reports a failure if the server is unreachable or rejects
+the credentials; the Handling Errors and Closing the Connection section
+describes how each program reports the failure. The following tabs show
+how each program opens the connection:
 
 === "Python"
 
@@ -271,11 +273,12 @@ opens the connection:
 
 ## Running the Query
 
-The program sends the query with the value `int4` as a parameter, and then
-reads the single value from the first column of the first row. Each driver
-sends parameters separately from the SQL text, so the server never
-interprets a parameter as SQL; this approach eliminates SQL injection
-attacks. The placeholder syntax differs between drivers.
+Each program runs the query in a function that takes the type name, sends
+the name to the server as a parameter, and then reads the single value
+from the first column of the first row. Each driver sends parameters
+separately from the SQL text, so the server never interprets a parameter
+as SQL; this approach eliminates SQL injection attacks. The placeholder
+syntax differs between drivers.
 
 The following table shows the placeholder syntax that each driver uses:
 
@@ -294,7 +297,8 @@ The `count(*)` aggregate returns a `bigint`. The C and Ruby drivers return
 every value as text, so those programs convert the value to an integer;
 node-postgres returns a `bigint` as a string because the value may exceed
 the range of a JavaScript number. The other drivers return a native 64-bit
-integer. The following tabs show how each program runs the query and reads the result:
+integer. The following tabs show how each program runs the query and reads
+the result:
 
 === "Python"
 
@@ -344,118 +348,73 @@ integer. The following tabs show how each program runs the query and reads the r
     --8<-- "recipes/postgresql/connect_and_query/c/main.c:query"
     ```
 
-## Handling Errors
+## Handling Errors and Closing the Connection
 
-Every program reports connection and query failures on `stderr`, and then
-exits with a non-zero status. The Python, Java, C#, and Ruby programs catch
-the base error class of the driver, and the TypeScript program catches any
-rejected promise. The Go and Rust programs return each error to the caller,
-and the C program checks the result of each call. The following tabs show the error handling for each
-language:
+The main part of each program calls the functions from the previous steps,
+and prints the result. The program reports any connection or query failure
+on `stderr`, and then exits with a non-zero status. The Python, C#, and
+Ruby programs catch the base error class of the driver, and the Java
+program catches the JDBC `SQLException` class; the TypeScript program
+catches any rejected promise. The Go and Rust programs return each
+error from a `run()` function to `main()`, and the C program checks the
+result of each call.
+
+The program also closes the connection when the work completes or fails, so
+the server can release the resources that the connection holds. The Python
+`with` block, the Java `try`-with-resources statement, and the C# `await
+using` declaration close the connection automatically at the end of a
+block. The TypeScript, Ruby, and Go programs close the connection in a
+`finally` block, an `ensure` block, or a deferred call, and the C program
+calls `PQfinish()` on both paths. The Rust program closes the connection
+explicitly on success, and drops the client to close the connection after
+an error. The following tabs show the main part of each program:
 
 === "Python"
 
     ```python
-    --8<-- "recipes/postgresql/connect_and_query/python/main.py:errors"
+    --8<-- "recipes/postgresql/connect_and_query/python/main.py:main"
     ```
 
 === "TypeScript"
 
     ```typescript
-    --8<-- "recipes/postgresql/connect_and_query/typescript/main.ts:errors"
+    --8<-- "recipes/postgresql/connect_and_query/typescript/main.ts:main"
     ```
 
 === "Java"
 
     ```java
-    --8<-- "recipes/postgresql/connect_and_query/java/src/main/java/Main.java:errors"
+    --8<-- "recipes/postgresql/connect_and_query/java/src/main/java/Main.java:main"
     ```
 
 === "C#"
 
     ```csharp
-    --8<-- "recipes/postgresql/connect_and_query/csharp/Program.cs:errors"
+    --8<-- "recipes/postgresql/connect_and_query/csharp/Program.cs:main"
     ```
 
 === "Go"
 
     ```go
-    --8<-- "recipes/postgresql/connect_and_query/go/main.go:errors"
+    --8<-- "recipes/postgresql/connect_and_query/go/main.go:main"
     ```
 
 === "Rust"
 
     ```rust
-    --8<-- "recipes/postgresql/connect_and_query/rust/src/main.rs:errors"
+    --8<-- "recipes/postgresql/connect_and_query/rust/src/main.rs:main"
     ```
 
 === "Ruby"
 
     ```ruby
-    --8<-- "recipes/postgresql/connect_and_query/ruby/main.rb:errors"
+    --8<-- "recipes/postgresql/connect_and_query/ruby/main.rb:main"
     ```
 
 === "C"
 
     ```c
-    --8<-- "recipes/postgresql/connect_and_query/c/main.c:errors"
-    ```
-
-## Closing the Connection
-
-The program closes the connection when the work completes or fails, so the
-server can release the resources that the connection holds. Several
-languages close the connection automatically at the end of a block. The
-following tabs show how each program closes the connection:
-
-=== "Python"
-
-    The `with` block from the Opening a Connection step closes the
-    connection automatically when the block exits, whether or not an
-    error occurred; the program needs no further cleanup code.
-
-=== "TypeScript"
-
-    ```typescript
-    --8<-- "recipes/postgresql/connect_and_query/typescript/main.ts:cleanup"
-    ```
-
-=== "Java"
-
-    The `try`-with-resources statements in the Opening a Connection and
-    Running the Query steps close the result set, the statement, and the
-    connection automatically when each block exits, whether or not an
-    error occurred; the program needs no further cleanup code.
-
-=== "C#"
-
-    The `await using` declarations from the Opening a Connection step
-    return the connection to the pool, and dispose of the data source,
-    when the enclosing block exits; the program needs no further cleanup
-    code.
-
-=== "Go"
-
-    ```go
-    --8<-- "recipes/postgresql/connect_and_query/go/main.go:cleanup"
-    ```
-
-=== "Rust"
-
-    ```rust
-    --8<-- "recipes/postgresql/connect_and_query/rust/src/main.rs:cleanup"
-    ```
-
-=== "Ruby"
-
-    ```ruby
-    --8<-- "recipes/postgresql/connect_and_query/ruby/main.rb:cleanup"
-    ```
-
-=== "C"
-
-    ```c
-    --8<-- "recipes/postgresql/connect_and_query/c/main.c:cleanup"
+    --8<-- "recipes/postgresql/connect_and_query/c/main.c:main"
     ```
 
 ## Running the Example

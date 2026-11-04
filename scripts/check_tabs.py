@@ -17,8 +17,10 @@ Copyright (c) 2026, pgEdge, Inc.
 This code is released under the PostgreSQL License.
 """
 
+import ast
 import re
 import sys
+import textwrap
 from pathlib import Path
 
 from languages import CURL, LABELS
@@ -83,6 +85,23 @@ SKIP_DIRS = {"node_modules", "target", ".venv", "vendor", "bin", "obj",
 # use "-8<-" instead.
 XML_SUFFIXES = {".xml", ".csproj"}
 
+# Source files whose sections are checked for completeness. The bracket
+# count does not skip strings or comments, so keep them balanced too.
+CODE_SUFFIXES = {".py", ".ts", ".java", ".cs", ".go", ".rs", ".rb", ".c"}
+SECTION = re.compile(
+    r"-+8<-+\s*\[\s*start\s*:\s*(?P<name>[\w-]+)\s*\][^\n]*\n"
+    r"(?P<body>.*?)"
+    r"^[^\n]*-+8<-+\s*\[\s*end\s*:\s*(?P=name)\s*\]",
+    re.DOTALL | re.MULTILINE)
+ANY_MARKER = re.compile(r"-+8<-+\s*\[\s*(start|end)\s*:")
+
+# Brackets cannot catch a Ruby rescue clause, or a C# catch clause whose
+# try block sits outside the section, so reject a section that opens with
+# a keyword that can only continue an earlier block.
+CONTINUATIONS = {"catch", "except", "rescue", "ensure", "finally", "else",
+                 "elif", "elsif", "}", "end"}
+COMMENT_PREFIXES = ("#", "//", "/*", "*")
+
 
 def check_sections(recipes: Path) -> list[str]:
     """Report section markers that would break a file or lose code.
@@ -105,6 +124,49 @@ def check_sections(recipes: Path) -> list[str]:
         for name in sorted({n for n in names if names.count(n) > 1}):
             problems.append(f"{path}: section '{name}' is defined more "
                             "than once; only the first is published")
+        if path.suffix in CODE_SUFFIXES:
+            problems += check_complete(path, text)
+    return problems
+
+
+def sections(text: str):
+    """Yield (name, code) for each marked section, without the markers."""
+    for match in SECTION.finditer(text):
+        lines = [line for line in match["body"].splitlines()
+                 if not ANY_MARKER.search(line)]
+        yield match["name"], textwrap.dedent("\n".join(lines))
+
+
+def check_complete(path: Path, text: str) -> list[str]:
+    """Report sections that a reader could not copy as complete code.
+
+    A section that opens a block which a later section closes (the start
+    of a try statement, say) appears on the page as a fragment. Brackets
+    must balance within every section, and Python sections must parse.
+    """
+    problems = []
+    for name, code in sections(text):
+        depth = 0
+        for char in code:
+            depth += {"(": 1, "[": 1, "{": 1,
+                      ")": -1, "]": -1, "}": -1}.get(char, 0)
+            if depth < 0:
+                break
+        first = next((line.split()[0] for line in code.splitlines()
+                      if line.strip() and
+                      not line.lstrip().startswith(COMMENT_PREFIXES)), "")
+        if depth != 0:
+            problems.append(f"{path}: section '{name}' has unbalanced "
+                            "brackets; each section must be complete code")
+        elif first.rstrip(":") in CONTINUATIONS:
+            problems.append(f"{path}: section '{name}' starts with "
+                            f"'{first}', which continues an earlier block")
+        elif path.suffix == ".py":
+            try:
+                ast.parse(code)
+            except SyntaxError as e:
+                problems.append(f"{path}: section '{name}' is not valid "
+                                f"Python on its own: {e.msg}")
     return problems
 
 

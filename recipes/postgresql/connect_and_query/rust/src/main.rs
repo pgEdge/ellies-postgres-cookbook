@@ -10,7 +10,7 @@ use std::env;
 use std::error::Error;
 use std::process::ExitCode;
 
-use postgres::{Config, NoTls};
+use postgres::{Client, Config, NoTls};
 // --8<-- [end:imports]
 
 // --8<-- [start:config]
@@ -42,39 +42,46 @@ fn config() -> Config {
 }
 // --8<-- [end:config]
 
-fn run() -> Result<(), postgres::Error> {
-    // --8<-- [start:connect]
-    // NoTls disables TLS, which keeps this example free of certificate
-    // set-up; connections over an untrusted network should use TLS.
-    // The ? operator returns any error to the caller.
-    let mut client = config().connect(NoTls)?;
-    // --8<-- [end:connect]
+// --8<-- [start:connect]
+/// Opens a connection with the settings from the environment. NoTls
+/// disables TLS, which keeps this example free of certificate set-up;
+/// connections over an untrusted network should use TLS.
+fn connect() -> Result<Client, postgres::Error> {
+    config().connect(NoTls)
+}
+// --8<-- [end:connect]
 
-    // --8<-- [start:query]
+// --8<-- [start:query]
+/// Returns the number of data types with the given name.
+fn count_types(client: &mut Client, name: &str) -> Result<i64, postgres::Error> {
     // Always pass values as parameters rather than building them into the
     // SQL string; the driver sends them separately, which prevents SQL
     // injection.
     let row = client.query_one(
         "SELECT count(*) FROM pg_catalog.pg_type WHERE typname = $1",
-        &[&"int4"],
+        &[&name],
     )?;
 
     // count(*) returns a bigint, which maps to i64.
-    let count: i64 = row.get(0);
+    Ok(row.get(0))
+}
+// --8<-- [end:query]
 
+// --8<-- [start:main]
+/// Connects, runs the query, and prints the result. The ? operator
+/// returns any error to the caller.
+fn run() -> Result<(), postgres::Error> {
+    let mut client = connect()?;
+    let count = count_types(&mut client, "int4")?;
     println!("Number of types named 'int4': {count}");
-    // --8<-- [end:query]
 
-    // --8<-- [start:cleanup]
-    // Dropping the client also closes the connection, but close() lets us
-    // see any error that occurs while doing so.
+    // Dropping the client also closes the connection, including when ?
+    // returns early, but close() lets us see any error that occurs while
+    // doing so.
     client.close()?;
-    // --8<-- [end:cleanup]
-
     Ok(())
 }
 
-// --8<-- [start:errors]
 /// Reports any error returned by run() and exits with a failure status.
 /// The top-level error is often generic ("error connecting to server"),
 /// so the chain of underlying causes is printed too.
@@ -92,4 +99,4 @@ fn main() -> ExitCode {
         }
     }
 }
-// --8<-- [end:errors]
+// --8<-- [end:main]
