@@ -7,6 +7,8 @@
 #
 # The script starts the pgvector/pgvector:pg18 image (every recipe, including
 # the pgvector one, runs against it) with trust authentication and ssl=on.
+# It also preloads pg_stat_statements and creates the extension in the
+# postgres database, for the Workbench recipes.
 # A certificate authority and a server certificate are generated into a
 # temporary directory each time the script runs, and the private keys never
 # leave that directory. The server certificate has subject alternative names
@@ -115,7 +117,8 @@ docker run -d --name "$name" -p "$port:5432" \
         exec docker-entrypoint.sh postgres \
             -c ssl=on \
             -c ssl_cert_file=/var/lib/cookbook-tls/server.crt \
-            -c ssl_key_file=/var/lib/cookbook-tls/server.key
+            -c ssl_key_file=/var/lib/cookbook-tls/server.key \
+            -c shared_preload_libraries=pg_stat_statements
     ' >/dev/null
 
 # The image runs a temporary server on a Unix socket while it initialises,
@@ -123,6 +126,13 @@ docker run -d --name "$name" -p "$port:5432" \
 for _ in $(seq 1 60); do
     if docker exec "$name" pg_isready -h 127.0.0.1 -U postgres \
         >/dev/null 2>&1; then
+        # The Workbench recipes read the most expensive queries from
+        # pg_stat_statements, which needs the library preloaded (above)
+        # and the extension created in the postgres database. No other
+        # recipe notices either.
+        docker exec "$name" psql -h 127.0.0.1 -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 -qc \
+            'CREATE EXTENSION IF NOT EXISTS pg_stat_statements' >&2
         echo "PGSSLROOTCERT=$certs/ca.crt"
         exit 0
     fi

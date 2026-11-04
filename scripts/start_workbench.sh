@@ -289,11 +289,26 @@ fi
 compose restart collector >/dev/null 2>&1
 echo "Waiting for the collector to store metrics for connection" \
     "$connection_id" >&2
-for _ in $(seq 1 60); do
-    if curl -fsS -H "Authorization: Bearer $token" \
-        "$url/api/v1/metrics/latest?connection_id=$connection_id&probe_name=pg_stat_activity" \
+# The metrics recipe reads pg_stat_database, which the collector probes
+# every five minutes, and the others need pg_stat_activity, so wait for
+# both. The collector runs each probe at once when it has no earlier
+# collection.
+has_rows() {
+    curl -fsS -H "Authorization: Bearer $token" \
+        "$url/api/v1/metrics/latest?connection_id=$connection_id&probe_name=$1" \
         2>/dev/null | jq -e '.rows | length > 0' >/dev/null 2>&1
-    then
+}
+for _ in $(seq 1 60); do
+    if has_rows pg_stat_activity && has_rows pg_stat_database; then
+        # The metrics recipe also reads the top queries, which exist only
+        # when the test server has pg_stat_statements. Give them up to 30
+        # seconds, and carry on without them if they do not appear.
+        for _ in $(seq 1 6); do
+            curl -fsS -H "Authorization: Bearer $token" \
+                "$url/api/v1/metrics/top-queries?connection_id=$connection_id&limit=1" \
+                2>/dev/null | jq -e 'length > 0' >/dev/null 2>&1 && break
+            sleep 5
+        done
         echo "WORKBENCH_URL=$url"
         echo "WORKBENCH_TOKEN=$token"
         echo "WORKBENCH_USERNAME=$username"
