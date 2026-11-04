@@ -1,0 +1,2 @@
+Rows read: 100000
+Sum of values: 5000050000
