@@ -138,6 +138,7 @@ def drop_table(conn: psycopg.Connection) -> None:
 
 # --8<-- [start:main]
 def main() -> int:
+    cleanup_failed = False
     try:
         embeddings = embed([content for _, _, content in DOCUMENTS])
         print(f"Embedded {len(embeddings)} documents with {EMBED_MODEL}")
@@ -154,15 +155,21 @@ def main() -> int:
                 print(f"Stored {rows} rows with {dimensions}-dimension "
                       f"embeddings in {TABLE}")
             finally:
-                # Remove the table whether or not a step failed.
-                drop_table(conn)
+                # Remove the table whether or not a step failed. A failure
+                # here is reported on its own, so that it cannot hide the
+                # error that came first.
+                try:
+                    drop_table(conn)
+                except psycopg.Error as e:
+                    print(f"Cleanup error: {e}", file=sys.stderr)
+                    cleanup_failed = True
     # httpx.HTTPError covers a failure to reach Ollama or an error status,
     # and psycopg.Error covers every error from the database driver.
     except (httpx.HTTPError, psycopg.Error, KeyError, ValueError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
-    return 0
+    return 1 if cleanup_failed else 0
 
 
 if __name__ == "__main__":

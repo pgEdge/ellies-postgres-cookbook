@@ -240,11 +240,16 @@ func run(ctx context.Context) (err error) {
 	}
 	defer conn.Close(ctx)
 
-	// Remove the table whether or not a step failed, and report a failure
-	// to remove it unless an earlier error is already being returned.
+	// Remove the table whether or not a step failed. A failure to remove it
+	// becomes the returned error only when there is no earlier error, and
+	// is printed on its own otherwise, so that it cannot hide the first.
 	defer func() {
-		if dropErr := dropTable(ctx, conn); dropErr != nil && err == nil {
-			err = dropErr
+		if dropErr := dropTable(ctx, conn); dropErr != nil {
+			if err == nil {
+				err = dropErr
+			} else {
+				fmt.Fprintf(os.Stderr, "Cleanup error: %v\n", dropErr)
+			}
 		}
 	}()
 

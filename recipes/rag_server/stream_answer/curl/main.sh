@@ -30,6 +30,9 @@ QUESTION="How long does the Acme Widget 2.0 take to charge?"
 # arrives, and a small model on a modest machine can take a while, so
 # allow plenty of time for the whole stream.
 TIMEOUT_SECONDS=300
+
+# Escapes a value for use in a URL path, as the other languages do.
+escape() { jq -rn --arg value "$1" '$value | @uri'; }
 # --8<-- [end:config]
 
 # --8<-- [start:request]
@@ -43,45 +46,71 @@ request_stream() {
             --max-time "$TIMEOUT_SECONDS" \
             --header 'Content-Type: application/json' \
             --data-binary @- \
-            "$RAG_SERVER_URL/v1/pipelines/$RAG_PIPELINE"
+            "$RAG_SERVER_URL/v1/pipelines/$(escape "$RAG_PIPELINE")"
 }
 # --8<-- [end:request]
 
 # --8<-- [start:events]
 # Reads Server-Sent Events from standard input, prints the content of each
 # chunk event as it arrives, and returns non-zero if the stream reports an
-# error or ends without a done event. Each event is a "data:" line holding
-# a JSON object. The read loop also handles a final line that has no
-# newline.
+# error, holds an event that is not valid JSON, or ends without a done
+# event. An event is one or more "data:" lines, which are joined with
+# newlines, followed by a blank line. The loop also handles a final line
+# that has no newline.
 read_events() {
-    local line data kind chunks=0 error="" other="" done=false
+    local line data="" have_data=false kind chunks=0 error="" other=""
+    local done=false
 
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        line="${line%$'\r'}"
-        if [[ "$line" != data:* ]]; then
-            # Blank lines separate events, and comment lines start with a
-            # colon. Anything else is not an event, such as the JSON body
-            # of an HTTP error, so keep it for the error message.
-            [[ -z "$line" || "$line" == :* ]] || other+="$line"
-            continue
-        fi
-
-        data="${line#data:}"
-        data="${data# }"
-        kind="$(jq -r '.type' <<<"$data")"
+    # Handles the event that has been collected. It sets the variables of
+    # read_events, because a bash function can change its caller's locals.
+    # The explicit checks matter, because set -e does not apply inside a
+    # function that runs on the left of ||.
+    handle_event() {
+        local content
+        $have_data || return 0
+        kind="$(jq -r '.type' <<<"$data")" || {
+            echo "The stream sent an event that is not valid JSON: $data" >&2
+            return 1
+        }
         case "$kind" in
             chunk)
                 # The last chunk has no content. The -j option prints
                 # without a trailing newline.
-                if [[ "$(jq -r '.content // ""' <<<"$data")" != "" ]]; then
-                    jq -j '.content' <<<"$data"
+                content="$(jq -r '.content // ""' <<<"$data")" || return 1
+                if [[ -n "$content" ]]; then
+                    printf '%s' "$content"
                     chunks=$((chunks + 1))
                 fi
                 ;;
-            error) error="$(jq -r '.error // "unknown error"' <<<"$data")" ;;
-            done)  done=true ;;
+            error)
+                error="$(jq -r '.error // "unknown error"' <<<"$data")" ||
+                    return 1
+                ;;
+            done) done=true ;;
         esac
+        data=""
+        have_data=false
+    }
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        if [[ -z "$line" ]]; then
+            # A blank line ends the event.
+            handle_event || return 1
+        elif [[ "$line" == data:* ]]; then
+            line="${line#data:}"
+            if $have_data; then data+=$'\n'; fi
+            data+="${line# }"
+            have_data=true
+        elif [[ "$line" != :* ]]; then
+            # Comment lines start with a colon. Anything else is not an
+            # event, such as the JSON body of an HTTP error, so keep it for
+            # the error message.
+            other+="$line"
+        fi
     done
+    # The stream may end without a blank line after the last event.
+    handle_event || return 1
     echo
 
     # The server sends a done event after an error event, so keep reading

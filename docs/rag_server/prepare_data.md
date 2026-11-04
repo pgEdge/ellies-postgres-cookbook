@@ -21,7 +21,8 @@ Stored 3 rows with 768-dimension embeddings in cookbook_prepare_data
 ## Preparing the Ingredients
 
 The examples need a PostgreSQL server with the pgvector extension installed
-and enabled in the database (`CREATE EXTENSION vector;`), and an
+(each program runs `CREATE EXTENSION IF NOT EXISTS vector`, which needs a
+user with the privilege to create it), and an
 [Ollama](https://ollama.com/) server with an embedding model, which you can
 fetch with `ollama pull nomic-embed-text`. The documents describe the
 fictional Acme Gadget.

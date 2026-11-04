@@ -22,5 +22,5 @@ grep -q '^- 3: .\+' <<<"$out" || fail "document 3 is not among the sources"
 # heading.
 answer="$(sed -n '/^Answer:$/,/^Sources (/p' <<<"$out" | sed '1d;$d')"
 [[ -n "${answer//[[:space:]]/}" ]] || fail "the answer is empty or blank"
-grep -qi 'ninety minutes' <<<"$answer" ||
-    fail "the answer does not mention ninety minutes"
+grep -qiE 'ninety minutes|90 minutes' <<<"$answer" ||
+    fail "the answer does not mention ninety (or 90) minutes"

@@ -154,9 +154,9 @@ reply. The following tabs show how each program reads its settings:
 ## Sending the Question
 
 Each program sends the question in a `POST` request with a JSON body, and
-reads the `answer` and `tokens_used` fields of the reply. The Python,
-TypeScript, and Go programs build the URL from the pipeline name, and escape
-any character in the name that is not safe in a URL path. Each program
+reads the `answer` and `tokens_used` fields of the reply. Each program
+builds the URL from the pipeline name, and escapes any character in the name
+that is not safe in a URL path (the curl script uses `jq` for this). Each program
 builds the JSON body with a JSON encoder (`jq` in the curl script) rather
 than by joining strings, so a question that contains quotation marks cannot
 break the request.

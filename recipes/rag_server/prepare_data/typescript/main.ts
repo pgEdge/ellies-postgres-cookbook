@@ -156,6 +156,7 @@ function describe(err: unknown): string {
 
 async function main(): Promise<number> {
   let client: pg.Client | undefined;
+  let cleanupFailed = false;
   try {
     const embeddings = await embed(documents.map((doc) => doc.content));
     console.log(`Embedded ${embeddings.length} documents with ${embedModel}`);
@@ -172,11 +173,17 @@ async function main(): Promise<number> {
       console.log(`Stored ${rows} rows with ${dimensions}-dimension embeddings in ${table}`);
     } finally {
       // Roll back anything unfinished (a no-op after a commit), and remove
-      // the table whether or not a step failed.
-      await client.query("ROLLBACK");
-      await dropTable(client);
+      // the table whether or not a step failed. A failure here is reported
+      // on its own, so that it cannot hide the error that came first.
+      try {
+        await client.query("ROLLBACK");
+        await dropTable(client);
+      } catch (cleanupErr) {
+        console.error(`Cleanup error: ${describe(cleanupErr)}`);
+        cleanupFailed = true;
+      }
     }
-    return 0;
+    return cleanupFailed ? 1 : 0;
   } catch (err) {
     console.error(`Error: ${describe(err)}`);
     return 1;
