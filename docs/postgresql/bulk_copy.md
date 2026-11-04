@@ -331,9 +331,10 @@ Java, Rust, Ruby, and C programs build each line themselves. In the
 and a backslash begins an escape sequence. A value that contains any of
 those characters, or a carriage return, must therefore have each of them
 replaced by `\\`, `\t`, `\n`, or `\r`, and each program does so with an
-`escape` function. The generated names contain none of these characters,
-but the function keeps the program correct for data that does. The
-following tabs show how each program generates the rows:
+`escapeText()` or `escape_text()` function. The generated names contain
+none of these characters, but the function keeps the program correct for
+data that does. The following tabs show how each program generates the
+rows:
 
 === "Python"
 

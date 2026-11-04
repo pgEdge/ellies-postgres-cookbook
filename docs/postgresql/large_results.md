@@ -266,7 +266,10 @@ approach decides what a batch size means.
 
 Most drivers use a cursor, which makes the server keep the result and send
 rows only when the program asks for them. A cursor exists only inside a
-transaction, so these programs run in one. The Python program names its
+transaction, which some drivers start implicitly: the Python and
+TypeScript programs rely on the transaction that psycopg and the
+PostgreSQL protocol open for them, and the other programs start one
+explicitly. The Python program names its
 cursor, which makes psycopg create a server-side cursor, and calls
 `fetchmany(1000)` for each batch. The TypeScript program runs a `pg-cursor`
 query, and calls `read(1000)` for each batch. The Java program turns off

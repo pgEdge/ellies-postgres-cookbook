@@ -102,7 +102,7 @@ async function copyRows(
 async function summarise(
   client: pg.Client,
 ): Promise<{ count: string; total: string }> {
-  // count and sum return a bigint and a numeric, which node-postgres
+  // count and sum of an int both return a bigint, which node-postgres
   // returns as strings because they may not fit in a JavaScript number.
   const result = await client.query<{ count: string; total: string }>(
     "SELECT count(*) AS count, sum(id) AS total FROM items",
