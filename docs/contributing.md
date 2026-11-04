@@ -103,7 +103,11 @@ file. A section may include structural lines, such as the opening of a
 function or a `try` block, when the code requires them. The dependency
 manifest of each project marks a
 `deps` section in the same way, except for `package.json`, which cannot
-contain comments and so appears in full. The extension removes the marker
+contain comments and so appears in full. XML does not allow two
+consecutive hyphens inside a comment, so XML manifests such as `pom.xml`
+and `*.csproj` files write the scissors with single hyphens, as `-8<-`;
+the extension accepts either form, and `scripts/check_tabs.py` rejects the
+double-hyphen form in XML files. The extension removes the marker
 comments from the published page, including when the page shows a whole
 file.
 
@@ -186,8 +190,11 @@ brevity. Contributions should follow these conventions:
 - Each program passes values to SQL statements as parameters, and never
   builds SQL from strings.
 - Each program reports errors on `stderr` and exits with a non-zero status.
+- Each program treats an empty environment variable as unset, as libpq
+  does, so every language behaves in the same way.
 - Comments explain why the code takes an approach, not only what the code
   does.
 - Each project manifest requires a current release of each dependency.
 - Each project commits the lock file for toolchains that conventionally
-  commit one, namely `Cargo.lock`, `package-lock.json`, and `go.sum`.
+  commit one, namely `Cargo.lock`, `package-lock.json`, `go.sum`, and
+  `Gemfile.lock`.

@@ -7,11 +7,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- --8<-- [start:deps] -->
+  <!-- -8<- [start:deps] -->
   <ItemGroup>
     <!-- Npgsql, the ADO.NET data provider for PostgreSQL. -->
     <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
-  <!-- --8<-- [end:deps] -->
+  <!-- -8<- [end:deps] -->
 
 </Project>

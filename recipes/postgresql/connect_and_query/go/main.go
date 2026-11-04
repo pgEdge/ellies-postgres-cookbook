@@ -38,7 +38,7 @@ func connString() string {
 		Host:   net.JoinHostPort(envOr("PGHOST", "localhost"), envOr("PGPORT", "5432")),
 		Path:   "/" + envOr("PGDATABASE", "postgres"),
 	}
-	if password, ok := os.LookupEnv("PGPASSWORD"); ok {
+	if password := os.Getenv("PGPASSWORD"); password != "" {
 		u.User = url.UserPassword(envOr("PGUSER", "postgres"), password)
 	} else {
 		u.User = url.User(envOr("PGUSER", "postgres"))

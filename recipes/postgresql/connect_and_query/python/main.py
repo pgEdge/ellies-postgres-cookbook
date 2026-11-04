@@ -18,13 +18,14 @@ def main() -> int:
     # --8<-- [start:config]
     # Read the connection settings from the standard libpq environment
     # variables, with defaults suitable for a local development server.
-    # A password of None is simply not sent.
+    # The or operator treats an empty variable as unset, as libpq does,
+    # and a password of None is simply not sent.
     conninfo = {
-        "host": os.environ.get("PGHOST", "localhost"),
-        "port": os.environ.get("PGPORT", "5432"),
-        "dbname": os.environ.get("PGDATABASE", "postgres"),
-        "user": os.environ.get("PGUSER", "postgres"),
-        "password": os.environ.get("PGPASSWORD"),
+        "host": os.environ.get("PGHOST") or "localhost",
+        "port": os.environ.get("PGPORT") or "5432",
+        "dbname": os.environ.get("PGDATABASE") or "postgres",
+        "user": os.environ.get("PGUSER") or "postgres",
+        "password": os.environ.get("PGPASSWORD") or None,
     }
     # --8<-- [end:config]
 

@@ -29,6 +29,11 @@ recipes/**/rust/target/
 vendor/
 .bundle/
 
+# Claude Code worktrees and working files
+.claude/worktrees/
+.claude/plans/
+.claude/specs/
+
 # Editors and operating systems
 .DS_Store
 .idea/

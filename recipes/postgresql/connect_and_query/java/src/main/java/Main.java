@@ -35,7 +35,7 @@ public class Main {
 
         Properties props = new Properties();
         props.setProperty("user", envOr("PGUSER", "postgres"));
-        String password = System.getenv("PGPASSWORD");
+        String password = envOr("PGPASSWORD", null);
         if (password != null) {
             props.setProperty("password", password);
         }

@@ -41,19 +41,36 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || 'main' }}
 
+      # Test runs for two quick pushes can finish out of order, so a run
+      # for an older commit must not overwrite the published branch with
+      # stale pages. A newer run that starts later cancels this one through
+      # the concurrency group, which closes the remaining window.
+      - name: Check that the commit is still the tip of main
+        id: tip
+        run: |
+          tip="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$(git rev-parse HEAD)" != "$tip" ]]; then
+              echo "main has moved on to $tip; skipping this publish"
+              echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-python@v5
+        if: steps.tip.outputs.stale != 'true'
         with:
           python-version: '3.13'
 
       - name: Install the renderer's dependencies
+        if: steps.tip.outputs.stale != 'true'
         run: pip install pymdown-extensions pyyaml
 
       - name: Render the documentation
+        if: steps.tip.outputs.stale != 'true'
         run: |
           python3 scripts/render_docs.py \
               --output build/published --commit "$(git rev-parse HEAD)"
 
       - name: Push the published branch
+        if: steps.tip.outputs.stale != 'true'
         working-directory: build/published
         env:
           GH_TOKEN: ${{ github.token }}

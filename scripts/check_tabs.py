@@ -72,13 +72,20 @@ def check(path: Path) -> list[str]:
     return problems
 
 
-MARKER = re.compile(r"--8<--\s*\[\s*start\s*:\s*([\w-]+)\s*\]")
+# The snippets extension accepts any number of dashes either side of the
+# scissors, and XML files need the single-dash form (see XML_SUFFIXES).
+MARKER = re.compile(r"-+8<-+\s*\[\s*start\s*:\s*([\w-]+)\s*\]")
 SKIP_DIRS = {"node_modules", "target", ".venv", "vendor", "bin", "obj",
              "dist"}
 
+# XML forbids "--" inside a comment, so a "--8<--" marker makes the file
+# unparseable; Maven and MSBuild both refuse to load it. These files must
+# use "-8<-" instead.
+XML_SUFFIXES = {".xml", ".csproj"}
+
 
 def check_sections(recipes: Path) -> list[str]:
-    """Report section names that appear more than once in a source file.
+    """Report section markers that would break a file or lose code.
 
     The snippets extension silently includes only the first block with a
     given name, so a repeated name loses code from the published page.
@@ -88,9 +95,13 @@ def check_sections(recipes: Path) -> list[str]:
         if not path.is_file() or SKIP_DIRS.intersection(path.parts):
             continue
         try:
-            names = MARKER.findall(path.read_text())
+            text = path.read_text()
         except UnicodeDecodeError:
             continue
+        if path.suffix in XML_SUFFIXES and "--8<--" in text:
+            problems.append(f"{path}: XML comments cannot contain '--'; "
+                            "write section markers as '-8<-'")
+        names = MARKER.findall(text)
         for name in sorted({n for n in names if names.count(n) > 1}):
             problems.append(f"{path}: section '{name}' is defined more "
                             "than once; only the first is published")

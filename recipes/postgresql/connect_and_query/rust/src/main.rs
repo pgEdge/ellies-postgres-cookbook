@@ -14,9 +14,16 @@ use postgres::{Config, NoTls};
 // --8<-- [end:imports]
 
 // --8<-- [start:config]
-/// Returns the value of an environment variable, or a fallback if unset.
+/// Returns the value of an environment variable, if it is set and not
+/// empty; libpq also treats an empty variable as unset.
+fn env_value(name: &str) -> Option<String> {
+    env::var(name).ok().filter(|value| !value.is_empty())
+}
+
+/// Returns the value of an environment variable, or a fallback if the
+/// variable is unset or empty.
 fn env_or(name: &str, fallback: &str) -> String {
-    env::var(name).unwrap_or_else(|_| fallback.to_string())
+    env_value(name).unwrap_or_else(|| fallback.to_string())
 }
 
 /// Builds the connection configuration from the standard libpq
@@ -28,7 +35,7 @@ fn config() -> Config {
         .port(env_or("PGPORT", "5432").parse().expect("PGPORT must be a number"))
         .dbname(&env_or("PGDATABASE", "postgres"))
         .user(&env_or("PGUSER", "postgres"));
-    if let Ok(password) = env::var("PGPASSWORD") {
+    if let Some(password) = env_value("PGPASSWORD") {
         config.password(&password);
     }
     config
@@ -37,7 +44,8 @@ fn config() -> Config {
 
 fn run() -> Result<(), postgres::Error> {
     // --8<-- [start:connect]
-    // NoTls disables TLS; see the TLS recipes for encrypted connections.
+    // NoTls disables TLS, which keeps this example free of certificate
+    // set-up; connections over an untrusted network should use TLS.
     // The ? operator returns any error to the caller.
     let mut client = config().connect(NoTls)?;
     // --8<-- [end:connect]

@@ -143,8 +143,9 @@ for each language:
 The examples read their connection settings from the same environment
 variables that libpq and `psql` use, so a single set of variables
 configures every example. The examples read only the five variables in the
-table, and expect a TCP host name or IPv4 address in `PGHOST`. The
-following table describes the environment variables that the
+table, and expect a TCP host name or IPv4 address in `PGHOST`. Like libpq,
+each example treats an empty variable as unset, and uses the default
+instead. The following table describes the environment variables that the
 examples read:
 
 | Variable     | Default     | Description                                    |
@@ -153,7 +154,7 @@ examples read:
 | `PGPORT`     | `5432`      | The TCP port on which the server listens.      |
 | `PGDATABASE` | `postgres`  | The name of the database to connect to.        |
 | `PGUSER`     | `postgres`  | The user name to connect as.                   |
-| `PGPASSWORD` | None        | The password; the examples omit it if unset.   |
+| `PGPASSWORD` | None        | The password; omitted if unset or empty.       |
 
 !!! note
 

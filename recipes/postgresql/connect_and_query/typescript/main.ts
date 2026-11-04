@@ -13,12 +13,14 @@ import pg from "pg";
 // --8<-- [start:config]
 // Read the connection settings from the standard libpq environment
 // variables, with defaults suitable for a local development server.
+// The || operator, unlike ??, also treats an empty variable as unset, as
+// libpq does.
 const config: pg.ClientConfig = {
-  host: process.env.PGHOST ?? "localhost",
-  port: Number(process.env.PGPORT ?? "5432"),
-  database: process.env.PGDATABASE ?? "postgres",
-  user: process.env.PGUSER ?? "postgres",
-  password: process.env.PGPASSWORD,
+  host: process.env.PGHOST || "localhost",
+  port: Number(process.env.PGPORT || "5432"),
+  database: process.env.PGDATABASE || "postgres",
+  user: process.env.PGUSER || "postgres",
+  password: process.env.PGPASSWORD || undefined,
 };
 // --8<-- [end:config]
 

@@ -11,11 +11,16 @@ using Npgsql;
 // --8<-- [end:imports]
 
 // --8<-- [start:config]
-// Returns the value of an environment variable, or a fallback if unset.
-static string EnvOr(string name, string fallback) =>
+// Returns the value of an environment variable, or null if the variable
+// is unset or empty; libpq also treats an empty variable as unset.
+static string? EnvValue(string name) =>
     Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
         ? value
-        : fallback;
+        : null;
+
+// Returns the value of an environment variable, or a fallback if unset.
+static string EnvOr(string name, string fallback) =>
+    EnvValue(name) ?? fallback;
 
 // Build a connection string from the standard libpq environment
 // variables, with defaults suitable for a local development server. The
@@ -26,7 +31,7 @@ var builder = new NpgsqlConnectionStringBuilder
     Port = int.Parse(EnvOr("PGPORT", "5432")),
     Database = EnvOr("PGDATABASE", "postgres"),
     Username = EnvOr("PGUSER", "postgres"),
-    Password = Environment.GetEnvironmentVariable("PGPASSWORD"),
+    Password = EnvValue("PGPASSWORD"),
 };
 // --8<-- [end:config]
 

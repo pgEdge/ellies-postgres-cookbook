@@ -9,15 +9,22 @@ require "pg"
 # --8<-- [end:imports]
 
 # --8<-- [start:config]
+# Returns the value of an environment variable, or a fallback if the
+# variable is unset or empty; libpq also treats an empty variable as unset.
+def env_or(name, fallback)
+  value = ENV[name]
+  value.nil? || value.empty? ? fallback : value
+end
+
 # Read the connection settings from the standard libpq environment
 # variables, with defaults suitable for a local development server.
 # compact removes the password if PGPASSWORD is not set.
 params = {
-  host: ENV.fetch("PGHOST", "localhost"),
-  port: ENV.fetch("PGPORT", "5432"),
-  dbname: ENV.fetch("PGDATABASE", "postgres"),
-  user: ENV.fetch("PGUSER", "postgres"),
-  password: ENV["PGPASSWORD"]
+  host: env_or("PGHOST", "localhost"),
+  port: env_or("PGPORT", "5432"),
+  dbname: env_or("PGDATABASE", "postgres"),
+  user: env_or("PGUSER", "postgres"),
+  password: env_or("PGPASSWORD", nil)
 }.compact
 # --8<-- [end:config]
 
