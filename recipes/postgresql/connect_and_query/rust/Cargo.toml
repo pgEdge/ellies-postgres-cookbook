@@ -1,0 +1,11 @@
+[package]
+name = "connect_and_query"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The synchronous client; tokio-postgres is the asynchronous equivalent.
+postgres = "0.19"
+# --8<-- [end:deps]

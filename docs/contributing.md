@@ -1,0 +1,193 @@
+# Contributing a Recipe
+
+This page explains how the cookbook is organised, and how to add a new
+recipe or a new language. The conventions on this page keep the language
+tabs working across the site, and ensure that continuous integration tests
+every published code sample.
+
+## Understanding the Repository Layout
+
+Each recipe consists of a documentation page and a set of runnable
+programs, one for each language. The following example shows the layout
+for a single recipe:
+
+```text
+docs/
+  postgresql/
+    connect_and_query.md          # The recipe page.
+recipes/
+  postgresql/
+    connect_and_query/
+      expected_output.txt         # The output every program must produce.
+      requires.txt                # Optional; extra variables required.
+      python/                     # One complete project per language.
+      typescript/
+      java/
+      csharp/
+      go/
+      rust/
+      ruby/
+      c/
+scripts/
+  languages.py                    # The canonical list of languages.
+  tabs.py                         # Generates tab groups for a page.
+  check_tabs.py                   # Validates tab groups in the docs.
+  render_docs.py                  # Renders the docs for publication.
+  run_example.sh                  # Builds and runs one program.
+  test_recipes.sh                 # Tests every program.
+```
+
+The cookbook groups recipes by product; recipes for PostgreSQL itself live
+under `postgresql/`, and recipes for pgEdge Starfleet will live under
+`starfleet/`.
+
+## Using the Canonical Language Labels
+
+Content tabs switch together because they share a label, so a misspelt or
+missing label breaks the language switcher without any visible error. Every
+tab group on a recipe page must use the canonical labels, in the canonical
+order.
+
+The following table lists each label with its directory and source file:
+
+| Label      | Directory    | Main source file          |
+|------------|--------------|---------------------------|
+| Python     | `python`     | `main.py`                 |
+| TypeScript | `typescript` | `main.ts`                 |
+| Java       | `java`       | `src/main/java/Main.java` |
+| C#         | `csharp`     | `Program.cs`              |
+| Go         | `go`         | `main.go`                 |
+| Rust       | `rust`       | `src/main.rs`             |
+| Ruby       | `ruby`       | `main.rb`                 |
+| C          | `c`          | `main.c`                  |
+
+Recipes that call a REST API add a `curl` tab after the C tab; the C tab
+for those recipes may explain that libpq does not apply. The
+`scripts/tabs.py` script does not generate the `curl` tab, so authors add
+that tab by hand. The
+`scripts/languages.py` file defines the list, and `scripts/check_tabs.py`
+fails the build if any tab group departs from the list.
+
+## Marking Sections in the Code
+
+A recipe page never contains code directly; instead, each tab includes a
+named section of a program with the
+[Snippets](https://facelessuser.github.io/pymdown-extensions/extensions/snippets/)
+extension. A pair of comments marks each section in the source file; the
+following example marks the `connect` section of a Python program:
+
+```python
+# ;--8<-- [start:connect]
+with psycopg.connect(**conninfo) as conn:
+# ;--8<-- [end:connect]
+```
+
+The Markdown source of this page escapes the markers above with a leading
+semicolon, which prevents the extension from treating them as real markers;
+the extension removes the semicolon when the page is published.
+
+Every program in a recipe uses the same section names, except where a step
+needs no code in a particular language. The first recipe uses the
+following sections:
+
+- `imports` for the driver and library imports.
+- `config` for reading the connection settings.
+- `connect` for opening the connection.
+- `query` for running the query and reading the result.
+- `errors` for reporting failures.
+- `cleanup` for closing the connection.
+
+Each section must be a single contiguous block, because the extension
+includes only the first block when a name appears more than once in a
+file. A section may include structural lines, such as the opening of a
+function or a `try` block, when the code requires them. The dependency
+manifest of each project marks a
+`deps` section in the same way, except for `package.json`, which cannot
+contain comments and so appears in full. The extension removes the marker
+comments from the published page, including when the page shows a whole
+file.
+
+## Adding a Recipe
+
+The following steps add a new recipe to the cookbook:
+
+1. Create a directory under `recipes/` for the recipe, with a subdirectory
+   for each language and an `expected_output.txt` file.
+2. Write a complete program in each language that reads its connection
+   settings from the `PG*` environment variables and prints exactly the
+   contents of `expected_output.txt`.
+3. Mark the same named sections in each program, and the `deps` section in
+   each dependency manifest.
+4. Run `scripts/test_recipes.sh` against a local PostgreSQL server, and
+   confirm that every program passes.
+5. Generate the tab groups for each section with `scripts/tabs.py`, and
+   write the recipe page around them.
+6. Add the page to the `nav` section of `mkdocs.yml` and to the table on
+   the introduction page.
+7. Build the site with `zensical build`, and run `scripts/check_tabs.py`.
+
+The following command prints the tab groups for the `imports` and
+`connect` sections of the first recipe:
+
+```bash
+scripts/tabs.py recipes/postgresql/connect_and_query imports connect
+```
+
+A step that needs no code in a particular language should still keep the
+tab for that language, with a sentence that explains why; the Closing the
+Connection step of the first recipe demonstrates this approach.
+
+## Testing the Programs
+
+The `scripts/test_recipes.sh` script builds and runs every program, and
+compares the output with the `expected_output.txt` file for the recipe. The
+script then runs each program a second time against a port with no server,
+and checks that the program exits with an error. The following commands
+test every Python and Go program against a local server:
+
+```bash
+export PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres
+scripts/test_recipes.sh python go
+```
+
+Recipes that need more than a PostgreSQL server, such as recipes for the
+pgEdge Starfleet API, list the extra environment variables that they need
+in a `requires.txt` file. The test script skips those recipes when any of
+the variables are unset.
+
+## Publishing the Documentation
+
+The primary pgEdge documentation site imports only the `docs/` directory of
+each source repository, so the site cannot read the programs that the
+recipe pages include. The `scripts/render_docs.py` script produces a
+self-contained copy of `docs/` and `mkdocs.yml`, with the code from each
+snippet include written directly into the page, and with the Snippets
+extension removed from the configuration.
+
+After the tests pass on the `main` branch, the publish workflow renders the
+documentation and replaces the `published` branch with the result; the
+primary site imports the `published` branch. The `published` branch holds
+generated output only, so authors never edit or merge into the branch.
+
+The following command renders the documentation into `build/published`,
+which a local build can then check:
+
+```bash
+scripts/render_docs.py
+cd build/published && zensical build --strict
+```
+
+## Following the Code Conventions
+
+The programs serve as teaching material, so the code favours clarity over
+brevity. Contributions should follow these conventions:
+
+- Each program is complete and runs without modification.
+- Each program passes values to SQL statements as parameters, and never
+  builds SQL from strings.
+- Each program reports errors on `stderr` and exits with a non-zero status.
+- Comments explain why the code takes an approach, not only what the code
+  does.
+- Each project manifest requires a current release of each dependency.
+- Each project commits the lock file for toolchains that conventionally
+  commit one, namely `Cargo.lock`, `package-lock.json`, and `go.sum`.

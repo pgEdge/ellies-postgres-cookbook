@@ -1,0 +1,35 @@
+# Documentation build output
+/site/
+/build/
+.cache/
+
+# Python
+.venv/
+__pycache__/
+
+# TypeScript
+node_modules/
+dist/
+
+# Java
+target/
+
+# C#
+bin/
+obj/
+
+# Go and C build output
+recipes/**/go/main
+recipes/**/c/main
+
+# Rust
+recipes/**/rust/target/
+
+# Ruby
+vendor/
+.bundle/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

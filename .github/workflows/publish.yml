@@ -1,0 +1,69 @@
+# Publish the documentation to the published branch, with the code from
+# each recipe inlined, once the tests have passed on main.
+#
+# The primary pgEdge documentation site imports only the docs/ directory of
+# each source, so it cannot see the programs in recipes/ that the pages
+# include. The published branch carries a self-contained copy instead, which
+# the primary site imports like any other source:
+#
+#   !import https://github.com/pgEdge/ellies-postgres-cookbook.git?branch=published
+#
+# The branch holds generated output only, and each run replaces it with a
+# single new commit; never edit it by hand.
+
+name: Publish
+
+on:
+  workflow_run:
+    workflows: [Test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    # Publish only commits that passed the tests; a manual run publishes the
+    # tip of main.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install the renderer's dependencies
+        run: pip install pymdown-extensions pyyaml
+
+      - name: Render the documentation
+        run: |
+          python3 scripts/render_docs.py \
+              --output build/published --commit "$(git rev-parse HEAD)"
+
+      - name: Push the published branch
+        working-directory: build/published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          git init --quiet --initial-branch published
+          git add --all
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --quiet --message "Publish $source"
+          git push --force --quiet \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              published

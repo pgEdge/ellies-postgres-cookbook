@@ -1,0 +1,81 @@
+site_name: Ellie's Postgres Cookbook
+site_description: >-
+  How-to recipes with code samples for PostgreSQL and pgEdge products, in C,
+  Python, Ruby, TypeScript, Go, Rust, Java, and C#.
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - meta
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  # Recipe pages pull their code from the runnable programs in recipes/,
+  # so the published samples are always the ones that CI has tested.
+  # check_paths makes the build fail if a file or section is missing.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+      dedent_subsections: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  favicon: img/favicon.ico
+
+  logo_dark_mode: 'img/logo-dark.png'
+  logo_light_mode: 'img/logo-light.png'
+
+  features:
+    - content.code.copy
+    # Tabs with the same label switch together, across the whole site, so
+    # a reader who picks a language once sees it everywhere.
+    - content.tabs.link
+    - navigation.instant
+    - navigation.tracking
+    - navigation.prune
+    - navigation.top
+    - toc.follow
+
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+extra:
+  generator: false
+
+copyright: Copyright &copy; 2026 pgEdge, Inc
+repo_url: https://github.com/pgEdge/ellies-postgres-cookbook
+
+nav:
+  - Introduction: index.md
+  - Working with PostgreSQL:
+      - Connecting to PostgreSQL and Running a Query: postgresql/connect_and_query.md
+  - Contributing a Recipe: contributing.md
+  - Changelog: changelog.md
+  - License: LICENSE.md
