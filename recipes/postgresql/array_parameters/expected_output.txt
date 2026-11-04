@@ -1,0 +1,1 @@
+Found 3 of 4 types: bool, int4, text
