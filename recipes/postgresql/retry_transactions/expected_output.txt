@@ -1,0 +1,3 @@
+Attempt 1: serialisation failure, retrying
+Attempt 2: committed
+Counter value: 2
