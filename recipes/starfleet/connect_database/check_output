@@ -10,7 +10,7 @@ output="$(cat)"
 # between "Created" and "available" vary, so the check allows any number.
 expected=(
     '^Region: [a-z0-9-]+$'
-    '^Size: [a-z]+$'
+    '^Size: [a-z0-9]+$'
     '^Created database cookbook-[0-9a-f]{6}$'
     '^Database status: [a-z]+$'
     '^Database is available$'

@@ -55,10 +55,12 @@ main() {
     local reply
     reply="$(get_token)" || return 1
 
-    # Never print the token itself; it grants access to the account.
-    jq -r '"Token type: \(.token_type)",
-           "Token length: \(.access_token | length) characters",
-           "Expires in: \(.expires_in) seconds"' <<<"$reply"
+    # Never print the token itself; it grants access to the account. The
+    # strings and numbers filters produce nothing for a missing or null
+    # field, and -e then makes jq exit non-zero instead of printing null.
+    jq -er '"Token type: \(.token_type | strings)",
+            "Token length: \(.access_token | strings | length) characters",
+            "Expires in: \(.expires_in | numbers) seconds"' <<<"$reply"
 }
 
 main

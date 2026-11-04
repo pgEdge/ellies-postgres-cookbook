@@ -36,7 +36,7 @@ def settings() -> dict:
 # --8<-- [start:token]
 def get_token(config: dict) -> str:
     """Exchanges the client ID and secret for an access token, which the
-    Managed API accepts as a bearer token for the next 24 hours."""
+    Managed API accepts as a bearer token until it expires."""
     if not config["client_id"] or not config["client_secret"]:
         raise RuntimeError(
             "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"

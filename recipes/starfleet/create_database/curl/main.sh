@@ -37,7 +37,7 @@ client_secret="${STARFLEET_CLIENT_SECRET:-}"
 
 # --8<-- [start:token]
 # Exchanges the client ID and secret for an access token, which the
-# Managed API accepts as a bearer token for the next 24 hours, and prints
+# Managed API accepts as a bearer token until it expires, and prints
 # the token.
 get_token() {
     if [[ -z "$client_id" || -z "$client_secret" ]]; then
@@ -102,19 +102,19 @@ choose_placement() {
 # Creates a database that only this machine can reach, and prints the
 # API's description of it, which includes its ID.
 create_database() {
-    local region="$1" size="$2" ip suffix
+    local name="$1" display_name="$2" region="$3" size="$4" ip
     # A new database is closed to everyone until an allowlist rule admits
     # an address. The API reports the address it sees this request come
     # from, which is the one to admit; a bare address means a single host.
     ip="$(api GET /client-ip | jq -er '.ip_address')"
 
-    suffix="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
-    # The name becomes the Postgres database name, which allows only
-    # letters and digits, so the readable cookbook- prefix goes in the
-    # display name.
-    jq -n --arg suffix "$suffix" --arg region "$region" --arg size "$size" \
-        --arg ip "$ip" \
-        '{name: "cookbook\($suffix)", display_name: "cookbook-\($suffix)",
+    # The name becomes the Postgres database name, so it holds only letters
+    # and digits, and the readable cookbook- prefix goes in the display
+    # name. The script also uses the name to find the database again if the
+    # reply to this request is lost.
+    jq -n --arg name "$name" --arg display_name "$display_name" \
+        --arg region "$region" --arg size "$size" --arg ip "$ip" \
+        '{name: $name, display_name: $display_name,
           region: $region, size: $size,
           ip_allowlist: {rules: [{cidr: $ip, label: "cookbook"}]}}' |
         api POST /databases --header "Content-Type: application/json" --data @-
@@ -132,6 +132,13 @@ wait_until_available() {
             last="$status"
         fi
         [[ "$status" == "available" ]] && return 0
+        # The API does not document its status values; the example treats
+        # these two as failures, which end the wait at once instead of
+        # leaving it to run until the time limit.
+        if [[ "$status" == "degraded" || "$status" == "failed" ]]; then
+            echo "Error: the database has the status $status" >&2
+            return 1
+        fi
         sleep "$poll_seconds"
     done
     echo "Error: the database was not available after $timeout_seconds seconds" >&2
@@ -140,7 +147,17 @@ wait_until_available() {
 # --8<-- [end:wait]
 
 # --8<-- [start:delete]
-# Deletes the database and waits until the API no longer lists it.
+# Prints the ID of the database with the given name, or nothing. The script
+# uses this when the reply to the create request was lost.
+find_database() {
+    api GET "/databases?limit=100&descending=true" |
+        jq -r --arg name "$1" 'first(.[] | select(.name == $name) | .id) // empty'
+}
+
+# Deletes the database and waits until the API no longer lists it. A status
+# of 000 means that no reply arrived; that, 409 (which the API gives whilst a
+# database is still being created), 429, and the 5xx statuses are worth
+# repeating until the time limit.
 delete_database() {
     local id="$1" deadline=$((SECONDS + timeout_seconds)) status
 
@@ -148,14 +165,13 @@ delete_database() {
         status="$(api_status DELETE "/databases/$id")"
         case "$status" in
             204) break ;;
-            # The API refuses with 409 while the database is busy with
-            # another operation, such as being created, so try again.
-            409) ;;
+            404) return 0 ;;
+            000|409|429|5??) ;;
             *) echo "Error: deleting the database returned HTTP status $status" >&2
                return 1 ;;
         esac
         if ((SECONDS >= deadline)); then
-            echo "Error: the database stayed busy for $timeout_seconds seconds" >&2
+            echo "Error: the delete was still failing after $timeout_seconds seconds" >&2
             return 1
         fi
         sleep "$poll_seconds"
@@ -166,7 +182,7 @@ delete_database() {
         status="$(api_status GET "/databases/$id")"
         case "$status" in
             404) return 0 ;;
-            200) ;;
+            200|000|429|5??) ;;
             *) echo "Error: checking the database returned HTTP status $status" >&2
                return 1 ;;
         esac
@@ -187,19 +203,30 @@ cleanup() {
     local status=$?
     # Ignore further interrupts, so that they cannot cut the cleanup short.
     trap '' INT TERM
-    if [[ -n "${database_id:-}" ]]; then
-        if delete_database "$database_id"; then
-            echo "Deleted database"
-        else
-            echo "Error: could not delete database $database_id" >&2
-            status=1
+    if [[ -n "$token" && -n "$name" ]]; then
+        # If the script has no ID, the reply to the create request may have
+        # been lost, so look for the database by name.
+        if [[ -z "$database_id" ]]; then
+            if ! database_id="$(find_database "$name")"; then
+                echo "Error: could not look for database $name" >&2
+                database_id=""
+                status=1
+            fi
+        fi
+        if [[ -n "$database_id" ]]; then
+            if delete_database "$database_id"; then
+                echo "Deleted database"
+            else
+                echo "Error: could not delete database $database_id" >&2
+                status=1
+            fi
         fi
     fi
     exit "$status"
 }
 
 main() {
-    database_id=""
+    token="" name="" database_id=""
     trap cleanup EXIT
     # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
     trap 'exit 130' INT
@@ -207,16 +234,21 @@ main() {
 
     token="$(get_token)"
 
-    local placement region size database
+    local placement region size suffix database display_name
     placement="$(choose_placement)"
     region="${placement% *}"
     size="${placement#* }"
     echo "Region: $region"
     echo "Size: $size"
 
-    database="$(create_database "$region" "$size")"
+    # Choose the name before the request, so that the cleanup can find the
+    # database even if the reply to the request never arrives.
+    suffix="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+    name="cookbook$suffix"
+    database="$(create_database "$name" "cookbook-$suffix" "$region" "$size")"
     database_id="$(jq -er '.id' <<<"$database")"
-    echo "Created database $(jq -er '.display_name' <<<"$database")"
+    display_name="$(jq -er '.display_name' <<<"$database")"
+    echo "Created database $display_name"
 
     wait_until_available "$database_id"
     echo "Database is available"

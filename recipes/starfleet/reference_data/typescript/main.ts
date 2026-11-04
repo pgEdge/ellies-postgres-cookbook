@@ -25,7 +25,7 @@ const clientSecret = process.env.STARFLEET_CLIENT_SECRET || "";
 
 // --8<-- [start:token]
 // Exchanges the client ID and secret for an access token, which the
-// Managed API accepts as a bearer token for the next 24 hours.
+// Managed API accepts as a bearer token until it expires.
 async function getToken(): Promise<string> {
   if (!clientId || !clientSecret) {
     throw new Error(

@@ -1,15 +1,15 @@
 # Listing Regions, Sizes, and Versions
 
-This recipe shows how to find out what the pgEdge Starfleet Managed API
-offers before you create a database. The program lists the regions in
-which a database can run, the sizes with their limits and prices, and the
-versions of PostgreSQL that are available. The lists change as pgEdge adds
-regions, sizes, and versions, so the output varies.
+This recipe shows how to find out what the pgEdge Starfleet Managed API offers
+before you create a database. The program lists the regions in which a database
+can run, the sizes with their limits and prices, and the versions of PostgreSQL
+that are available. The lists change as pgEdge adds regions, sizes, and
+versions, so the output varies.
 
 These examples are for the pgEdge Starfleet Managed API v1.
 
-The lists depend on the current offering, so the output looks similar to
-the following:
+The lists depend on the current offering, so the output looks similar to the
+following:
 
 ```text
 Regions:
@@ -24,15 +24,15 @@ PostgreSQL versions:
 
 ## Preparing the Ingredients
 
-You need a pgEdge Starfleet account and an API client with its client ID
-and secret. Never put the client secret in
-a file that you commit to version control, and never paste it into a
-command line, because other users of the machine can read the command
-lines of running processes. The programs in this recipe read the secret
-from the environment and, for the curl script, pass it to curl on standard
-input.
+You need a pgEdge Starfleet account and an API client with its client ID and
+secret. Never put the client secret in a file that you commit to version
+control, and never paste it into a command line, because other users of the
+machine can read the command lines of running processes. The programs in this
+recipe read the secret from the environment and, for the curl script, pass it
+to curl on standard input.
 
-The dependencies are the same as for the "Getting an Access Token" recipe. The following excerpts show them:
+The dependencies are the same as for the "Getting an Access Token" recipe. The
+following excerpts show them:
 
 === "Python"
 
@@ -52,10 +52,10 @@ The dependencies are the same as for the "Getting an Access Token" recipe. The f
     --8<-- "recipes/starfleet/reference_data/go/go.mod:deps"
     ```
 
-
 ## Importing the Libraries
 
-The following code shows the imports and, for the curl script, the check for the tools that it needs:
+The following code shows the imports and, for the curl script, the check for
+the tools that it needs:
 
 === "Python"
 
@@ -81,16 +81,16 @@ The following code shows the imports and, for the curl script, the check for the
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:imports"
     ```
 
-
 ## Configuring the Program
 
-The program reads its settings from the following environment variables, and treats an empty variable as unset:
+The program reads its settings from the following environment variables, and
+treats an empty variable as unset:
 
-| Variable                  | Default                  | Description                          |
-|---------------------------|--------------------------|--------------------------------------|
-| `STARFLEET_CLIENT_ID`     | None                     | The client ID of your API client.    |
-| `STARFLEET_CLIENT_SECRET` | None                     | The client secret of the client.     |
-| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The base URL of the Starfleet API.   |
+| Variable                  | Default                  | Description         |
+|---------------------------|--------------------------|---------------------|
+| `STARFLEET_CLIENT_ID`     | None                     | Your client ID.     |
+| `STARFLEET_CLIENT_SECRET` | None                     | Your client secret. |
+| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The API base URL.   |
 
 The following code reads the settings:
 
@@ -118,10 +118,10 @@ The following code reads the settings:
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:config"
     ```
 
-
 ## Getting a Token
 
-The program gets a token in the same way as the "Getting an Access Token" recipe. The following code requests the token:
+The program gets a token in the same way as the "Getting an Access Token"
+recipe. The following code requests the token:
 
 === "Python"
 
@@ -147,10 +147,11 @@ The program gets a token in the same way as the "Getting an Access Token" recipe
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:token"
     ```
 
-
 ## Calling the Managed API
 
-Every call to the Managed API carries the token in an `Authorization` header. The following code wraps that in one function, which reports the API's own message when a call fails:
+Every call to the Managed API carries the token in an `Authorization` header.
+The following code wraps that in one function, which reports the API's own
+message when a call fails:
 
 === "Python"
 
@@ -176,10 +177,10 @@ Every call to the Managed API carries the token in an `Authorization` header. Th
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:api"
     ```
 
-
 ## Listing the Regions
 
-The `/regions` endpoint lists the regions in which Starfleet can run a database. The following code prints them:
+The `/regions` endpoint lists the regions in which Starfleet can run a
+database. The following code prints them:
 
 === "Python"
 
@@ -205,10 +206,11 @@ The `/regions` endpoint lists the regions in which Starfleet can run a database.
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:regions"
     ```
 
-
 ## Listing the Sizes
 
-The `/sizes` endpoint lists the sizes, smallest first, with the number of connections, the storage, and the monthly price of each. The program prints the list in the order that the API returns it. The following code prints the sizes:
+The `/sizes` endpoint lists the sizes, smallest first, with the number of
+connections, the storage, and the monthly price of each. The program prints the
+list in the order that the API returns it. The following code prints the sizes:
 
 === "Python"
 
@@ -234,10 +236,11 @@ The `/sizes` endpoint lists the sizes, smallest first, with the number of connec
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:sizes"
     ```
 
-
 ## Listing the PostgreSQL Versions
 
-The `/versions` endpoint lists the versions of PostgreSQL that a new database can use, and marks the default. The following code prints the versions:
+The `/pg-versions` endpoint lists the versions of PostgreSQL that a new
+database can use, and marks the default. The following code prints the
+versions:
 
 === "Python"
 
@@ -262,7 +265,6 @@ The `/versions` endpoint lists the versions of PostgreSQL that a new database ca
     ```bash
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:versions"
     ```
-
 
 ## Running the Program
 
@@ -292,14 +294,13 @@ The `main` function gets a token and prints the three lists:
     --8<-- "recipes/starfleet/reference_data/curl/main.sh:main"
     ```
 
-
 ## Running the Example
 
-The complete project for each language is available in the
-[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/reference_data).
-Set the environment variables for your account, and then run the command
-for your language from the corresponding project directory. The following
-tabs show the commands that build and run each example:
+The complete project for each language is available in the [cookbook
+repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/reference_data).
+Set the environment variables for your account, and then run the command for
+your language from the corresponding project directory. The following tabs show
+the commands that build and run each example:
 
 === "Python"
 
@@ -364,5 +365,3 @@ recipe:
 
 - The "Creating a Database and Waiting for It" recipe uses the first
   region and the smallest size from these lists.
-- The Starfleet documentation describes the sizes, the regions, and the
-  prices in detail.

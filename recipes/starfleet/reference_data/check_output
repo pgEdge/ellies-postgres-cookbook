@@ -30,7 +30,7 @@ done <<<"$output"
 [[ $versions -gt 0 ]] || { echo "no versions listed" >&2; exit 1; }
 
 # A size line names the size and its resources.
-grep -Eq '^  [a-z]+: [0-9]+ connections, [0-9A-Za-z]+ storage' <<<"$output" \
+grep -Eq '^  [a-z0-9]+: [0-9]+ connections, [0-9A-Za-z]+ storage' <<<"$output" \
     || { echo "no well-formed size line" >&2; exit 1; }
 # A version is a number, optionally marked as the default.
 grep -Eq '^  [0-9]+( \(default\))?$' <<<"$output" \

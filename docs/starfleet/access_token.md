@@ -1,10 +1,10 @@
 # Getting an Access Token
 
-This recipe shows how to authenticate to the pgEdge Starfleet API. The
-program exchanges an API client ID and secret for an access token, and then
-prints the type of the token, its length, and its lifetime. The program
-never prints the token itself, because anyone who holds a token can use
-your account until it expires.
+This recipe shows how to authenticate to the pgEdge Starfleet API. The program
+exchanges an API client ID and secret for an access token, and then prints the
+type of the token, its length, and its lifetime. The program never prints the
+token itself, because anyone who holds a token can use your account until it
+expires.
 
 These examples are for the pgEdge Starfleet Managed API v1.
 
@@ -19,15 +19,16 @@ Expires in: 86400 seconds
 
 ## Preparing the Ingredients
 
-You need a pgEdge Starfleet account and an API client with its client ID
-and secret. Never put the client secret in
-a file that you commit to version control, and never paste it into a
-command line, because other users of the machine can read the command
-lines of running processes. The programs in this recipe read the secret
-from the environment and, for the curl script, pass it to curl on standard
-input.
+You need a pgEdge Starfleet account and an API client with its client ID and
+secret. Never put the client secret in a file that you commit to version
+control, and never paste it into a command line, because other users of the
+machine can read the command lines of running processes. The programs in this
+recipe read the secret from the environment and, for the curl script, pass it
+to curl on standard input.
 
-The Python, TypeScript, and Go programs need only the dependencies in the following excerpts; the Go program uses the standard library alone. The curl script needs `curl` and `jq`.
+The Python, TypeScript, and Go programs need only the dependencies in the
+following excerpts; the Go program uses the standard library alone. The curl
+script needs `curl` and `jq`.
 
 === "Python"
 
@@ -47,10 +48,10 @@ The Python, TypeScript, and Go programs need only the dependencies in the follow
     --8<-- "recipes/starfleet/access_token/go/go.mod:deps"
     ```
 
-
 ## Importing the Libraries
 
-The following code shows the imports and, for the curl script, the check for the tools that it needs:
+The following code shows the imports and, for the curl script, the check for
+the tools that it needs:
 
 === "Python"
 
@@ -76,16 +77,16 @@ The following code shows the imports and, for the curl script, the check for the
     --8<-- "recipes/starfleet/access_token/curl/main.sh:imports"
     ```
 
-
 ## Configuring the Program
 
-The program reads its settings from the following environment variables, and treats an empty variable as unset:
+The program reads its settings from the following environment variables, and
+treats an empty variable as unset:
 
-| Variable                  | Default                  | Description                          |
-|---------------------------|--------------------------|--------------------------------------|
-| `STARFLEET_CLIENT_ID`     | None                     | The client ID of your API client.    |
-| `STARFLEET_CLIENT_SECRET` | None                     | The client secret of the client.     |
-| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The base URL of the Starfleet API.   |
+| Variable                  | Default                  | Description         |
+|---------------------------|--------------------------|---------------------|
+| `STARFLEET_CLIENT_ID`     | None                     | Your client ID.     |
+| `STARFLEET_CLIENT_SECRET` | None                     | Your client secret. |
+| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The API base URL.   |
 
 The following code reads the settings:
 
@@ -113,10 +114,14 @@ The following code reads the settings:
     --8<-- "recipes/starfleet/access_token/curl/main.sh:config"
     ```
 
-
 ## Requesting the Token
 
-The Starfleet account API issues tokens at `/account/v1/oauth/token`, and the Managed API accepts them for 24 hours. The request body holds the grant type, the client ID, and the client secret. The following code requests a token and returns it; the curl script builds the body with `jq` from the environment, and passes it to curl on standard input, so that the secret never appears in the process list:
+The Starfleet account API issues tokens at `/account/v1/oauth/token`, and the
+Managed API accepts them as bearer tokens until they expire. The request body
+holds the grant type, the client ID, and the client secret. The following code
+requests a token and returns it; the curl script builds the body with `jq` from
+the environment, and passes it to curl on standard input, so that the secret
+never appears in the process list:
 
 === "Python"
 
@@ -142,10 +147,11 @@ The Starfleet account API issues tokens at `/account/v1/oauth/token`, and the Ma
     --8<-- "recipes/starfleet/access_token/curl/main.sh:token"
     ```
 
-
 ## Running the Program
 
-The `main` function gets a token and prints its details. The following code shows the function, and the error handling that turns a failed request into a message and a non-zero exit status:
+The `main` function gets a token and prints its details. The following code
+shows the function, and the error handling that turns a failed request into a
+message and a non-zero exit status:
 
 === "Python"
 
@@ -171,14 +177,13 @@ The `main` function gets a token and prints its details. The following code show
     --8<-- "recipes/starfleet/access_token/curl/main.sh:main"
     ```
 
-
 ## Running the Example
 
-The complete project for each language is available in the
-[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/access_token).
-Set the environment variables for your account, and then run the command
-for your language from the corresponding project directory. The following
-tabs show the commands that build and run each example:
+The complete project for each language is available in the [cookbook
+repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/access_token).
+Set the environment variables for your account, and then run the command for
+your language from the corresponding project directory. The following tabs show
+the commands that build and run each example:
 
 === "Python"
 

@@ -54,7 +54,7 @@ def settings() -> dict:
 # --8<-- [start:token]
 def get_token(config: dict) -> str:
     """Exchanges the client ID and secret for an access token, which the
-    Managed API accepts as a bearer token for the next 24 hours."""
+    Managed API accepts as a bearer token until it expires."""
     if not config["client_id"] or not config["client_secret"]:
         raise RuntimeError(
             "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"
@@ -107,7 +107,9 @@ def choose_placement(config: dict, token: str) -> tuple[str, str]:
 
 
 # --8<-- [start:create]
-def create_database(config: dict, token: str, region: str, size: str) -> dict:
+def create_database(
+    config: dict, token: str, name: str, display_name: str, region: str, size: str
+) -> dict:
     """Creates a database that only this machine can reach, and returns
     the API's description of it, which includes its ID."""
     # A new database is closed to everyone until an allowlist rule admits
@@ -115,13 +117,13 @@ def create_database(config: dict, token: str, region: str, size: str) -> dict:
     # from, which is the one to admit; a bare address means a single host.
     ip = api(config, token, "GET", "/client-ip")["ip_address"]
 
-    suffix = secrets.token_hex(3)
     return api(config, token, "POST", "/databases", {
-        # The name becomes the Postgres database name, which allows only
-        # letters and digits, so the readable cookbook- prefix goes in the
-        # display name.
-        "name": f"cookbook{suffix}",
-        "display_name": f"cookbook-{suffix}",
+        # The name becomes the Postgres database name, so it holds only
+        # letters and digits, and the readable cookbook- prefix goes in
+        # the display name. The program also uses the name to find the
+        # database again if the reply to this request is lost.
+        "name": name,
+        "display_name": display_name,
         "region": region,
         "size": size,
         "ip_allowlist": {"rules": [{"cidr": ip, "label": "cookbook"}]},
@@ -130,6 +132,12 @@ def create_database(config: dict, token: str, region: str, size: str) -> dict:
 
 
 # --8<-- [start:wait]
+# The API does not document its status values; the example treats these
+# two as failures, which end the wait at once instead of leaving it to run
+# until the time limit.
+FAILED_STATUSES = {"degraded", "failed"}
+
+
 def wait_until_available(config: dict, token: str, database_id: str) -> None:
     """Polls the database until its status is available."""
     deadline = time.monotonic() + TIMEOUT_SECONDS
@@ -141,6 +149,8 @@ def wait_until_available(config: dict, token: str, database_id: str) -> None:
             last = status
         if status == "available":
             return
+        if status in FAILED_STATUSES:
+            raise RuntimeError(f"the database has the status {status}")
         time.sleep(POLL_SECONDS)
     raise TimeoutError(f"the database was not available after {TIMEOUT_SECONDS} seconds")
 # --8<-- [end:wait]
@@ -152,14 +162,21 @@ def connection_settings(config: dict, token: str, database_id: str) -> dict:
     them as keyword arguments for psycopg."""
     # The connection details, including the password of the application
     # user, come with the description of the database. They are present
-    # only once the database is available.
+    # only once the database is available. The API does not require the
+    # host, so fall back to the external IP address if it is missing.
     connection = api(config, token, "GET", f"/databases/{database_id}")["connection"]
+    host = connection.get("host") or connection.get("external_ip_address")
+    details = {
+        "host": host,
+        "port": connection.get("port"),
+        "dbname": connection.get("database"),
+        "user": connection.get("username"),
+        "password": connection.get("password"),
+    }
+    if not all(details.values()):
+        raise RuntimeError("the database description has incomplete connection details")
     return {
-        "host": connection["host"],
-        "port": connection["port"],
-        "dbname": connection["database"],
-        "user": connection["username"],
-        "password": connection["password"],
+        **details,
         # Encrypt the connection. The certificate of a Starfleet database
         # is not signed by a public authority, so the example does not
         # verify it.
@@ -170,24 +187,57 @@ def connection_settings(config: dict, token: str, database_id: str) -> dict:
 
 
 # --8<-- [start:query]
-def server_version(settings: dict) -> str:
+def server_version(connection: dict) -> str:
     """Connects to the database and returns the server's version string."""
     # A database can refuse connections for a short while after the API
-    # reports it as available, so try a few times before giving up.
+    # reports it as available, so try a few times before giving up. An
+    # error that carries an SQLSTATE code came from the server itself,
+    # such as a failed login, and will not change on a second attempt.
     for attempt in range(CONNECT_ATTEMPTS):
         try:
             # The with block closes the connection when it exits, whether
             # or not an error occurred.
-            with psycopg.connect(**settings) as conn:
+            with psycopg.connect(**connection) as conn:
                 return conn.execute("SELECT version()").fetchone()[0]
-        except psycopg.OperationalError:
-            if attempt == CONNECT_ATTEMPTS - 1:
+        except psycopg.OperationalError as e:
+            if e.sqlstate is not None or attempt == CONNECT_ATTEMPTS - 1:
                 raise
             time.sleep(POLL_SECONDS)
 # --8<-- [end:query]
 
 
 # --8<-- [start:delete]
+def is_transient(error: Exception) -> bool:
+    """Reports whether a failed request is worth repeating: no reply
+    arrived, the service is overloaded or failing, or it answered 409,
+    which the API does whilst a database is still being created."""
+    if isinstance(error, httpx.TransportError):
+        return True
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        return status in (409, 429) or status >= 500
+    return False
+
+
+def is_gone(error: Exception) -> bool:
+    """Reports whether an error is a 404 reply, which means that the
+    database does not exist."""
+    return (
+        isinstance(error, httpx.HTTPStatusError)
+        and error.response.status_code == 404
+    )
+
+
+def find_database(config: dict, token: str, name: str):
+    """Returns the ID of the database with the given name, or None. The
+    program uses this when the reply to the create request was lost."""
+    databases = api(config, token, "GET", "/databases?limit=100&descending=true")
+    for database in databases or []:
+        if database["name"] == name:
+            return database["id"]
+    return None
+
+
 def delete_database(config: dict, token: str, database_id: str) -> None:
     """Deletes the database and waits until the API no longer lists it."""
     deadline = time.monotonic() + TIMEOUT_SECONDS
@@ -195,10 +245,10 @@ def delete_database(config: dict, token: str, database_id: str) -> None:
         try:
             api(config, token, "DELETE", f"/databases/{database_id}")
             break
-        except httpx.HTTPStatusError as e:
-            # The API refuses with 409 while the database is busy with
-            # another operation, such as being created, so try again.
-            if e.response.status_code != 409 or time.monotonic() > deadline:
+        except httpx.HTTPError as e:
+            if is_gone(e):
+                return
+            if not is_transient(e) or time.monotonic() > deadline:
                 raise
             time.sleep(POLL_SECONDS)
 
@@ -206,33 +256,44 @@ def delete_database(config: dict, token: str, database_id: str) -> None:
     while time.monotonic() < deadline:
         try:
             api(config, token, "GET", f"/databases/{database_id}")
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
+        except httpx.HTTPError as e:
+            if is_gone(e):
                 return
-            raise
+            if not is_transient(e):
+                raise
         time.sleep(POLL_SECONDS)
     raise TimeoutError(f"the database was still present after {TIMEOUT_SECONDS} seconds")
 # --8<-- [end:delete]
 
 
 # --8<-- [start:main]
-def main() -> int:
-    # Turn SIGTERM into a normal exit, so that the finally block runs.
-    # Ctrl-C already raises KeyboardInterrupt, which does the same.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+def stop(*_) -> None:
+    """Handles SIGTERM like Ctrl-C, by raising KeyboardInterrupt."""
+    raise KeyboardInterrupt
 
+
+def main() -> int:
+    # Turn SIGTERM into a KeyboardInterrupt, so that the finally block
+    # runs, as it does for Ctrl-C.
+    signal.signal(signal.SIGTERM, stop)
+
+    config = settings()
     exit_code = 0
     token = None
+    name = None
     database_id = None
     try:
-        config = settings()
         token = get_token(config)
 
         region, size = choose_placement(config, token)
         print(f"Region: {region}")
         print(f"Size: {size}")
 
-        database = create_database(config, token, region, size)
+        # Choose the name before the request, so that the program can find
+        # the database even if the reply to the request never arrives.
+        suffix = secrets.token_hex(3)
+        name, display_name = f"cookbook{suffix}", f"cookbook-{suffix}"
+        database = create_database(config, token, name, display_name, region, size)
         database_id = database["id"]
         print(f"Created database {database['display_name']}")
 
@@ -242,9 +303,16 @@ def main() -> int:
         connection = connection_settings(config, token, database_id)
         print(f"Server version: {server_version(connection)}")
     # httpx.HTTPError covers connection failures and, through
-    # raise_for_status(), error responses from the API. psycopg.Error is
+    # raise_for_status(), error responses from the API; psycopg.Error is
     # the base class for every error the driver raises.
-    except (httpx.HTTPError, psycopg.Error, RuntimeError, TimeoutError) as e:
+    except (
+        httpx.HTTPError,
+        psycopg.Error,
+        KeyError,
+        ValueError,
+        RuntimeError,
+        TimeoutError,
+    ) as e:
         print(f"Error: {e}", file=sys.stderr)
         exit_code = 1
     except KeyboardInterrupt:
@@ -253,12 +321,18 @@ def main() -> int:
     finally:
         # Delete the database whether the example succeeded, failed, or
         # was interrupted, because the service bills for it until then.
-        if database_id is not None:
+        # Ignore further interrupts, so that they cannot cut it short.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if token is not None and name is not None:
             try:
-                delete_database(config, token, database_id)
-                print("Deleted database")
-            except (httpx.HTTPError, TimeoutError) as e:
-                print(f"Error deleting database {database_id}: {e}", file=sys.stderr)
+                if database_id is None:
+                    database_id = find_database(config, token, name)
+                if database_id is not None:
+                    delete_database(config, token, database_id)
+                    print("Deleted database")
+            except (httpx.HTTPError, KeyError, TimeoutError) as e:
+                print(f"Error deleting database {database_id or name}: {e}", file=sys.stderr)
                 exit_code = 1
 
     return exit_code

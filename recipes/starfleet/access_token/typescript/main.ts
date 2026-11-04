@@ -57,7 +57,11 @@ async function getToken(): Promise<AccessToken> {
       `token request failed: ${response.status} ${await response.text()}`,
     );
   }
-  return (await response.json()) as AccessToken;
+  const token = (await response.json()) as AccessToken;
+  if (!token.access_token) {
+    throw new Error("the token response has no access token");
+  }
+  return token;
 }
 // --8<-- [end:token]
 

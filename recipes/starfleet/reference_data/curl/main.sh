@@ -28,7 +28,7 @@ client_secret="${STARFLEET_CLIENT_SECRET:-}"
 
 # --8<-- [start:token]
 # Exchanges the client ID and secret for an access token, which the
-# Managed API accepts as a bearer token for the next 24 hours, and prints
+# Managed API accepts as a bearer token until it expires, and prints
 # the token.
 get_token() {
     if [[ -z "$client_id" || -z "$client_secret" ]]; then

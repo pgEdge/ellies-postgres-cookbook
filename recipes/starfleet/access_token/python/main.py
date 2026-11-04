@@ -56,7 +56,10 @@ def get_token(config: dict) -> dict:
     )
     # Turn any 4xx or 5xx status into an httpx.HTTPStatusError.
     response.raise_for_status()
-    return response.json()
+    token = response.json()
+    if not token.get("access_token"):
+        raise RuntimeError("the token response has no access token")
+    return token
 # --8<-- [end:token]
 
 

@@ -60,7 +60,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // --8<-- [start:token]
 // getToken exchanges the client ID and secret for an access token, which
-// the Managed API accepts as a bearer token for the next 24 hours.
+// the Managed API accepts as a bearer token until it expires.
 func getToken(ctx context.Context) (string, error) {
 	clientID := os.Getenv("STARFLEET_CLIENT_ID")
 	clientSecret := os.Getenv("STARFLEET_CLIENT_SECRET")
@@ -207,9 +207,18 @@ type Database struct {
 	Status      string `json:"status"`
 }
 
+// randomSuffix returns six random hexadecimal digits.
+func randomSuffix() (string, error) {
+	raw := make([]byte, 3)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
 // createDatabase creates a database that only this machine can reach,
 // and returns the API's description of it, which includes its ID.
-func createDatabase(ctx context.Context, token, region, size string) (*Database, error) {
+func createDatabase(ctx context.Context, token, name, displayName, region, size string) (*Database, error) {
 	// A new database is closed to everyone until an allowlist rule admits
 	// an address. The API reports the address it sees this request come
 	// from, which is the one to admit; a bare address means a single host.
@@ -220,19 +229,14 @@ func createDatabase(ctx context.Context, token, region, size string) (*Database,
 		return nil, err
 	}
 
-	raw := make([]byte, 3)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, err
-	}
-	suffix := hex.EncodeToString(raw)
-
 	var database Database
 	err := api(ctx, token, http.MethodPost, "/databases", map[string]any{
-		// The name becomes the Postgres database name, which allows only
-		// letters and digits, so the readable cookbook- prefix goes in
-		// the display name.
-		"name":         "cookbook" + suffix,
-		"display_name": "cookbook-" + suffix,
+		// The name becomes the Postgres database name, so it holds only
+		// letters and digits, and the readable cookbook- prefix goes in
+		// the display name. The program also uses the name to find the
+		// database again if the reply to this request is lost.
+		"name":         name,
+		"display_name": displayName,
 		"region":       region,
 		"size":         size,
 		"ip_allowlist": map[string]any{
@@ -264,6 +268,12 @@ func waitUntilAvailable(ctx context.Context, token, id string) error {
 		if database.Status == "available" {
 			return nil
 		}
+		// The API does not document its status values; the example
+		// treats these two as failures, which end the wait at once
+		// instead of leaving it to run until the time limit.
+		if database.Status == "degraded" || database.Status == "failed" {
+			return fmt.Errorf("the database has the status %s", database.Status)
+		}
 		if err := sleep(ctx); err != nil {
 			return err
 		}
@@ -280,6 +290,39 @@ func isStatus(err error, status int) bool {
 	return errors.As(err, &apiErr) && apiErr.Status == status
 }
 
+// isTransient reports whether a failed request is worth repeating: no
+// reply arrived, the service is overloaded or failing, or it answered 409,
+// which the API does whilst a database is still being created.
+func isTransient(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return true
+	}
+	return apiErr.Status == http.StatusConflict ||
+		apiErr.Status == http.StatusTooManyRequests ||
+		apiErr.Status >= 500
+}
+
+// findDatabase returns the ID of the database with the given name, or an
+// empty string. The program uses it when the reply to the create request
+// was lost.
+func findDatabase(ctx context.Context, token, name string) (string, error) {
+	var databases []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	err := api(ctx, token, http.MethodGet, "/databases?limit=100&descending=true", nil, &databases)
+	if err != nil {
+		return "", err
+	}
+	for _, database := range databases {
+		if database.Name == name {
+			return database.ID, nil
+		}
+	}
+	return "", nil
+}
+
 // deleteDatabase deletes the database and waits until the API no longer
 // lists it.
 func deleteDatabase(ctx context.Context, token, id string) error {
@@ -289,9 +332,10 @@ func deleteDatabase(ctx context.Context, token, id string) error {
 		if err == nil {
 			break
 		}
-		// The API refuses with 409 while the database is busy with
-		// another operation, such as being created, so try again.
-		if !isStatus(err, http.StatusConflict) || time.Now().After(deadline) {
+		if isStatus(err, http.StatusNotFound) {
+			return nil
+		}
+		if !isTransient(err) || time.Now().After(deadline) {
 			return err
 		}
 		if err := sleep(ctx); err != nil {
@@ -305,7 +349,7 @@ func deleteDatabase(ctx context.Context, token, id string) error {
 		if isStatus(err, http.StatusNotFound) {
 			return nil
 		}
-		if err != nil {
+		if err != nil && !isTransient(err) {
 			return err
 		}
 		if err := sleep(ctx); err != nil {
@@ -338,22 +382,46 @@ func run() (err error) {
 	fmt.Printf("Region: %s\n", region)
 	fmt.Printf("Size: %s\n", size)
 
-	database, err := createDatabase(ctx, token, region, size)
+	// Choose the name before the request, so that the program can find
+	// the database even if the reply to the request never arrives.
+	suffix, err := randomSuffix()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Created database %s\n", database.DisplayName)
+	name, displayName := "cookbook"+suffix, "cookbook-"+suffix
 
 	// Delete the database whether the example succeeded, failed, or was
 	// interrupted, because the service bills for it until then. The
-	// cleanup uses its own context, because ctx ends on Ctrl-C.
+	// cleanup uses its own context, because ctx ends on Ctrl-C, and the
+	// signal handler above keeps absorbing any further signals until run
+	// returns.
+	var databaseID string
 	defer func() {
-		if delErr := deleteDatabase(context.Background(), token, database.ID); delErr != nil {
-			err = errors.Join(err, fmt.Errorf("deleting database %s: %w", database.ID, delErr))
+		cleanup := context.Background()
+		if databaseID == "" {
+			id, findErr := findDatabase(cleanup, token, name)
+			if findErr != nil {
+				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr))
+				return
+			}
+			databaseID = id
+		}
+		if databaseID == "" {
+			return
+		}
+		if delErr := deleteDatabase(cleanup, token, databaseID); delErr != nil {
+			err = errors.Join(err, fmt.Errorf("deleting database %s: %w", databaseID, delErr))
 			return
 		}
 		fmt.Println("Deleted database")
 	}()
+
+	database, err := createDatabase(ctx, token, name, displayName, region, size)
+	if err != nil {
+		return err
+	}
+	databaseID = database.ID
+	fmt.Printf("Created database %s\n", database.DisplayName)
 
 	if err := waitUntilAvailable(ctx, token, database.ID); err != nil {
 		return err

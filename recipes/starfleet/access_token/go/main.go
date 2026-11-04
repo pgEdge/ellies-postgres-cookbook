@@ -93,6 +93,9 @@ func getToken(ctx context.Context) (*AccessToken, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
 		return nil, fmt.Errorf("decoding the token response: %w", err)
 	}
+	if token.AccessToken == "" {
+		return nil, errors.New("the token response has no access token")
+	}
 	return &token, nil
 }
 

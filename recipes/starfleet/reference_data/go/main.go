@@ -45,7 +45,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // --8<-- [start:token]
 // getToken exchanges the client ID and secret for an access token, which
-// the Managed API accepts as a bearer token for the next 24 hours.
+// the Managed API accepts as a bearer token until it expires.
 func getToken(ctx context.Context) (string, error) {
 	clientID := os.Getenv("STARFLEET_CLIENT_ID")
 	clientSecret := os.Getenv("STARFLEET_CLIENT_SECRET")

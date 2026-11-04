@@ -33,15 +33,17 @@ const clientSecret = process.env.STARFLEET_CLIENT_SECRET || "";
 
 // Ctrl-C and SIGTERM abort the signal below instead of ending the
 // process, which lets the program delete its database before it exits.
+// The handlers stay in place, so a further Ctrl-C does not end the process
+// during the cleanup either.
 const interrupt = new AbortController();
-for (const name of ["SIGINT", "SIGTERM"] as const) {
-  process.once(name, () => interrupt.abort());
+for (const signalName of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signalName, () => interrupt.abort());
 }
 // --8<-- [end:config]
 
 // --8<-- [start:token]
 // Exchanges the client ID and secret for an access token, which the
-// Managed API accepts as a bearer token for the next 24 hours.
+// Managed API accepts as a bearer token until it expires.
 async function getToken(): Promise<string> {
   if (!clientId || !clientSecret) {
     throw new Error(
@@ -140,6 +142,8 @@ interface Database {
 // API's description of it, which includes its ID.
 async function createDatabase(
   token: string,
+  name: string,
+  displayName: string,
   region: string,
   size: string,
 ): Promise<Database> {
@@ -148,13 +152,13 @@ async function createDatabase(
   // from, which is the one to admit; a bare address means a single host.
   const ip = await api<{ ip_address: string }>(token, "GET", "/client-ip");
 
-  const suffix = randomBytes(3).toString("hex");
   const database = await api<Database>(token, "POST", "/databases", {
-    // The name becomes the Postgres database name, which allows only
-    // letters and digits, so the readable cookbook- prefix goes in the
-    // display name.
-    name: `cookbook${suffix}`,
-    display_name: `cookbook-${suffix}`,
+    // The name becomes the Postgres database name, so it holds only
+    // letters and digits, and the readable cookbook- prefix goes in the
+    // display name. The program also uses the name to find the database
+    // again if the reply to this request is lost.
+    name,
+    display_name: displayName,
     region,
     size,
     ip_allowlist: { rules: [{ cidr: ip!.ip_address, label: "cookbook" }] },
@@ -180,6 +184,12 @@ async function waitUntilAvailable(
     if (database!.status === "available") {
       return;
     }
+    // The API does not document its status values; the example treats
+    // these two as failures, which end the wait at once instead of leaving
+    // it to run until the time limit.
+    if (database!.status === "degraded" || database!.status === "failed") {
+      throw new Error(`the database has the status ${database!.status}`);
+    }
     await sleep(POLL_MS, undefined, { signal: interrupt.signal });
   }
   throw new Error(`the database was not available after ${TIMEOUT_MS / 1000} seconds`);
@@ -187,6 +197,34 @@ async function waitUntilAvailable(
 // --8<-- [end:wait]
 
 // --8<-- [start:delete]
+// Reports whether a failed request is worth repeating: no reply arrived
+// (fetch rejects, and the error is not an ApiError), the service is
+// overloaded or failing, or it answered 409, which the API does whilst a
+// database is still being created.
+function isTransient(err: unknown): boolean {
+  if (!(err instanceof ApiError)) {
+    return true;
+  }
+  return err.status === 409 || err.status === 429 || err.status >= 500;
+}
+
+// Returns the ID of the database with the given name, or undefined. The
+// program uses this when the reply to the create request was lost.
+async function findDatabase(
+  token: string,
+  name: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const databases = await api<{ id: string; name: string }[]>(
+    token,
+    "GET",
+    "/databases?limit=100&descending=true",
+    undefined,
+    signal,
+  );
+  return databases?.find((database) => database.name === name)?.id;
+}
+
 // Deletes the database and waits until the API no longer lists it. The
 // requests ignore Ctrl-C, so that a second interrupt cannot leave the
 // database behind.
@@ -199,9 +237,10 @@ async function deleteDatabase(token: string, databaseId: string): Promise<void> 
       await api(token, "DELETE", `/databases/${databaseId}`, undefined, never);
       break;
     } catch (err) {
-      // The API refuses with 409 while the database is busy with another
-      // operation, such as being created, so try again.
-      if (!(err instanceof ApiError && err.status === 409) || Date.now() > deadline) {
+      if (err instanceof ApiError && err.status === 404) {
+        return;
+      }
+      if (!isTransient(err) || Date.now() > deadline) {
         throw err;
       }
       await sleep(POLL_MS);
@@ -216,7 +255,9 @@ async function deleteDatabase(token: string, databaseId: string): Promise<void> 
       if (err instanceof ApiError && err.status === 404) {
         return;
       }
-      throw err;
+      if (!isTransient(err)) {
+        throw err;
+      }
     }
     await sleep(POLL_MS);
   }
@@ -229,9 +270,6 @@ async function deleteDatabase(token: string, databaseId: string): Promise<void> 
 // arrives as a TypeError whose cause holds the details, and Node reports
 // a failure to reach several addresses as an AggregateError.
 function describe(err: unknown): string {
-  if (interrupt.signal.aborted) {
-    return "interrupted";
-  }
   if (err instanceof AggregateError) {
     return err.errors.map(describe).join("; ");
   }
@@ -244,6 +282,7 @@ function describe(err: unknown): string {
 async function main(): Promise<number> {
   let exitCode = 0;
   let token: string | undefined;
+  let name: string | undefined;
   let databaseId: string | undefined;
   try {
     token = await getToken();
@@ -252,24 +291,42 @@ async function main(): Promise<number> {
     console.log(`Region: ${region}`);
     console.log(`Size: ${size}`);
 
-    const database = await createDatabase(token, region, size);
+    // Choose the name before the request, so that the program can find
+    // the database even if the reply to the request never arrives.
+    const suffix = randomBytes(3).toString("hex");
+    name = `cookbook${suffix}`;
+    const database = await createDatabase(
+      token,
+      name,
+      `cookbook-${suffix}`,
+      region,
+      size,
+    );
     databaseId = database.id;
     console.log(`Created database ${database.display_name}`);
 
     await waitUntilAvailable(token, databaseId);
     console.log("Database is available");
   } catch (err) {
-    console.error(`Error: ${describe(err)}`);
-    exitCode = 1;
+    if (interrupt.signal.aborted) {
+      console.error("Interrupted");
+      exitCode = 130;
+    } else {
+      console.error(`Error: ${describe(err)}`);
+      exitCode = 1;
+    }
   } finally {
     // Delete the database whether the example succeeded, failed, or was
     // interrupted, because the service bills for it until then.
-    if (token && databaseId) {
+    if (token && name) {
       try {
-        await deleteDatabase(token, databaseId);
-        console.log("Deleted database");
+        databaseId ??= await findDatabase(token, name, new AbortController().signal);
+        if (databaseId) {
+          await deleteDatabase(token, databaseId);
+          console.log("Deleted database");
+        }
       } catch (err) {
-        console.error(`Error deleting database ${databaseId}: ${describe(err)}`);
+        console.error(`Error deleting database ${databaseId ?? name}: ${describe(err)}`);
         exitCode = 1;
       }
     }
