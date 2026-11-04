@@ -55,13 +55,16 @@ connection exactly as in the
 [first recipe](../postgresql/connect_and_query.md). The following table
 describes the other variables that the program reads:
 
-| Variable         | Default            | Description                      |
-|------------------|--------------------|----------------------------------|
-| `LLM_PROVIDER`   | `ollama`           | The provider for chat requests.  |
-| `LLM_API_KEY`    | None               | The API key, if one is needed.   |
-| `LLM_BASE_URL`   | The provider's own | Overrides the provider endpoint. |
-| `EMBED_PROVIDER` | `ollama`           | The provider for embeddings.     |
-| `EMBED_MODEL`    | `nomic-embed-text` | The embedding model.             |
+| Variable         | Default            | Description                        |
+|------------------|--------------------|------------------------------------|
+| `LLM_PROVIDER`   | `ollama`           | Decides whether the next two       |
+|                  |                    | variables apply to embeddings.     |
+| `LLM_API_KEY`    | None               | The API key; used only when the    |
+|                  |                    | two providers match.               |
+| `LLM_BASE_URL`   | The provider's own | The endpoint; used only when the   |
+|                  |                    | two providers match.               |
+| `EMBED_PROVIDER` | `ollama`           | The provider for embeddings.       |
+| `EMBED_MODEL`    | `nomic-embed-text` | The embedding model.               |
 
 This recipe creates only embeddings, so it ignores `LLM_MODEL`. The
 following code shows how the program reads the variables:

@@ -194,9 +194,13 @@ func run(ctx context.Context) error {
 	}
 	question := "Which animal purrs?"
 
+	inputs := make([]string, 0, len(texts)+1)
+	inputs = append(inputs, texts...)
+	inputs = append(inputs, question)
+
 	// Embed the documents and the question in one batch, before touching
 	// the database, so a provider failure never leaves a half-filled table.
-	vectors, err := embedTexts(ctx, client, append(texts, question))
+	vectors, err := embedTexts(ctx, client, inputs)
 	if err != nil {
 		return err
 	}

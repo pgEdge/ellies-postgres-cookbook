@@ -157,6 +157,12 @@ func rerank(ctx context.Context, client llm.Client, query string, candidates []s
 	if len(resp.Results) == 0 {
 		return nil, fmt.Errorf("the model returned no results")
 	}
+	// Check every index before the caller uses it to look up a candidate.
+	for _, r := range resp.Results {
+		if r.Index < 0 || r.Index >= len(candidates) {
+			return nil, fmt.Errorf("the model returned an invalid index %d", r.Index)
+		}
+	}
 	return resp.Results, nil
 }
 

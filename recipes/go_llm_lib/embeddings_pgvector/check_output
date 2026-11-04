@@ -10,5 +10,5 @@ if [[ -z "${out//[[:space:]]/}" ]]; then
 fi
 grep -q '^Question: Which animal purrs?$' <<<"$out" ||
     { echo "missing Question line" >&2; exit 1; }
-grep -q '^Nearest document: .*cat' <<<"$out" ||
+grep -q '^Nearest document: .*\bcat\b' <<<"$out" ||
     { echo "the cat document did not win" >&2; exit 1; }

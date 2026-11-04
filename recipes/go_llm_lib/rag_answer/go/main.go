@@ -264,9 +264,13 @@ func run(ctx context.Context) error {
 	}
 	question := "How long is the warranty on the Zephyr Kettle?"
 
+	inputs := make([]string, 0, len(facts)+1)
+	inputs = append(inputs, facts...)
+	inputs = append(inputs, question)
+
 	// Embed the facts and the question in one batch, before touching the
 	// database, so a provider failure never leaves a half-filled table.
-	vectors, err := embedTexts(ctx, embed, append(facts, question))
+	vectors, err := embedTexts(ctx, embed, inputs)
 	if err != nil {
 		return err
 	}
