@@ -112,6 +112,9 @@ func queryMetrics(s settings) error {
 	if err != nil {
 		return err
 	}
+	if len(result) == 0 {
+		return errors.New("the Workbench returned no series; has the collector run yet?")
+	}
 	for _, m := range result {
 		if len(m.Data) == 0 {
 			fmt.Printf("%s: no data\n", m.Name)

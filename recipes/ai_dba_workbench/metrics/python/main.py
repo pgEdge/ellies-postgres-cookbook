@@ -68,6 +68,10 @@ def query_metrics(cfg: dict) -> None:
         "buckets": 6,
         "metrics": "numbackends,xact_commit",
     })
+    if not series:
+        raise RuntimeError(
+            "The Workbench returned no series; has the collector run yet?"
+        )
     for s in series:
         points = s["data"]
         if not points:

@@ -16,10 +16,15 @@
 // a probe's data is out of date, and the alerter checks it every minute.
 const RULE_NAME = "metric_staleness";
 
-// The longest the program waits for the alert, in milliseconds. The alerter
-// evaluates its rules once a minute, so 90 seconds allows for one full cycle
-// and some slack.
-const WAIT_MS = 90_000;
+// The longest the whole run waits for alerts, in milliseconds. The alerter
+// evaluates its rules once a minute and clears an alert up to 30 seconds
+// after it fires, so this allows for waiting out the alert from an earlier
+// run, one alert that clears before the program can acknowledge it, and a
+// second evaluation.
+const WAIT_MS = 150_000;
+
+// How often the program polls the alerts, in milliseconds.
+const POLL_MS = 500;
 
 interface Settings {
   baseUrl: string;
@@ -107,29 +112,61 @@ interface Alert {
   status: string;
 }
 
-// Returns the active alerts for a server.
+// Returns the threshold alerts for a server that have the given status. The
+// request filters by server, status, and type, and asks for the most alerts
+// that the API returns at once, so that the result does not depend on the
+// first 100 alerts of a busy Workbench.
 async function listAlerts(cfg: Settings, status: string): Promise<Alert[]> {
   const query = new URLSearchParams({
     connection_id: cfg.connectionId,
     status,
+    alert_type: "threshold",
+    limit: "1000",
   });
   const response = await api("GET", cfg, `/alerts?${query}`);
   return ((await response.json()) as { alerts: Alert[] }).alerts;
 }
 
-// Polls the active alerts for a server until one is raised by the given
-// rule, and returns it. The alert clears itself about half a minute after it
-// fires, so the program polls every two seconds.
-async function waitForAlert(cfg: Settings, ruleId: number): Promise<Alert> {
-  const deadline = Date.now() + WAIT_MS;
-  while (Date.now() < deadline) {
-    const alert = (await listAlerts(cfg, "active")).find(
-      (a) => a.rule_id === ruleId,
-    );
-    if (alert) return alert;
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+// Returns the active alerts that the given rule raised.
+async function activeAlerts(cfg: Settings, ruleId: number): Promise<Alert[]> {
+  return (await listAlerts(cfg, "active")).filter((a) => a.rule_id === ruleId);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Waits until the rule has no active alert. The alerter raises no new alert
+// for a rule while one is active, so an alert left by an earlier run, which
+// clears within 30 seconds, would otherwise stand in for the one that this
+// run causes.
+async function waitUntilQuiet(
+  cfg: Settings,
+  ruleId: number,
+  deadline: number,
+): Promise<void> {
+  while ((await activeAlerts(cfg, ruleId)).length > 0) {
+    if (Date.now() >= deadline) {
+      throw new Error("An earlier alert did not clear in time");
+    }
+    await sleep(POLL_MS);
   }
-  throw new Error(`No alert was raised within ${WAIT_MS / 1000} seconds`);
+}
+
+// Polls until the given rule raises an alert, and returns it. The alert
+// clears itself within 30 seconds of firing, so the program polls twice a
+// second.
+async function waitForAlert(
+  cfg: Settings,
+  ruleId: number,
+  deadline: number,
+): Promise<Alert> {
+  for (;;) {
+    const [alert] = await activeAlerts(cfg, ruleId);
+    if (alert) return alert;
+    if (Date.now() >= deadline) {
+      throw new Error(`No alert was raised within ${WAIT_MS / 1000} seconds`);
+    }
+    await sleep(POLL_MS);
+  }
 }
 // --8<-- [end:wait_for_alert]
 
@@ -191,28 +228,54 @@ async function main(): Promise<number> {
   const undo: Array<() => Promise<void>> = [];
   try {
     const cfg = settings();
+    const deadline = Date.now() + WAIT_MS;
 
     const ruleId = await findRule(cfg, RULE_NAME);
     console.log(`Found the rule '${RULE_NAME}'`);
+
+    // An alert from an earlier run may still be active.
+    await waitUntilQuiet(cfg, ruleId, deadline);
 
     undo.push(() => removeOverride(cfg, ruleId));
     await setOverride(cfg, ruleId);
     console.log("Set an override that makes the rule fire");
 
     console.log("Waiting for the alerter to raise an alert");
-    const alert = await waitForAlert(cfg, ruleId);
-    console.log(`An alert is active (severity: ${alert.severity})`);
+    let alert: Alert;
+    for (;;) {
+      alert = await waitForAlert(cfg, ruleId, deadline);
 
-    await acknowledgeAlert(cfg, alert.id);
-    undo.push(() => unacknowledgeAlert(cfg, alert.id));
+      // Add the undo step before acknowledging the alert, so that a request
+      // that times out after the server has acted on it is still reversed.
+      const alertId = alert.id;
+      undo.push(() => unacknowledgeAlert(cfg, alertId));
+      try {
+        await acknowledgeAlert(cfg, alertId);
+        break;
+      } catch (err) {
+        // The alerter may have cleared the alert since the poll. The
+        // override is still in place, so the rule fires again at the next
+        // evaluation; any other failure is real.
+        if ((await activeAlerts(cfg, ruleId)).some((a) => a.id === alertId)) {
+          throw err;
+        }
+        await undo.pop()!().catch(() => undefined);
+        console.error("The alert cleared first; waiting for the next one");
+      }
+    }
+    console.log(`An alert is active (severity: ${alert.severity})`);
     console.log("Acknowledged the alert");
 
     console.log(`The alert is now ${await alertStatus(cfg, alert.id)}`);
 
-    await undo.pop()!();
+    // Run each step before removing it, so that a step which fails is still
+    // there for the clean-up below to try again.
+    await undo[undo.length - 1]();
+    undo.pop();
     console.log("Returned the alert to the active state");
 
-    await undo.pop()!();
+    await undo[undo.length - 1]();
+    undo.pop();
     console.log("Removed the override");
   } catch (err) {
     console.error(`Error: ${message(err)}`);

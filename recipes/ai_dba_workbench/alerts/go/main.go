@@ -31,10 +31,15 @@ import (
 // every minute.
 const ruleName = "metric_staleness"
 
-// waitTime is the longest the program waits for the alert. The alerter
-// evaluates its rules once a minute, so 90 seconds allows for one full cycle
-// and some slack.
-const waitTime = 90 * time.Second
+// waitTime is the longest the whole run waits for alerts. The alerter
+// evaluates its rules once a minute and clears an alert up to 30 seconds
+// after it fires, so this allows for waiting out the alert from an earlier
+// run, one alert that clears before the program can acknowledge it, and a
+// second evaluation.
+const waitTime = 150 * time.Second
+
+// pollTime is how often the program polls the alerts.
+const pollTime = 500 * time.Millisecond
 
 // settings holds the values that the program reads from the environment.
 type settings struct {
@@ -153,9 +158,17 @@ type alert struct {
 	Status   string `json:"status"`
 }
 
-// listAlerts returns the alerts for a server that have the given status.
+// listAlerts returns the threshold alerts for a server that have the given
+// status. The request filters by server, status, and type, and asks for the
+// most alerts that the API returns at once, so that the result does not
+// depend on the first 100 alerts of a busy Workbench.
 func listAlerts(s settings, status string) ([]alert, error) {
-	query := url.Values{"connection_id": {s.connectionID}, "status": {status}}
+	query := url.Values{
+		"connection_id": {s.connectionID},
+		"status":        {status},
+		"alert_type":    {"threshold"},
+		"limit":         {"1000"},
+	}
 	var result struct {
 		Alerts []alert `json:"alerts"`
 	}
@@ -163,24 +176,55 @@ func listAlerts(s settings, status string) ([]alert, error) {
 	return result.Alerts, err
 }
 
-// waitForAlert polls the active alerts for a server until one is raised by
-// the given rule, and returns it. The alert clears itself about half a
-// minute after it fires, so the program polls every two seconds.
-func waitForAlert(s settings, ruleID int64) (alert, error) {
-	deadline := time.Now().Add(waitTime)
-	for time.Now().Before(deadline) {
-		alerts, err := listAlerts(s, "active")
+// activeAlerts returns the active alerts that the given rule raised.
+func activeAlerts(s settings, ruleID int64) ([]alert, error) {
+	alerts, err := listAlerts(s, "active")
+	var raised []alert
+	for _, a := range alerts {
+		if a.RuleID == ruleID {
+			raised = append(raised, a)
+		}
+	}
+	return raised, err
+}
+
+// waitUntilQuiet waits until the rule has no active alert. The alerter
+// raises no new alert for a rule while one is active, so an alert left by an
+// earlier run, which clears within 30 seconds, would otherwise stand in for
+// the one that this run causes.
+func waitUntilQuiet(s settings, ruleID int64, deadline time.Time) error {
+	for {
+		raised, err := activeAlerts(s, ruleID)
+		if err != nil {
+			return err
+		}
+		if len(raised) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("an earlier alert did not clear in time")
+		}
+		time.Sleep(pollTime)
+	}
+}
+
+// waitForAlert polls until the given rule raises an alert, and returns it.
+// The alert clears itself within 30 seconds of firing, so the program polls
+// twice a second.
+func waitForAlert(s settings, ruleID int64, deadline time.Time) (alert, error) {
+	for {
+		raised, err := activeAlerts(s, ruleID)
 		if err != nil {
 			return alert{}, err
 		}
-		for _, a := range alerts {
-			if a.RuleID == ruleID {
-				return a, nil
-			}
+		if len(raised) > 0 {
+			return raised[0], nil
 		}
-		time.Sleep(2 * time.Second)
+		if time.Now().After(deadline) {
+			return alert{}, fmt.Errorf("no alert was raised within %s", waitTime)
+		}
+		time.Sleep(pollTime)
 	}
-	return alert{}, fmt.Errorf("no alert was raised within %s", waitTime)
 }
 
 // --8<-- [end:wait_for_alert]
@@ -239,11 +283,18 @@ func removeOverride(s settings, ruleID int64) error {
 // run does the work. Each time it makes a change it adds a step to undo, and
 // removes the step again once the program has reversed the change itself.
 func run(s settings, undo *[]func() error) error {
+	deadline := time.Now().Add(waitTime)
+
 	ruleID, err := findRule(s, ruleName)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Found the rule '%s'\n", ruleName)
+
+	// An alert from an earlier run may still be active.
+	if err := waitUntilQuiet(s, ruleID, deadline); err != nil {
+		return err
+	}
 
 	*undo = append(*undo, func() error { return removeOverride(s, ruleID) })
 	if err := setOverride(s, ruleID); err != nil {
@@ -252,16 +303,39 @@ func run(s settings, undo *[]func() error) error {
 	fmt.Println("Set an override that makes the rule fire")
 
 	fmt.Println("Waiting for the alerter to raise an alert")
-	raised, err := waitForAlert(s, ruleID)
-	if err != nil {
-		return err
+	var raised alert
+	for {
+		raised, err = waitForAlert(s, ruleID, deadline)
+		if err != nil {
+			return err
+		}
+
+		// Add the undo step before acknowledging the alert, so that a
+		// request that times out after the server has acted on it is still
+		// reversed.
+		*undo = append(*undo, func() error { return unacknowledgeAlert(s, raised.ID) })
+		err = acknowledgeAlert(s, raised.ID)
+		if err == nil {
+			break
+		}
+
+		// The alerter may have cleared the alert since the poll. The
+		// override is still in place, so the rule fires again at the next
+		// evaluation; any other failure is real.
+		stillActive, listErr := activeAlerts(s, ruleID)
+		for _, a := range stillActive {
+			if a.ID == raised.ID {
+				return err
+			}
+		}
+		if listErr != nil {
+			return listErr
+		}
+		_ = unacknowledgeAlert(s, raised.ID)
+		*undo = (*undo)[:len(*undo)-1]
+		fmt.Fprintln(os.Stderr, "The alert cleared first; waiting for the next one")
 	}
 	fmt.Printf("An alert is active (severity: %s)\n", raised.Severity)
-
-	if err := acknowledgeAlert(s, raised.ID); err != nil {
-		return err
-	}
-	*undo = append(*undo, func() error { return unacknowledgeAlert(s, raised.ID) })
 	fmt.Println("Acknowledged the alert")
 
 	status, err := alertStatus(s, raised.ID)

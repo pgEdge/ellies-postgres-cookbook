@@ -51,13 +51,19 @@ api() {
 # over the last hour, in six buckets: the metric, the number of points, and
 # the latest value. The --data-urlencode options build the query string.
 query_metrics() {
-    api /metrics/query \
+    local series
+    series=$(api /metrics/query \
         --data-urlencode "connection_id=$WORKBENCH_CONNECTION_ID" \
         --data-urlencode "probe_name=pg_stat_database" \
         --data-urlencode "time_range=1h" \
         --data-urlencode "buckets=6" \
-        --data-urlencode "metrics=numbackends,xact_commit" |
-        jq -r '.[] | if .data == [] then "\(.name): no data"
+        --data-urlencode "metrics=numbackends,xact_commit")
+
+    if [[ "$(jq length <<<"$series")" -eq 0 ]]; then
+        echo "The Workbench returned no series; has the collector run yet?" >&2
+        return 1
+    fi
+    jq -r <<<"$series" '.[] | if .data == [] then "\(.name): no data"
                      else "\(.name): \(.data | length) points, latest \(.data | last | .value)"
                      end'
 }

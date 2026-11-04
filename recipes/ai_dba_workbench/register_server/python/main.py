@@ -140,6 +140,7 @@ def delete_connection(base_url: str, session: str,
 # --8<-- [start:main]
 def main() -> int:
     new_id = None
+    status = 0
     try:
         config = settings()
         base_url = config["base_url"]
@@ -168,19 +169,21 @@ def main() -> int:
     # replies that the server rejected or that lacked what we need.
     except (httpx.HTTPError, RuntimeError) as e:
         print(f"Error: {e}", file=sys.stderr)
-        return 1
+        status = 1
     finally:
         # Delete the connection whether or not a later step failed, so
-        # that a failed run does not leave a server registered.
+        # that a failed run does not leave a server registered. A return
+        # statement in a finally block would hide an exception that is
+        # still in flight, so this block sets the exit status instead.
         if new_id is not None:
             try:
                 delete_connection(base_url, session, new_id)
             except (httpx.HTTPError, RuntimeError) as e:
                 print(f"Error: could not delete the connection: {e}",
                       file=sys.stderr)
-                return 1
+                status = 1
 
-    return 0
+    return status
 
 
 if __name__ == "__main__":

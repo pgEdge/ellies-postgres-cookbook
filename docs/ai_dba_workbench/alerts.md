@@ -1,10 +1,19 @@
 # Listing and Acknowledging Alerts with the AI DBA Workbench API
 
 This recipe shows how a program makes a Workbench alert fire on demand, finds
-the alert in the list of active alerts, acknowledges it, and then restores the
-original state. These examples are for AI DBA Workbench 1.0.0. Each step shows
-the code in every supported language; selecting a language tab switches every
-tab on the site to that language.
+the alert in the list of active alerts, acknowledges it, and then undoes its
+changes. These examples are for AI DBA Workbench 1.0.0. Each step shows the
+code in every supported language; selecting a language tab switches every tab
+on the site to that language.
+
+!!! warning
+
+    The example raises a real alert. A Workbench that has notification
+    channels configured (email, Slack, or webhooks, for example) sends a
+    notification when the alert fires and another when it clears, and those
+    messages reach real people. Run the example against a test Workbench,
+    or against a server that has no notification channels or that is in a
+    blackout.
 
 An alert normally fires only when something goes wrong with a monitored server,
 so the example forces one. The `metric_staleness` rule raises an alert when a
@@ -25,8 +34,13 @@ Returned the alert to the active state
 Removed the override
 ```
 
-The alerter evaluates its rules once a minute, so the example takes up to a
-minute to run, and gives up after 90 seconds.
+The alerter evaluates its rules once a minute, so the example normally takes
+between a few seconds and a minute and a half to run, and gives up after 150
+seconds. When the program finishes, the alert stays active for up to 30 seconds
+more, until the alerter's clean-up pass clears it, and the cleared alert
+remains in the alert history afterwards. The program waits for a previous alert
+from the same rule to clear before it starts, so running the example twice in
+succession is safe, but it can add up to 30 seconds to the second run.
 
 ## Preparing the Ingredients
 
@@ -227,13 +241,20 @@ following tabs show how each program sets the override:
 
 ## Waiting for the Alert
 
-The program polls `GET /api/v1/alerts` with the connection ID and the status
-`active` until the list contains an alert from the rule. The alerter evaluates
-its rules every 60 seconds, so the alert appears within a minute of the
-override. This particular alert clears itself about half a minute after it
-fires, because the alerter's clean-up pass finds no current value for the
-staleness metric; the program therefore polls every two seconds so that it
-cannot miss the alert. The following tabs show how each program waits:
+Before it sets the override, the program waits until the rule has no active
+alert, because the alerter raises no new alert for a rule while one is active,
+and an alert left by an earlier run would otherwise stand in for the new one.
+The program then polls `GET /api/v1/alerts` with the connection ID, the status
+`active`, the type `threshold`, and the largest `limit` that the API allows,
+until the list contains an alert from the rule. The API cannot filter by rule,
+so the program does that part itself. The alerter evaluates its rules every 60
+seconds, so the alert appears within a minute of the override. This particular
+alert clears itself between 0 and 30 seconds after it fires, because the
+alerter's clean-up pass finds no current value for the staleness metric; the
+program therefore polls twice a second. If the alert clears before the program
+can acknowledge it, the program waits for the rule to fire again, which takes
+up to another minute, within its overall limit of 150 seconds. The following
+tabs show how each program waits:
 
 === "Python"
 
@@ -389,10 +410,13 @@ override:
 
 Each program records an undo step as soon as it makes a change, and runs the
 steps that remain when it finishes or fails, so that a failed run does not
-leave the server raising alerts. The Python program uses a `finally` block, the
-TypeScript and Go programs keep a list of undo steps, and the curl script uses
-an `EXIT` trap. Each program reports a failure on `stderr` and exits with a
-non-zero status. The following tabs show the main part of each program:
+leave the server raising alerts. The program records the step that returns the
+alert to the active state before it sends the acknowledgement, so that a
+request which times out after the server has acted on it is still reversed. The
+Python program uses a `finally` block, the TypeScript and Go programs keep a
+list of undo steps, and the curl script uses an `EXIT` trap. Each program
+reports a failure on `stderr` and exits with a non-zero status. The following
+tabs show the main part of each program:
 
 === "Python"
 

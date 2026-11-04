@@ -58,11 +58,11 @@ api() {
 # session_token cookie, so the request includes the response headers.
 login() {
     local response
-    # The credentials go to curl on standard input, so that they never
-    # appear in the process list.
-    response=$(jq -n --arg username "$WORKBENCH_USERNAME" \
-                     --arg password "$WORKBENCH_PASSWORD" \
-                     '{username: $username, password: $password}' |
+    # jq reads the credentials from its environment, and curl reads the
+    # request from standard input, so that neither the password nor the
+    # request body appears in a process list.
+    response=$(jq -n '{username: env.WORKBENCH_USERNAME,
+                       password: env.WORKBENCH_PASSWORD}' |
         curl --silent --show-error --fail-with-body --include \
              --request POST \
              --header 'Content-Type: application/json' \
@@ -99,12 +99,15 @@ get_connection() {
 register_server() {
     local session="$1" name="$2" template="$3"
     # The template's host, port, database, and user become the new
-    # connection's. The script reads the password from the environment, and
-    # sends a description, which the server needs in version 1.0.0.
-    jq --arg name "$name" --arg password "$SERVER_PASSWORD" \
+    # connection's. jq reads the password from its environment, which keeps
+    # it off the command line, and the request sends a description, which
+    # the server needs in version 1.0.0.
+    SERVER_PASSWORD="$SERVER_PASSWORD" \
+    jq --arg name "$name" \
        '{name: $name, description: "Registered by the cookbook",
          host, port, database_name, username, ssl_mode,
-         password: $password, is_monitored: true, is_shared: false}' \
+         password: env.SERVER_PASSWORD, is_monitored: true,
+         is_shared: false}' \
        <<<"$template" |
         api POST /connections "$session" \
             --header 'Content-Type: application/json' --data @- |
@@ -137,11 +140,17 @@ session=""
 new_id=""
 
 cleanup() {
+    local status=$?
     # Delete the connection when the script ends, even if a later step
     # failed, so that a failed run does not leave a server registered.
+    # Report a delete that fails, and make the exit status non-zero.
     if [[ -n "$new_id" ]]; then
-        delete_connection "$session" "$new_id" 2>/dev/null || true
+        delete_connection "$session" "$new_id" || {
+            echo "Error: could not delete the connection $new_id" >&2
+            status=1
+        }
     fi
+    exit "$status"
 }
 
 main() {

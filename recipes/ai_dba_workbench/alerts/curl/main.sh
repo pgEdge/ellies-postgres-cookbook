@@ -29,10 +29,14 @@ WORKBENCH_URL="${WORKBENCH_URL%/}"
 # The rule that the script makes fire. The metric_staleness rule alerts when
 # a probe's data is out of date, and the alerter checks it every minute.
 RULE_NAME="metric_staleness"
-# The longest the script waits for the alert, in seconds. The alerter
-# evaluates its rules once a minute, so 90 seconds allows for one full cycle
-# and some slack.
-WAIT_SECONDS=90
+# The longest the whole run waits for alerts, in seconds. The alerter
+# evaluates its rules once a minute and clears an alert up to 30 seconds
+# after it fires, so this allows for waiting out the alert from an earlier
+# run, one alert that clears before the script can acknowledge it, and a
+# second evaluation.
+WAIT_SECONDS=150
+# How often the script polls the alerts, in seconds.
+POLL_SECONDS=0.5
 # --8<-- [end:config]
 
 # --8<-- [start:request]
@@ -56,11 +60,17 @@ api() {
 # --8<-- [end:request]
 
 # --8<-- [start:find_rule]
-# Prints the ID of an alert rule, given its name.
+# Prints the ID of an alert rule, given its name. The function fails when
+# there is no such rule, because jq prints nothing for it.
 find_rule() {
-    local name="$1"
-    api GET /alert-rules |
-        jq -r --arg name "$name" 'first(.[] | select(.name == $name)) | .id'
+    local name="$1" id
+    id=$(api GET /alert-rules |
+        jq -r --arg name "$name" 'first(.[] | select(.name == $name)) | .id')
+    if [[ -z "$id" ]]; then
+        echo "There is no alert rule named '$name'" >&2
+        return 1
+    fi
+    printf '%s' "$id"
 }
 # --8<-- [end:find_rule]
 
@@ -78,23 +88,51 @@ set_override() {
 # --8<-- [end:set_override]
 
 # --8<-- [start:wait_for_alert]
-# Polls the active alerts for a server until one is raised by the given
-# rule, and prints its ID and severity. The alert clears itself about half
-# a minute after it fires, so the script polls every two seconds.
+# Prints the active alerts that a rule raised for the server, one per line,
+# as an ID and a severity. The request filters by server, status, and type,
+# and asks for the most alerts that the API returns at once, so that the
+# result does not depend on the first 100 alerts of a busy Workbench.
+active_alerts() {
+    local rule_id="$1"
+    api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=active&alert_type=threshold&limit=1000" |
+        jq -r --argjson rule "$rule_id" \
+           '.alerts[] | select(.rule_id == $rule) | "\(.id) \(.severity)"'
+}
+
+# Waits until the rule has no active alert. The alerter raises no new alert
+# for a rule while one is active, so an alert left by an earlier run, which
+# clears within 30 seconds, would otherwise stand in for the one that this
+# run causes.
+wait_until_quiet() {
+    local rule_id="$1" deadline="$2" active
+    while true; do
+        active=$(active_alerts "$rule_id")
+        [[ -z "$active" ]] && return 0
+        if ((SECONDS >= deadline)); then
+            echo "An earlier alert did not clear in time" >&2
+            return 1
+        fi
+        sleep "$POLL_SECONDS"
+    done
+}
+
+# Polls until the rule raises an alert, and prints its ID and severity. The
+# alert clears itself within 30 seconds of firing, so the script polls twice
+# a second.
 wait_for_alert() {
-    local rule_id="$1" deadline=$((SECONDS + WAIT_SECONDS)) alert
-    while ((SECONDS < deadline)); do
-        alert=$(api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=active" |
-            jq -r --argjson rule "$rule_id" \
-               'first(.alerts[] | select(.rule_id == $rule)) | "\(.id) \(.severity)"')
-        if [[ -n "$alert" ]]; then
-            printf '%s' "$alert"
+    local rule_id="$1" deadline="$2" active
+    while true; do
+        active=$(active_alerts "$rule_id")
+        if [[ -n "$active" ]]; then
+            printf '%s' "${active%%$'\n'*}"
             return 0
         fi
-        sleep 2
+        if ((SECONDS >= deadline)); then
+            echo "No alert was raised within $WAIT_SECONDS seconds" >&2
+            return 1
+        fi
+        sleep "$POLL_SECONDS"
     done
-    echo "No alert was raised within $WAIT_SECONDS seconds" >&2
-    return 1
 }
 # --8<-- [end:wait_for_alert]
 
@@ -111,12 +149,18 @@ acknowledge_alert() {
 
 # --8<-- [start:check]
 # Prints the status of an alert, found by its ID in the list of acknowledged
-# alerts.
+# alerts. The function fails when the alert is not in the list, because jq
+# prints nothing for it.
 alert_status() {
-    local alert_id="$1"
-    api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=acknowledged" |
+    local alert_id="$1" status
+    status=$(api GET "/alerts?connection_id=$WORKBENCH_CONNECTION_ID&status=acknowledged&alert_type=threshold&limit=1000" |
         jq -r --argjson id "$alert_id" \
-           'first(.alerts[] | select(.id == $id)) | .status'
+           'first(.alerts[] | select(.id == $id)) | .status')
+    if [[ -z "$status" ]]; then
+        echo "The alert is missing from the acknowledged alerts" >&2
+        return 1
+    fi
+    printf '%s' "$status"
 }
 # --8<-- [end:check]
 
@@ -145,32 +189,62 @@ override_rule=""
 acknowledged_alert=""
 
 cleanup() {
+    local status=$?
     # Undo the changes when the script ends, even if a step failed, so that
     # the server does not keep raising alerts or hold an acknowledged one.
+    # Report a step that fails, and make the exit status non-zero.
     if [[ -n "$acknowledged_alert" ]]; then
-        unacknowledge_alert "$acknowledged_alert" 2>/dev/null || true
+        unacknowledge_alert "$acknowledged_alert" || {
+            echo "Error: could not undo a change" >&2
+            status=1
+        }
     fi
     if [[ -n "$override_rule" ]]; then
-        remove_override "$override_rule" 2>/dev/null || true
+        remove_override "$override_rule" || {
+            echo "Error: could not undo a change" >&2
+            status=1
+        }
     fi
+    exit "$status"
 }
 
 main() {
-    local rule_id alert alert_id severity status
+    local rule_id alert alert_id severity status still_active
+    local deadline=$((SECONDS + WAIT_SECONDS))
+
     rule_id=$(find_rule "$RULE_NAME")
     echo "Found the rule '$RULE_NAME'"
+
+    # An alert from an earlier run may still be active.
+    wait_until_quiet "$rule_id" "$deadline"
 
     override_rule="$rule_id"
     set_override "$rule_id"
     echo "Set an override that makes the rule fire"
 
     echo "Waiting for the alerter to raise an alert"
-    alert=$(wait_for_alert "$rule_id")
-    read -r alert_id severity <<<"$alert"
-    echo "An alert is active (severity: $severity)"
+    while true; do
+        alert=$(wait_for_alert "$rule_id" "$deadline")
+        read -r alert_id severity <<<"$alert"
 
-    acknowledge_alert "$alert_id"
-    acknowledged_alert="$alert_id"
+        # Record the alert before acknowledging it, so that the EXIT trap
+        # returns it to the active state even if the request times out
+        # after the server has acted on it.
+        acknowledged_alert="$alert_id"
+        acknowledge_alert "$alert_id" && break
+
+        # The alerter may have cleared the alert since the poll. The
+        # override is still in place, so the rule fires again at the next
+        # evaluation; any other failure is real.
+        still_active=$(active_alerts "$rule_id")
+        if [[ $'\n'"$still_active" == *$'\n'"$alert_id "* ]]; then
+            return 1
+        fi
+        unacknowledge_alert "$alert_id" 2>/dev/null || true
+        acknowledged_alert=""
+        echo "The alert cleared first; waiting for the next one" >&2
+    done
+    echo "An alert is active (severity: $severity)"
     echo "Acknowledged the alert"
 
     status=$(alert_status "$alert_id")

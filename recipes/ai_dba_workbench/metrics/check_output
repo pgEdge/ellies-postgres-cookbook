@@ -2,8 +2,8 @@
 #
 # Checks the shape of the output of the metrics example. The values vary from
 # run to run, and the top queries depend on whether the monitored server has
-# the pg_stat_statements extension, so this checks only the format of each
-# line.
+# the pg_stat_statements extension, which the cookbook's test server preloads,
+# so this checks only the format of each line.
 set -uo pipefail
 
 out="$(cat)"
@@ -16,10 +16,8 @@ grep -qE '^numbackends: [1-9][0-9]* points, latest -?[0-9.]+$' <<<"$out" ||
 grep -qE '^xact_commit: [1-9][0-9]* points, latest -?[0-9.]+$' <<<"$out" ||
     fail "missing or malformed xact_commit line"
 
-# Either the extension is missing, or there is a heading and ranked lines.
-if grep -q '^No statements recorded' <<<"$out"; then
-    exit 0
-fi
+# The top queries must be present: the test server has pg_stat_statements,
+# and the Workbench's own probes and the setup queries have run on it.
 grep -qx 'Top queries by total execution time:' <<<"$out" ||
     fail "missing the top queries heading"
 grep -qE '^1\. [0-9]+ calls, [0-9.]+ ms mean: .+$' <<<"$out" ||

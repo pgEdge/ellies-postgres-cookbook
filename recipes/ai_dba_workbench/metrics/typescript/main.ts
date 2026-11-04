@@ -74,6 +74,9 @@ async function queryMetrics(cfg: Settings): Promise<void> {
     buckets: "6",
     metrics: "numbackends,xact_commit",
   });
+  if (series.length === 0) {
+    throw new Error("The Workbench returned no series; has the collector run yet?");
+  }
   for (const s of series) {
     if (s.data.length === 0) {
       console.log(`${s.name}: no data`);

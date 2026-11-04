@@ -97,7 +97,16 @@ that `psql` reads, so the example works against the same server as the other
 recipes. The Workbench 1.0.0 server rejects a connection with an empty
 password, even when the monitored server uses trust authentication and ignores
 the password. When `PGPASSWORD` is not set, the examples send a placeholder
-password instead.
+password instead. The placeholder works only with trust authentication: for a
+server that checks passwords, the registration succeeds, but the collector then
+fails to connect, so set `PGPASSWORD` to the real password.
+
+If a run is killed without a chance to clean up (with `kill -9`, for example),
+the connection `cookbook-register-server` stays registered, and the next run
+registers a second one with the same name. To remove the leftover, find its ID
+in the reply to `GET /api/v1/connections`, and send `DELETE
+/api/v1/connections/{id}` with a session token, or delete it in the Workbench
+web interface.
 
 !!! note
 

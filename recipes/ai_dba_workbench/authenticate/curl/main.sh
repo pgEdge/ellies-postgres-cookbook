@@ -51,11 +51,11 @@ api() {
 # session_token cookie, so the request includes the response headers.
 login() {
     local response
-    # The credentials go to curl on standard input, so that they never
-    # appear in the process list.
-    response=$(jq -n --arg username "$WORKBENCH_USERNAME" \
-                     --arg password "$WORKBENCH_PASSWORD" \
-                     '{username: $username, password: $password}' |
+    # jq reads the credentials from its environment, and curl reads the
+    # request from standard input, so that neither the password nor the
+    # request body appears in a process list.
+    response=$(jq -n '{username: env.WORKBENCH_USERNAME,
+                       password: env.WORKBENCH_PASSWORD}' |
         curl --silent --show-error --fail-with-body --include \
              --request POST \
              --header 'Content-Type: application/json' \
@@ -114,28 +114,38 @@ session=""
 token_id=""
 
 cleanup() {
+    local status=$?
     # Delete the token when the script ends, even if a later step failed,
-    # so that a failed run does not leave a token behind. Deleting it a
-    # second time after a successful run is harmless.
+    # so that a failed run does not leave a token behind. Report a delete
+    # that fails, and make the exit status non-zero.
     if [[ -n "$token_id" ]]; then
-        delete_token "$session" "$token_id" 2>/dev/null || true
+        delete_token "$session" "$token_id" || {
+            echo "Error: could not delete the API token" >&2
+            status=1
+        }
     fi
+    exit "$status"
 }
 
 main() {
+    local who created api_token
     session=$(login)
     echo "Logged in with a session token"
-    echo "Session token belongs to $(user_info "$session")"
+    # Assign the result first: a failure inside a command substitution that
+    # is an argument of echo would not stop the script.
+    who=$(user_info "$session")
+    echo "Session token belongs to $who"
 
-    local created api_token
     created=$(create_token "$session" "$WORKBENCH_USERNAME" \
                            "cookbook-authenticate")
     token_id="${created%% *}"
     api_token="${created#* }"
     echo "Created the API token 'cookbook-authenticate'"
-    echo "API token belongs to $(user_info "$api_token")"
+    who=$(user_info "$api_token")
+    echo "API token belongs to $who"
 
     delete_token "$session" "$token_id"
+    token_id=""
     echo "Deleted the API token"
 }
 

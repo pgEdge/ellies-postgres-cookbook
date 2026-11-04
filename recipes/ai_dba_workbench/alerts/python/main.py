@@ -20,10 +20,15 @@ import httpx
 # a probe's data is out of date, and the alerter checks it every minute.
 RULE_NAME = "metric_staleness"
 
-# The longest the program waits for the alert, in seconds. The alerter
-# evaluates its rules once a minute, so 90 seconds allows for one full cycle
-# and some slack.
-WAIT_SECONDS = 90
+# The longest the whole run waits for alerts, in seconds. The alerter
+# evaluates its rules once a minute and clears an alert up to 30 seconds
+# after it fires, so this allows for waiting out the alert from an earlier
+# run, one alert that clears before the program can acknowledge it, and a
+# second evaluation.
+WAIT_SECONDS = 150
+
+# How often the program polls the alerts, in seconds.
+POLL_SECONDS = 0.5
 
 
 def settings() -> dict:
@@ -93,23 +98,48 @@ def set_override(cfg: dict, rule_id: int) -> None:
 
 
 # --8<-- [start:wait_for_alert]
-def wait_for_alert(cfg: dict, rule_id: int) -> dict:
-    """Polls the active alerts for a server until one is raised by the
-    given rule, and returns it.
+def active_alerts(cfg: dict, rule_id: int) -> list:
+    """Returns the active alerts that the given rule raised for the server.
 
-    The alert clears itself about half a minute after it fires, so the
-    program polls every two seconds.
+    The request filters by server, status, and type, and asks for the most
+    alerts that the API returns at once, so that the result does not depend
+    on the first 100 alerts of a busy Workbench.
     """
-    deadline = time.monotonic() + WAIT_SECONDS
-    while time.monotonic() < deadline:
-        alerts = api("GET", cfg, "/alerts", params={
-            "connection_id": cfg["connection_id"], "status": "active",
-        }).json()["alerts"]
-        for alert in alerts:
-            if alert["rule_id"] == rule_id:
-                return alert
-        time.sleep(2)
-    raise RuntimeError(f"No alert was raised within {WAIT_SECONDS} seconds")
+    alerts = api("GET", cfg, "/alerts", params={
+        "connection_id": cfg["connection_id"], "status": "active",
+        "alert_type": "threshold", "limit": 1000,
+    }).json()["alerts"]
+    return [alert for alert in alerts if alert["rule_id"] == rule_id]
+
+
+def wait_until_quiet(cfg: dict, rule_id: int, deadline: float) -> None:
+    """Waits until the rule has no active alert.
+
+    The alerter raises no new alert for a rule while one is active, so an
+    alert left by an earlier run, which clears within 30 seconds, would
+    otherwise stand in for the one that this run causes.
+    """
+    while active_alerts(cfg, rule_id):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("An earlier alert did not clear in time")
+        time.sleep(POLL_SECONDS)
+
+
+def wait_for_alert(cfg: dict, rule_id: int, deadline: float) -> dict:
+    """Polls until the given rule raises an alert, and returns it.
+
+    The alert clears itself within 30 seconds of firing, so the program
+    polls twice a second.
+    """
+    while True:
+        alerts = active_alerts(cfg, rule_id)
+        if alerts:
+            return alerts[0]
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"No alert was raised within {WAIT_SECONDS} seconds"
+            )
+        time.sleep(POLL_SECONDS)
 # --8<-- [end:wait_for_alert]
 
 
@@ -128,6 +158,7 @@ def alert_status(cfg: dict, alert_id: int) -> str:
     acknowledged alerts."""
     alerts = api("GET", cfg, "/alerts", params={
         "connection_id": cfg["connection_id"], "status": "acknowledged",
+        "alert_type": "threshold", "limit": 1000,
     }).json()["alerts"]
     for alert in alerts:
         if alert["id"] == alert_id:
@@ -164,9 +195,13 @@ def main() -> int:
     status = 0
     try:
         cfg = settings()
+        deadline = time.monotonic() + WAIT_SECONDS
 
         rule_id = find_rule(cfg, RULE_NAME)
         print(f"Found the rule '{RULE_NAME}'")
+
+        # An alert from an earlier run may still be active.
+        wait_until_quiet(cfg, rule_id, deadline)
 
         # Set the override first and remove it in the finally block, so
         # that a failed run does not leave the server raising alerts.
@@ -175,11 +210,33 @@ def main() -> int:
         print("Set an override that makes the rule fire")
 
         print("Waiting for the alerter to raise an alert")
-        alert = wait_for_alert(cfg, rule_id)
-        print(f"An alert is active (severity: {alert['severity']})")
+        while True:
+            alert = wait_for_alert(cfg, rule_id, deadline)
 
-        acknowledge_alert(cfg, alert["id"])
-        acknowledged_alert = alert["id"]
+            # Record the alert before acknowledging it, so that the
+            # finally block returns it to the active state even if the
+            # request times out after the server has acted on it.
+            acknowledged_alert = alert["id"]
+            try:
+                acknowledge_alert(cfg, alert["id"])
+                break
+            except (httpx.HTTPError, RuntimeError):
+                # The alerter may have cleared the alert since the poll.
+                # The override is still in place, so the rule fires again
+                # at the next evaluation; any other failure is real.
+                if any(a["id"] == alert["id"]
+                       for a in active_alerts(cfg, rule_id)):
+                    raise
+                # If the server acted on a request that timed out, the
+                # alert is acknowledged and must go back to active.
+                try:
+                    unacknowledge_alert(cfg, alert["id"])
+                except (httpx.HTTPError, RuntimeError):
+                    pass
+                acknowledged_alert = None
+                print("The alert cleared first; waiting for the next one",
+                      file=sys.stderr)
+        print(f"An alert is active (severity: {alert['severity']})")
         print("Acknowledged the alert")
 
         print(f"The alert is now {alert_status(cfg, alert['id'])}")

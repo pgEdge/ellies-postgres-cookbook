@@ -23,8 +23,10 @@ Top queries by total execution time:
 
 The second part of the output depends on the monitored server. The Workbench
 builds the list of top queries from the `pg_stat_statements` extension, so a
-server without the extension returns an empty list, and the program prints `No
-statements recorded (is pg_stat_statements installed?)` instead.
+server without the extension returns an empty list, and the program then prints
+a line that starts with "No statements recorded" instead of the list. The
+program stops with an error when the Workbench returns no series at all, which
+happens before the collector has stored any data for the server.
 
 ## Preparing the Ingredients
 
