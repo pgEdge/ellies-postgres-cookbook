@@ -11,6 +11,25 @@ and this project adheres to
 
 ### Added
 
+- Nine recipes for the pgEdge RAG Server 2.0.0 API: Preparing Data for
+  the RAG Server, Asking a Question, Streaming an Answer, Showing the
+  Sources of an Answer, Filtering Retrieved Documents, Holding a
+  Conversation, Checking Health and Listing Pipelines, Handling RAG Server
+  Errors, and Limiting Answers per User.
+- Seven recipes for the pgEdge AI DBA Workbench 1.0.0 API: Authenticating,
+  Registering a Server, Listing and Acknowledging Alerts, Querying
+  Metrics, Scheduling a Maintenance Blackout, Calling MCP Tools, and
+  Chatting with the LLM.
+- Seven recipes for the pgEdge Starfleet API: Getting an Access Token,
+  Listing Regions, Sizes, and Versions, Creating a Database and Waiting
+  for It, Connecting to a Starfleet Database, Creating a Branch for a Test
+  Run, Taking a Backup and Tracking Its Task, and Rotating a Role
+  Password.
+- A language set for HTTP API recipes (Python, TypeScript, and Go) with a
+  `curl` tab, `--dir` and `--exclude` options for the test runner, scripts
+  that start the RAG Server and AI DBA Workbench in containers, and
+  continuous integration jobs for each product, with the Starfleet job run
+  weekly or by hand when its credentials are configured.
 - Eleven PostgreSQL recipes: Passing a List of Values, Using
   Transactions, Inserting Rows and Reading Generated Keys, Bulk Loading
   with COPY, Reading Large Results in Batches, Using a Connection Pool

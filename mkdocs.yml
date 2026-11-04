@@ -104,6 +104,32 @@ nav:
       - Reranking Search Results: go_llm_lib/rerank.md
       - Letting a Model Query the Database: go_llm_lib/tool_query.md
       - Extracting Structured Data into a Table: go_llm_lib/structured_extraction.md
+  - Using pgEdge RAG Server:
+      - Preparing Data for the RAG Server: rag_server/prepare_data.md
+      - Asking a Question: rag_server/ask_question.md
+      - Streaming an Answer: rag_server/stream_answer.md
+      - Showing the Sources of an Answer: rag_server/include_sources.md
+      - Filtering Retrieved Documents: rag_server/filter_results.md
+      - Holding a Conversation: rag_server/conversation.md
+      - Checking Health and Listing Pipelines: rag_server/health_and_pipelines.md
+      - Handling RAG Server Errors: rag_server/handle_errors.md
+      - Limiting Answers per User: rag_server/row_level_security.md
+  - Using the AI DBA Workbench API:
+      - Authenticating: ai_dba_workbench/authenticate.md
+      - Registering a Server: ai_dba_workbench/register_server.md
+      - Listing and Acknowledging Alerts: ai_dba_workbench/alerts.md
+      - Querying Metrics: ai_dba_workbench/metrics.md
+      - Scheduling a Maintenance Blackout: ai_dba_workbench/blackouts.md
+      - Calling MCP Tools: ai_dba_workbench/mcp_tools.md
+      - Chatting with the LLM: ai_dba_workbench/chat.md
+  - Using the pgEdge Starfleet API:
+      - Getting an Access Token: starfleet/access_token.md
+      - Listing Regions, Sizes, and Versions: starfleet/reference_data.md
+      - Creating a Database and Waiting for It: starfleet/create_database.md
+      - Connecting to a Starfleet Database: starfleet/connect_database.md
+      - Creating a Branch for a Test Run: starfleet/branches.md
+      - Taking a Backup and Tracking Its Task: starfleet/backups.md
+      - Rotating a Role Password: starfleet/rotate_password.md
   - Contributing a Recipe: contributing.md
   - Changelog: changelog.md
   - License: LICENSE.md
