@@ -5,7 +5,8 @@ database, poll the backup until it completes, and list the tasks that the API
 recorded for the database. Because the recipe needs a database, the program
 creates one with the code from the "Creating a Database and Waiting for It"
 recipe, and deletes it at the end. Starfleet bills for the database whilst it
-exists, so the program removes it on every path out.
+exists, so the program removes it on every path out. The backup is different:
+the API has no way to delete a backup, so every run leaves one behind.
 
 These examples are for the pgEdge Starfleet Managed API v1.
 
@@ -52,6 +53,12 @@ clean up:
     with `kill -9` for instance, cannot clean up, so check your account for
     databases whose display names start with `cookbook-` if you stop a run that
     way.
+
+    The API has no way to delete a backup, so every run of this recipe leaves a
+    backup behind, and the API specification does not document how long backups
+    are kept or whether they are billed. For that reason the scheduled test job
+    for this repository does not run this recipe, and you should run it
+    sparingly.
 
 The programs need only an HTTP client, and the curl script needs `curl` and
 `jq`. The following excerpts show the dependencies:
@@ -353,7 +360,9 @@ you can check your account by hand. It does not look after a 4xx reply, because
 that is a definite refusal. The list request passes `limit=100` and
 `descending=true`, but the API specification does not say which property it
 sorts on. If the delete or the lookup fails, the program tells you to delete
-the database by hand. The following code deletes the database:
+the database by hand. The program cannot delete the backup, because the API has
+no way to do so, and the specification does not say what happens to a backup
+when its database is deleted. The following code deletes the database:
 
 === "Python"
 

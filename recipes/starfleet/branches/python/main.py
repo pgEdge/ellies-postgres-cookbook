@@ -532,8 +532,8 @@ def main() -> int:
                     except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
                         print(f"Error: {e}", file=sys.stderr)
                         print(
-                            f"Delete the branch {branch_id or branch_name} by hand, "
-                            "because it may still be billing",
+                            "The forced delete of the database that follows "
+                            "also deletes the branch",
                             file=sys.stderr,
                         )
                         exit_code = 1
@@ -542,7 +542,7 @@ def main() -> int:
             except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
                 print(f"Error: {e}", file=sys.stderr)
                 print(
-                    f"Delete the database {database_id or name} by hand, "
+                    f"Delete the database {database_id or name} and any branches by hand, "
                     "because it may still be billing",
                     file=sys.stderr,
                 )

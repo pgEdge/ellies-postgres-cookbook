@@ -286,14 +286,15 @@ The following code polls the database until its status is `available`:
 
 The description of an available database includes a `connection` object with
 the host name, the port, the database name, the user name, and the password of
-the application user. The API does not require any of them, so the code checks
-that they are all present, and falls back to the external IP address if the
-host is missing. The details appear only once the database is available. The
-following code turns them into the settings that the client needs. The password
-never goes in a connection string or on a command line: Python and TypeScript
-pass it to the driver as a separate setting, Go sets it on the parsed
-configuration, and the curl script writes it to a temporary password file that
-only its owner can read, and removes the file at the end:
+the application user. The API requires the user name, the password, the port,
+and the database name but not the host, so the code checks that they are all
+present, and falls back to the external IP address if the host is missing. The
+details appear only once the database is available. The following code turns
+them into the settings that the client needs. The password never goes in a
+connection string or on a command line: Python and TypeScript pass it to the
+driver as a separate setting, Go sets it on the parsed configuration, and the
+curl script writes it to a temporary password file that only its owner can
+read, and removes the file at the end:
 
 === "Python"
 

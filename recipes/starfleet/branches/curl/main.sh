@@ -450,7 +450,7 @@ cleanup() {
         if [[ -n "$database_id" && -z "$branch_id" && "$branch_lookup" == 1 ]]; then
             if ! branch_id="$(find_created_branch "$database_id" "$branch_name")"; then
                 echo "Error: could not look for branch $branch_name" >&2
-                echo "Delete the branch $branch_name by hand, because it may still be billing" >&2
+                echo "The forced delete of the database that follows also deletes the branch" >&2
                 branch_id=""
                 status=1
             elif [[ -z "$branch_id" ]]; then
@@ -463,7 +463,7 @@ cleanup() {
                 echo "Deleted branch"
             else
                 echo "Error: could not delete branch $branch_id" >&2
-                echo "Delete the branch $branch_id by hand, because it may still be billing" >&2
+                echo "The forced delete of the database that follows also deletes the branch" >&2
                 status=1
             fi
         fi
@@ -472,7 +472,7 @@ cleanup() {
                 echo "Deleted database"
             else
                 echo "Error: could not delete database $database_id" >&2
-                echo "Delete the database $database_id by hand, because it may still be billing" >&2
+                echo "Delete the database $database_id and any branches by hand, because they may still be billing" >&2
                 status=1
             fi
         fi

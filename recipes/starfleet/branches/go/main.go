@@ -716,7 +716,7 @@ func run() (err error) {
 			id, findErr := findCreatedBranch(cleanup, token, databaseID, branchName)
 			if findErr != nil {
 				err = errors.Join(err, fmt.Errorf("looking for branch %s: %w", branchName, findErr),
-					fmt.Errorf("delete the branch %s by hand, because it may still be billing", branchName))
+					errors.New("the forced delete of the database that follows also deletes the branch"))
 			} else if id == "" {
 				err = errors.Join(err, fmt.Errorf("the branch %s was not found; check your account for it by hand", branchName))
 			}
@@ -725,14 +725,14 @@ func run() (err error) {
 		if branchID != "" {
 			if delErr := deleteBranch(cleanup, token, databaseID, branchID); delErr != nil {
 				err = errors.Join(err, fmt.Errorf("deleting branch %s: %w", branchID, delErr),
-					fmt.Errorf("delete the branch %s by hand, because it may still be billing", branchID))
+					errors.New("the forced delete of the database that follows also deletes the branch"))
 			} else {
 				fmt.Println("Deleted branch")
 			}
 		}
 		if delErr := deleteDatabase(cleanup, token, databaseID); delErr != nil {
 			err = errors.Join(err, fmt.Errorf("deleting database %s: %w", databaseID, delErr),
-				fmt.Errorf("delete the database %s by hand, because it may still be billing", databaseID))
+				fmt.Errorf("delete the database %s and any branches by hand, because they may still be billing", databaseID))
 			return
 		}
 		fmt.Println("Deleted database")

@@ -313,8 +313,10 @@ async function waitForRotation(
 async function currentUser(config: pg.ClientConfig): Promise<string> {
   // A database can refuse connections for a short while after the API
   // reports it as available, so try a few times before giving up. An
-  // error from the server itself, such as a failed login, will not change
-  // on a second attempt. A failed client cannot be reused, so each attempt
+  // error from the server itself will not change on a second attempt,
+  // except for a failed login (28P01), which the example also repeats: the
+  // API may report the database as available a moment before the new
+  // password works. A failed client cannot be reused, so each attempt
   // makes a new one.
   let client = new pg.Client(config);
   for (let attempt = 1; ; attempt++) {
@@ -322,7 +324,10 @@ async function currentUser(config: pg.ClientConfig): Promise<string> {
       await client.connect();
       break;
     } catch (err) {
-      if (err instanceof pg.DatabaseError || attempt === CONNECT_ATTEMPTS) {
+      if (
+        (err instanceof pg.DatabaseError && err.code !== "28P01") ||
+        attempt === CONNECT_ATTEMPTS
+      ) {
         throw err;
       }
       await sleep(POLL_MS, undefined, { signal: interrupt.signal });

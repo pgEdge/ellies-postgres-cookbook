@@ -675,7 +675,7 @@ async function main(): Promise<number> {
           } catch (err) {
             console.error(`Error: ${describe(err)}`);
             console.error(
-              `Delete the branch ${branchId ?? branchName} by hand, because it may still be billing`,
+              "The forced delete of the database that follows also deletes the branch",
             );
             exitCode = 1;
           }
@@ -685,7 +685,7 @@ async function main(): Promise<number> {
       } catch (err) {
         console.error(`Error: ${describe(err)}`);
         console.error(
-          `Delete the database ${databaseId ?? name} by hand, because it may still be billing`,
+          `Delete the database ${databaseId ?? name} and any branches by hand, because they may still be billing`,
         );
         exitCode = 1;
       }

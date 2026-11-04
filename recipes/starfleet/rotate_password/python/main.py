@@ -241,8 +241,10 @@ def current_user(connection: dict) -> str:
     server logged in."""
     # A database can refuse connections for a short while after the API
     # reports it as available, so try a few times before giving up. An
-    # error that carries an SQLSTATE code came from the server itself,
-    # such as a failed login, and will not change on a second attempt.
+    # error that carries an SQLSTATE code came from the server itself and
+    # will not change on a second attempt, except for a failed login
+    # (28P01), which the example also repeats: the API may report the
+    # database as available a moment before the new password works.
     for attempt in range(CONNECT_ATTEMPTS):
         try:
             # The with block closes the connection when it exits, whether
@@ -250,7 +252,8 @@ def current_user(connection: dict) -> str:
             with psycopg.connect(**connection) as conn:
                 return conn.execute("SELECT current_user").fetchone()[0]
         except psycopg.OperationalError as e:
-            if e.sqlstate is not None or attempt == CONNECT_ATTEMPTS - 1:
+            retryable = e.sqlstate in (None, "28P01")
+            if not retryable or attempt == CONNECT_ATTEMPTS - 1:
                 raise
             time.sleep(POLL_SECONDS)
 # --8<-- [end:query]

@@ -5,7 +5,8 @@ pgEdge Starfleet database, wait for the database to apply it, and connect with
 the new password. Because the recipe needs a database, the program creates one
 with the code from the "Creating a Database and Waiting for It" recipe, and
 deletes it at the end. Starfleet bills for the database whilst it exists, so
-the program removes it on every path out. The program never prints a password.
+the program removes it on every path out. The server generates the new
+password, and the program never prints a password.
 
 These examples are for the pgEdge Starfleet Managed API v1.
 
@@ -294,15 +295,15 @@ stops at once if the status is `degraded` or `failed`:
 
 The description of an available database includes a `connection` object with
 the host name, the port, the database name, the user name, and the password of
-the application user. The API does not require any of them, so the code checks
-that they are all present, and falls back to the external IP address if the
-host is missing. The details appear only once the database is available, and
-the description holds the current password, so the program reads it again after
-the rotation. The password never goes in a connection string or on a command
-line: Python and TypeScript pass it to the driver as a separate setting, Go
-sets it on the parsed configuration, and the curl script writes it to a
-temporary password file that only its owner can read, and removes the file at
-the end:
+the application user. The API requires the user name, the password, the port,
+and the database name but not the host, so the code checks that they are all
+present, and falls back to the external IP address if the host is missing. The
+details appear only once the database is available, and the description holds
+the current password, so the program reads it again after the rotation. The
+password never goes in a connection string or on a command line: Python and
+TypeScript pass it to the driver as a separate setting, Go sets it on the
+parsed configuration, and the curl script writes it to a temporary password
+file that only its owner can read, and removes the file at the end:
 
 === "Python"
 
@@ -332,8 +333,10 @@ the end:
 
 The API rotates the password of a built-in role from a `POST` request with no
 body to the `rotate-password` endpoint of the role, and answers 204 once it has
-accepted the rotation. The `app` role is one of the built-in roles (the others
-are `admin` and `app_read_only`). The API documents that the rotation is
+accepted the rotation. The server generates the new password: the request does
+not carry one, and the program reads the new password from the description of
+the database. The `app` role is one of the built-in roles (the others are
+`admin` and `app_read_only`). The API documents that the rotation is
 asynchronous, that the database moves to the `modifying` status until it is
 live, and that until then the previous password still works and the new one
 does not. It also documents that a rotation that fails leaves the database
@@ -377,10 +380,11 @@ leaves the connection open to a man-in-the-middle attack, because anyone who
 can intercept the traffic could pose as the server, so do not use this approach
 for data that matters. A server can refuse connections for a short while after
 a change, so the code makes up to six attempts, ten seconds apart. The Python,
-TypeScript, and Go code retries only failures to connect, and not errors that
-the server reports, such as a failed login; `psql` gives the same exit status
-for every failure to connect, so the curl script repeats them all. The
-following code runs the query:
+TypeScript, and Go code retries failures to connect, and also a failed login
+(SQLSTATE 28P01), because the API may report the database as available a moment
+before the new password works, but not other errors that the server reports;
+`psql` gives the same exit status for every failure to connect, so the curl
+script repeats them all. The following code runs the query:
 
 === "Python"
 
@@ -424,7 +428,9 @@ reports the name so that you can check your account by hand. It does not look
 after a 4xx reply, because that is a definite refusal. The list request passes
 `limit=100` and `descending=true`, but the API specification does not say which
 property it sorts on. If the delete or the lookup fails, the program tells you
-to delete the database by hand. The following code deletes the database:
+to delete the database by hand. The program cannot delete the backup, because
+the API has no way to do so, and the specification does not say what happens to
+a backup when its database is deleted. The following code deletes the database:
 
 === "Python"
 

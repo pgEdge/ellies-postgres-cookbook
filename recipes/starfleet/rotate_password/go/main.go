@@ -415,8 +415,10 @@ func waitForRotation(ctx context.Context, token, id, oldPassword string) error {
 func currentUser(ctx context.Context, config *pgx.ConnConfig) (string, error) {
 	// A database can refuse connections for a short while after the API
 	// reports it as available, so try a few times before giving up. An
-	// error from the server itself, such as a failed login, will not
-	// change on a second attempt, so it ends the loop at once.
+	// error from the server itself will not change on a second attempt, so
+	// it ends the loop at once, except for a failed login (28P01), which
+	// the example also repeats: the API may report the database as
+	// available a moment before the new password works.
 	var conn *pgx.Conn
 	var err error
 	for attempt := 1; attempt <= connectAttempts; attempt++ {
@@ -425,7 +427,7 @@ func currentUser(ctx context.Context, config *pgx.ConnConfig) (string, error) {
 			break
 		}
 		var serverErr *pgconn.PgError
-		if attempt == connectAttempts || errors.As(err, &serverErr) {
+		if attempt == connectAttempts || (errors.As(err, &serverErr) && serverErr.Code != "28P01") {
 			return "", fmt.Errorf("connection failed: %w", err)
 		}
 		if err := sleep(ctx); err != nil {

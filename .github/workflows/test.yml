@@ -360,8 +360,13 @@ jobs:
         if: >-
           steps.credentials.outputs.available == 'true' &&
           hashFiles('recipes/starfleet/**') != ''
+        # The backups and branches recipes are not run here: the API has no
+        # way to delete a backup, and each run leaves one behind (a branch
+        # create also cuts a backup).
         run: >-
           scripts/test_recipes.sh --dir recipes/starfleet
+          --exclude recipes/starfleet/backups
+          --exclude recipes/starfleet/branches
           python typescript go curl
 
   docs:

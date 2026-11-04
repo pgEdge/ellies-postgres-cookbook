@@ -431,8 +431,6 @@ main() {
     wait_until_available "$database_id"
     echo "Database is available"
 
-    # Run write_passfile here and not inside $(...), so that cleanup sees
-    # the path of the password file and can remove it.
     # Keep the old password only to see when the new one arrives.
     old_password="$(current_password "$database_id")"
     echo "Rotating the password of the $role role"
@@ -440,6 +438,8 @@ main() {
     wait_for_rotation "$database_id" "$old_password"
     echo "Password rotated"
 
+    # Run write_passfile here and not inside $(...), so that cleanup sees
+    # the path of the password file and can remove it.
     write_passfile "$database_id"
     user="$(current_user)"
     echo "Connected as $user with the new password"

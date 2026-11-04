@@ -6,7 +6,8 @@ and delete it. Because the recipe needs a database to branch, the program
 creates one with the code from the "Creating a Database and Waiting for It"
 recipe, and deletes the branch and then the database at the end. Starfleet
 bills for each of them whilst it exists, so the program removes both on every
-path out.
+path out. Creating a branch also takes a backup of the source, which the
+program cannot delete.
 
 These examples are for the pgEdge Starfleet Managed API v1.
 
@@ -52,6 +53,13 @@ clean up:
     can delete it by hand. A program that is killed outright, with `kill -9`
     for instance, cannot clean up, so check your account for databases whose
     display names start with `cookbook-` if you stop a run that way.
+
+    Creating a branch also takes a backup of the source database, which the API
+    documents with the purpose `prebranch`. The API has no way to delete a
+    backup, and its specification does not document how long backups are kept
+    or whether they are billed, so every run of this recipe probably leaves a
+    backup behind. For that reason the scheduled test job for this repository
+    does not run this recipe.
 
 The programs use [psycopg](https://www.psycopg.org/psycopg3/) for Python,
 [node-postgres](https://node-postgres.com/) for TypeScript, and
@@ -336,13 +344,14 @@ The description of an available branch includes a `connection` object with the
 host name, the port, the database name, the user name, and the password. The
 API documents that the database name is the source's Postgres database name and
 that the credentials are the branch's own, and that the connection is present
-only while the branch is available. The API does not require any of the fields,
-so the code checks that they are all present, and falls back to the external IP
-address if the host is missing. The password never goes in a connection string
-or on a command line: Python and TypeScript pass it to the driver as a separate
-setting, Go sets it on the parsed configuration, and the curl script writes it
-to a temporary password file that only its owner can read, and removes the file
-at the end:
+only while the branch is available. The API requires the user name, the
+password, the port, and the database name but not the host, so the code checks
+that they are all present, and falls back to the external IP address if the
+host is missing. The password never goes in a connection string or on a command
+line: Python and TypeScript pass it to the driver as a separate setting, Go
+sets it on the parsed configuration, and the curl script writes it to a
+temporary password file that only its owner can read, and removes the file at
+the end:
 
 === "Python"
 
@@ -427,10 +436,13 @@ program during the request), the program lists the branches of the database and
 picks the one with the display name that it chose before the request, trying up
 to three times, ten seconds apart. It does not look after a 4xx reply, because
 that is a definite refusal. The list request passes `limit=100` and
-`descending=true`, but the API specification does not say which property it
-sorts on. If a delete or a lookup fails, the program prints the name or ID and
-tells you to delete the resource by hand. The following code deletes the branch
-and the database:
+`descending=true`, which the API documents as sorting by creation time, newest
+first. (The database list has no such documentation, so the program cannot be
+sure that a new database is on the first page of an account with more than 100
+databases.) If a delete of the branch fails, the forced delete of the database
+that follows removes it. If the database delete or a lookup fails, the program
+prints the name or ID and tells you to delete the resource by hand. The
+following code deletes the branch and the database:
 
 === "Python"
 
