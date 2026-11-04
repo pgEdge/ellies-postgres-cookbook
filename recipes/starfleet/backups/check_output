@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Checks the shape of the backups output: the placement, the new database,
+the wait, the backup, the tasks, the deletion, and what the API says about
+the backup afterwards, in that order. The status lines and the tasks vary
+from run to run, so the pattern allows any number of them."""
+import re
+import sys
+
+output = sys.stdin.read()
+if not output.strip():
+    sys.exit("empty output")
+
+pattern = re.compile(
+    r"Region: [a-z0-9-]+\n"
+    r"Size: [a-z0-9]+\n"
+    r"Created database cookbook-[0-9a-f]{6}\n"
+    r"(Database status: [a-z]+\n)+"
+    r"Database is available\n"
+    r"Backup started\n"
+    r"(Backup status: [a-z]+\n)+"
+    r"(Task: .+ \([a-z]+\)\n)*"
+    r"Deleted database\n"
+    r"Backup after the database was deleted: (still listed|gone|unknown)\n"
+)
+if not pattern.fullmatch(output):
+    sys.exit("the output does not have the expected shape:\n" + output)
+if "Backup status: completed\n" not in output:
+    sys.exit("the backup never reached the status completed")

@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""Checks the shape of the rotate_password output: the placement, the new
+database, the rotation, the connection with the new password, and the
+deletion, in that order. The status lines vary from run to run, so the
+pattern allows any number of them."""
+import re
+import sys
+
+output = sys.stdin.read()
+if not output.strip():
+    sys.exit("empty output")
+
+pattern = re.compile(
+    r"Region: [a-z0-9-]+\n"
+    r"Size: [a-z0-9]+\n"
+    r"Created database cookbook-[0-9a-f]{6}\n"
+    r"(Database status: [a-z]+\n)+"
+    r"Database is available\n"
+    r"Rotating the password of the app role\n"
+    r"(Database status: [a-z]+\n)*"
+    r"Password rotated\n"
+    r"Connected as [A-Za-z0-9_]+ with the new password\n"
+    r"Deleted database\n"
+)
+if not pattern.fullmatch(output):
+    sys.exit("the output does not have the expected shape:\n" + output)

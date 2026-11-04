@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Checks the shape of the branches output: the placement, the new
+database, the branch, the connection to the branch, and the two deletions
+(the branch first), in that order. The status lines vary from run to run, so
+the pattern allows any number of them."""
+import re
+import sys
+
+output = sys.stdin.read()
+if not output.strip():
+    sys.exit("empty output")
+
+pattern = re.compile(
+    r"Region: [a-z0-9-]+\n"
+    r"Size: [a-z0-9]+\n"
+    r"Created database cookbook-(?P<id>[0-9a-f]{6})\n"
+    r"(Database status: [a-z]+\n)+"
+    r"Database is available\n"
+    r"Created branch cookbook-(?P=id)-branch\n"
+    r"(Branch status: [a-z]+\n)+"
+    r"Branch is available\n"
+    r"Branch server version: PostgreSQL [0-9]+\.[0-9]+ .*\n"
+    r"Deleted branch\n"
+    r"Deleted database\n"
+)
+if not pattern.fullmatch(output):
+    sys.exit("the output does not have the expected shape:\n" + output)
