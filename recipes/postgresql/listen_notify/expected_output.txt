@@ -1,0 +1,2 @@
+Listening on channel 'cookbook_listen_notify'
+Received notification on 'cookbook_listen_notify': Hello from connection B
