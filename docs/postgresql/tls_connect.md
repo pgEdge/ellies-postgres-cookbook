@@ -39,7 +39,7 @@ example uses:
 | Java       | [pgJDBC](https://jdbc.postgresql.org/)                 |
 | C#         | [Npgsql](https://www.npgsql.org/)                      |
 | Go         | [pgx](https://github.com/jackc/pgx)                    |
-| Rust       | [rust-postgres](https://github.com/sfackler/rust-postgres) with [postgres-openssl](https://docs.rs/postgres-openssl) |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) with [postgres-openssl](https://docs.rs/postgres-openssl) |
 | Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)              |
 | C          | [libpq](https://www.postgresql.org/docs/current/libpq.html) |
 
@@ -254,16 +254,16 @@ assembles the connection settings:
 ## Opening a Connection
 
 Each program opens a connection to the server with the settings from the
-previous step. The C# program creates an Npgsql data source, which lends
-out pooled connections when the main part of the program asks for one. The
-Rust program first builds an OpenSSL connector whose certificate store
-holds only the CA certificate (the connector otherwise starts with the
-system root certificates), and passes it to the driver in place of the `NoTls` value that
-the first recipe uses. If the server certificate is not signed by that CA,
-has expired, or does not match the host name, the driver raises an error
-instead of connecting; the Handling Errors and Closing the Connection
-section describes how each program reports the failure. The following tabs
-show how each program opens the connection:
+previous step. The C# program creates an Npgsql data source, which lends out
+pooled connections when the main part of the program asks for one. The Rust
+program first builds an OpenSSL connector whose certificate store holds only
+the CA certificate (the connector otherwise starts with the system root
+certificates), and passes it to the driver in place of the `NoTls` value that
+the first recipe uses. If the server certificate is not signed by that CA, has
+expired, or does not match the host name, the driver raises an error instead of
+connecting; the Handling Errors and Closing the Connection section describes
+how each program reports the failure. The following tabs show how each program
+opens the connection:
 
 === "Python"
 

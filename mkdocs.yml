@@ -84,6 +84,26 @@ nav:
   - Introduction: index.md
   - Working with PostgreSQL:
       - Connecting to PostgreSQL and Running a Query: postgresql/connect_and_query.md
+      - Passing a List of Values: postgresql/array_parameters.md
+      - Using Transactions: postgresql/transactions.md
+      - Inserting Rows and Reading Generated Keys: postgresql/insert_returning.md
+      - Bulk Loading with COPY: postgresql/bulk_copy.md
+      - Reading Large Results in Batches: postgresql/large_results.md
+      - Using a Connection Pool: postgresql/connection_pooling.md
+      - Storing and Searching Vectors with pgvector: postgresql/pgvector_search.md
+      - Listening for Notifications: postgresql/listen_notify.md
+      - Setting a Statement Timeout: postgresql/statement_timeout.md
+      - Retrying Serialisation Failures: postgresql/retry_transactions.md
+      - Connecting Securely with TLS: postgresql/tls_connect.md
+  - Using the pgEdge Go LLM Library:
+      - Sending a Chat Request: go_llm_lib/chat_request.md
+      - Streaming a Response: go_llm_lib/streaming_response.md
+      - Handling Provider Errors and Retries: go_llm_lib/error_handling.md
+      - Storing Embeddings in PostgreSQL: go_llm_lib/embeddings_pgvector.md
+      - Answering Questions from Your Own Data: go_llm_lib/rag_answer.md
+      - Reranking Search Results: go_llm_lib/rerank.md
+      - Letting a Model Query the Database: go_llm_lib/tool_query.md
+      - Extracting Structured Data into a Table: go_llm_lib/structured_extraction.md
   - Contributing a Recipe: contributing.md
   - Changelog: changelog.md
   - License: LICENSE.md

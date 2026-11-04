@@ -127,8 +127,14 @@ func describe(label string, err error) {
 // missingModel asks for a model that does not exist. The server answers
 // with an HTTP error, which the library returns as a *llm.ProviderError.
 func missingModel(ctx context.Context, cfg config) error {
-	// The expected output assumes Ollama, so this step ignores LLM_PROVIDER.
-	cfg.provider = "ollama"
+	// The expected output assumes Ollama. When the environment names
+	// another provider, its endpoint and key do not apply to Ollama, so
+	// they are cleared and the request goes to the default local server.
+	if cfg.provider != "ollama" {
+		cfg.provider = "ollama"
+		cfg.baseURL = ""
+		cfg.apiKey = ""
+	}
 	cfg.model = "no-such-model"
 	client, err := newClient(cfg, llm.RetryConfig{Disabled: true}, nil)
 	if err != nil {

@@ -8,11 +8,12 @@ scores how well each candidate answers the query. The example is written in
 Go only, because the library is a Go package.
 
 The example program stores five short help articles in a temporary table,
-retrieves the four that mention passwords with a keyword search, and asks
-the model to rank them for the query "How do I reset my password?". It
-prints the three best candidates with their scores. The following sample is
-illustrative: the scores are examples, not real results, and they vary,
-but the article about resetting a password should come first:
+retrieves the four that mention passwords with a keyword search, and asks the
+model to rank them for the query "How do I reset my password?". It prints the
+three best candidates with their scores. The following sample is illustrative:
+the scores are examples, not real results, and they vary, but the article about
+resetting a password should come first. The scale of the scores depends on the
+model, so compare them only within one response:
 
 ```text
 Query: How do I reset my password?

@@ -105,7 +105,14 @@ public class Main {
             }
             throw e;
         } finally {
-            conn.setAutoCommit(true);
+            // Restoring autocommit fails only if the connection is already
+            // broken. That error must not replace the one in flight, and
+            // closing the connection discards the session anyway.
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException ignored) {
+                // Nothing useful can be done with a broken connection.
+            }
         }
     }
 

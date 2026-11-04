@@ -101,17 +101,18 @@ which is not a `*llm.ProviderError`. The program recognises it by matching
 
 ## Failing on a Missing Model
 
-The first demonstration asks Ollama for a model named `no-such-model`,
-with retries turned off. This step always uses the `ollama` provider
-whatever `LLM_PROVIDER` says, because the output shown at the top of this page describes
-the errors that Ollama returns. The server answers with a 404 status,
-which is not
+The first demonstration asks Ollama for a model named `no-such-model`, with
+retries turned off. This step always uses the `ollama` provider whatever
+`LLM_PROVIDER` says, because the output shown at the top of this page describes
+the errors that Ollama returns. When `LLM_PROVIDER` names another provider, the
+step also ignores `LLM_BASE_URL` and `LLM_API_KEY`, and the request goes to the
+default local Ollama server. The server answers with a 404 status, which is not
 transient, so the library would not retry it anyway. Ollama reports every
-failure as `llm.ErrProviderError`, whereas a hosted provider such as
-OpenAI would map a bad API key to `llm.ErrAuthentication` and a malformed
-request to `llm.ErrInvalidRequest`. The function returns an error if the
-failure is not a response from the provider, because that means that the
-server is unreachable. The following snippet shows the demonstration:
+failure as `llm.ErrProviderError`, whereas a hosted provider such as OpenAI
+would map a bad API key to `llm.ErrAuthentication` and a malformed request to
+`llm.ErrInvalidRequest`. The function returns an error if the failure is not a
+response from the provider, because that means that the server is unreachable.
+The following snippet shows the demonstration:
 
 ```go
 --8<-- "recipes/go_llm_lib/error_handling/go/main.go:missing"

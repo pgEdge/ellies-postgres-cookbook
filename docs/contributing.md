@@ -173,6 +173,10 @@ program drops the table before it starts and again when it finishes. A
 recipe that uses `LISTEN` names its channel in the same way. Fixture data
 is obviously fake, such as `Jane Doe` and `jane.doe@example.com`.
 
+Run only one copy of a recipe at a time against a server. Recipes that share
+a `cookbook_<slug>` table, such as `retry_transactions`, would race with a
+second run of the same recipe, although different recipes can run together.
+
 ## Testing the Programs
 
 The `scripts/test_recipes.sh` script builds and runs every program, and
@@ -189,7 +193,9 @@ scripts/test_recipes.sh python go
 Recipes that need more than a PostgreSQL server, such as recipes for the
 pgEdge Starfleet API, list the extra environment variables that they need
 in a `requires.txt` file. The test script skips those recipes when any of
-the variables are unset.
+the variables are unset. Continuous integration passes these variables
+from repository secrets of the same name, and skips the recipe when a secret
+is absent.
 
 A recipe whose output varies from run to run, such as a reply from a
 language model, has an executable `check_output` file in place of
@@ -251,7 +257,7 @@ unset:
 |------------------|--------------------|-----------------------------------|
 | `LLM_PROVIDER`   | `ollama`           | The provider for chat requests.   |
 | `LLM_MODEL`      | `qwen2.5:1.5b`     | The chat model.                   |
-| `LLM_API_KEY`    | none               | The API key, if one is needed.     |
+| `LLM_API_KEY`    | none               | The API key, if one is needed.    |
 | `LLM_BASE_URL`   | the provider's own | Overrides the provider endpoint.  |
 | `EMBED_PROVIDER` | `ollama`           | The provider for embeddings.      |
 | `EMBED_MODEL`    | `nomic-embed-text` | The embedding model.              |

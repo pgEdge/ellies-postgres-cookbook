@@ -33,7 +33,7 @@ table lists the driver that each example uses:
 | Java       | [pgJDBC](https://jdbc.postgresql.org/)                 |
 | C#         | [Npgsql](https://www.npgsql.org/)                      |
 | Go         | [pgx](https://github.com/jackc/pgx)                    |
-| Rust       | [rust-postgres](https://github.com/sfackler/rust-postgres) |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) |
 | Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)              |
 | C          | [libpq](https://www.postgresql.org/docs/current/libpq.html) |
 

@@ -34,7 +34,7 @@ following table lists the API that each example uses for `COPY`:
 | Java       | [pgJDBC](https://jdbc.postgresql.org/) `CopyManager` API       |
 | C#         | [Npgsql](https://www.npgsql.org/) `BeginBinaryImport()`        |
 | Go         | [pgx](https://github.com/jackc/pgx) `CopyFrom()`               |
-| Rust       | [rust-postgres](https://github.com/sfackler/rust-postgres) `copy_in()` |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) `copy_in()` |
 | Ruby       | [ruby-pg](https://github.com/ged/ruby-pg) `copy_data()`        |
 | C          | [libpq](https://www.postgresql.org/docs/current/libpq.html) `PQputCopyData()` |
 

@@ -238,8 +238,8 @@ pause_ms(long ms)
 /*
  * Run work() in a REPEATABLE READ transaction, and run it again if the
  * server reports a serialisation failure or a deadlock. Return true if a
- * transaction committed; on failure, PQerrorMessage() describes the
- * error.
+ * transaction committed. On failure, print the saved error message to
+ * stderr, because the caller cannot recover it from the connection.
  */
 static bool
 run_with_retry(PGconn *conn, work_fn work)

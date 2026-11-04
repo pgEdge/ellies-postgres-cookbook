@@ -23,16 +23,15 @@ listening on that channel. Applications use notifications to learn about
 changes without polling a table: a worker wakes when a producer queues a
 job, or a cache clears when the data behind it changes.
 
-Two details matter when writing the code. First, a notification is
-delivered when the sending transaction commits, and a listener hears only
-notifications sent after its `LISTEN` took effect, so each example runs
-`LISTEN` and `NOTIFY` outside an explicit transaction, where each statement
-commits as soon as it completes. The listener is therefore subscribed
-before the sender sends. Second, a notification reaches the program only when the driver reads
-from the connection, and each driver offers its own way of doing so. Some
-drivers read when the program asks them to wait for a notification, and
-node-postgres reads in the background and emits an event when a
-notification arrives.
+Two details matter when writing the code. First, a notification is delivered
+when the sending transaction commits, and a listener hears only notifications
+sent after its `LISTEN` took effect, so each example runs `LISTEN` and `NOTIFY`
+outside an explicit transaction, where each statement commits as soon as it
+completes. The listener is therefore subscribed before the sender sends.
+Second, a notification reaches the program only when the driver reads from the
+connection, and each driver offers its own way of doing so. Some drivers read
+when the program asks them to wait for a notification, and node-postgres reads
+in the background and emits an event when a notification arrives.
 
 ## Preparing the Ingredients
 
