@@ -325,15 +325,17 @@ the rollback undid it.
 
 The drivers differ in how much of this they do for the program:
 
-- The Python `transaction()` block, the Ruby `transaction` method, and the
-  Rust `transaction()` object commit when the work ends normally and roll
-  back when an error leaves it.
-- The Go `Begin()` call and the C# `BeginTransactionAsync()` call return a
-  transaction object that rolls back if the program never commits it. The
-  Go program defers a `Rollback()` call, which does nothing after a
-  commit, and the C# program disposes of the object with `await using`.
-- The Java program turns off autocommit, commits explicitly, rolls back in
-  a `catch` block, and turns autocommit back on in a `finally` block.
+- The Python `transaction()` block and the Ruby `transaction` method
+  commit when the work ends normally and roll back when an error leaves
+  it.
+- The Go `Begin()`, C# `BeginTransactionAsync()`, and Rust `transaction()`
+  calls return a transaction object that rolls back if the program never
+  commits it, so each program calls `commit()` explicitly. The Go program
+  defers a `Rollback()` call, which does nothing after a commit, the C#
+  program disposes of the object with `await using`, and the Rust program
+  drops the object when the `?` operator returns an error.
+- The Java program turns off autocommit, commits explicitly, rolls back if
+  any exception occurs, and turns autocommit back on in a `finally` block.
 - The TypeScript and C programs send `BEGIN`, `COMMIT`, and `ROLLBACK`
   themselves, because node-postgres and libpq have no transaction object.
 

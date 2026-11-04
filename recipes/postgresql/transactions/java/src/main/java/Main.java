@@ -94,9 +94,15 @@ public class Main {
                     "UPDATE accounts SET balance = balance - ? WHERE id = ?",
                     amount, source);
             conn.commit();
-        } catch (SQLException e) {
+        } catch (Exception e) {
             // Undo the work, then pass the original error to the caller.
-            conn.rollback();
+            // If the rollback fails too, attach that failure to the
+            // original rather than letting it hide the cause.
+            try {
+                conn.rollback();
+            } catch (SQLException rollbackError) {
+                e.addSuppressed(rollbackError);
+            }
             throw e;
         } finally {
             conn.setAutoCommit(true);

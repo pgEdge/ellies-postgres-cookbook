@@ -77,8 +77,10 @@ async function transfer(
     );
     await client.query("COMMIT");
   } catch (err) {
-    // Undo the work, then pass the original error to the caller.
-    await client.query("ROLLBACK");
+    // Undo the work, then pass the original error to the caller. If the
+    // rollback fails too (for example, because the connection has gone),
+    // ignore that failure so that it does not hide the original error.
+    await client.query("ROLLBACK").catch(() => {});
     throw err;
   }
 }
