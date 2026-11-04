@@ -97,6 +97,14 @@ the request. The following snippet shows the loop:
 --8<-- "recipes/go_llm_lib/streaming_response/go/main.go:read"
 ```
 
+A stream can fail in two ways after it opens. The first is an error from
+`Recv()`, which the program returns with the text that it has already
+printed. The second is a stream that reaches `io.EOF` without ever sending
+the final chunk, which some providers do when the connection closes
+cleanly part-way through a reply; the program tracks whether the final
+chunk arrived, and returns an error if it did not, rather than reporting
+a truncated reply as a success.
+
 A stream can also carry chunks that describe tool calls and the reasoning
 of a model. This program ignores them, because the request defines no
 tools and does not ask for reasoning.

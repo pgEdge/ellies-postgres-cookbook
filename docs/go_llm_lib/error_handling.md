@@ -101,8 +101,11 @@ which is not a `*llm.ProviderError`. The program recognises it by matching
 
 ## Failing on a Missing Model
 
-The first demonstration asks for a model named `no-such-model`, with
-retries turned off. The server answers with a 404 status, which is not
+The first demonstration asks Ollama for a model named `no-such-model`,
+with retries turned off. This step always uses the `ollama` provider
+whatever `LLM_PROVIDER` says, because the output shown at the top of this page describes
+the errors that Ollama returns. The server answers with a 404 status,
+which is not
 transient, so the library would not retry it anyway. Ollama reports every
 failure as `llm.ErrProviderError`, whereas a hosted provider such as
 OpenAI would map a bad API key to `llm.ErrAuthentication` and a malformed
@@ -172,8 +175,8 @@ recipe:
 
 - The [Sending a Chat Request](chat_request.md) recipe explains the
   environment variables and how to switch providers.
-- The [Streaming a Response](streaming_response.md) recipe covers errors
-  that arrive part-way through a stream.
+- The [Streaming a Response](streaming_response.md) recipe shows how to detect
+  a stream that fails or ends early.
 - The
   [pgEdge Go LLM Library documentation](https://github.com/pgEdge/pgedge-go-llm-lib/tree/main/docs)
   describes the retry policy and the error types in detail.

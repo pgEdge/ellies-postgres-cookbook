@@ -97,7 +97,10 @@ func classify(err error) string {
 	}
 
 	// A failure to reach the server at all never gets as far as a
-	// provider response, so it is a network error instead.
+	// provider response, so it is a network error instead. A request
+	// that exceeds its deadline (context.DeadlineExceeded) also
+	// satisfies net.Error, but a cancelled context (context.Canceled)
+	// does not, and falls through to the unknown case.
 	var netErr net.Error
 	if errors.As(err, &netErr) {
 		return "network error"
@@ -124,6 +127,8 @@ func describe(label string, err error) {
 // missingModel asks for a model that does not exist. The server answers
 // with an HTTP error, which the library returns as a *llm.ProviderError.
 func missingModel(ctx context.Context, cfg config) error {
+	// The expected output assumes Ollama, so this step ignores LLM_PROVIDER.
+	cfg.provider = "ollama"
 	cfg.model = "no-such-model"
 	client, err := newClient(cfg, llm.RetryConfig{Disabled: true}, nil)
 	if err != nil {

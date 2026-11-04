@@ -106,6 +106,7 @@ func openStream(ctx context.Context, client llm.Client) (*llm.Stream, error) {
 func printStream(stream *llm.Stream) (llm.TokenUsage, int, error) {
 	var usage llm.TokenUsage
 	chunks := 0
+	done := false
 
 	fmt.Println("Reply:")
 	for {
@@ -125,11 +126,20 @@ func printStream(stream *llm.Stream) (llm.TokenUsage, int, error) {
 			fmt.Print(chunk.Text)
 			chunks++
 		case llm.ChunkDone:
-			// The final chunk always carries the token usage.
-			usage = *chunk.Usage
+			// The final chunk carries the token usage.
+			done = true
+			if chunk.Usage != nil {
+				usage = *chunk.Usage
+			}
 		}
 	}
 	fmt.Println()
+
+	// A stream that ends without a final chunk was cut short, even
+	// though it reported no error.
+	if !done {
+		return usage, chunks, errors.New("the stream ended before the final chunk")
+	}
 	return usage, chunks, nil
 }
 

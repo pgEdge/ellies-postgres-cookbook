@@ -12,7 +12,7 @@ fail() { echo "check_output: $1" >&2; exit 1; }
 
 grep -q '^Provider: .\+' <<<"$out" || fail "missing Provider line"
 grep -q '^Model: .\+' <<<"$out" || fail "missing Model line"
-grep -qE '^Tokens: [0-9]+ prompt, [0-9]+ completion$' <<<"$out" ||
+grep -qE '^Tokens: [0-9]+ prompt, [1-9][0-9]* completion$' <<<"$out" ||
     fail "missing or malformed Tokens line"
 grep -qE '^Chunks: [1-9][0-9]*$' <<<"$out" ||
     fail "missing Chunks line, or no text chunks arrived"
