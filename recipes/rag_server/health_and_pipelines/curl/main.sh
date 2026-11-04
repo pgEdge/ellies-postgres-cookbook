@@ -59,8 +59,8 @@ check_live() {
 # Checks whether each pipeline can reach its language model providers.
 # The /v1/health endpoint answers with HTTP 200 even when a provider is
 # down, so curl succeeds either way; the status field is "healthy" or
-# "degraded". This function prints the report and returns non-zero when
-# the status is anything but "healthy".
+# "degraded". This function prints the report, returns 1 when a request
+# or reply fails, and returns 2 when the status is anything but "healthy".
 check_health() {
     local response
     response="$(get /v1/health)" || {
@@ -83,7 +83,7 @@ check_health() {
     }
     [[ "$(jq -r '.status' <<<"$response")" == "healthy" ]] || {
         echo "RAG Server is not healthy" >&2
-        return 1
+        return 2
     }
 }
 # --8<-- [end:health]
@@ -109,15 +109,19 @@ list_pipelines() {
 
 # --8<-- [start:main]
 main() {
-    local status=0
+    local status=0 result=0
 
-    # There is no point in asking a server that is not running anything
-    # else, so stop if the liveness check fails. Run the other checks
-    # regardless of each other's results, so that one report shows
-    # everything that is wrong, and then exit non-zero if any check failed.
+    # Stop at the first request that fails, as the other examples do. A
+    # degraded server still answers every request, so carry on and list the
+    # pipelines, and then exit non-zero.
     check_live || exit 1
-    check_health || status=1
-    list_pipelines || status=1
+    check_health || result=$?
+    if [[ "$result" -eq 2 ]]; then
+        status=1
+    elif [[ "$result" -ne 0 ]]; then
+        exit 1
+    fi
+    list_pipelines || exit 1
     exit "$status"
 }
 

@@ -52,10 +52,14 @@ fields:
 | `logic`      | `AND` (the default) or `OR`, which says how to combine the conditions. |
 
 The `operator` of a condition is one of `=`, `!=`, `<`, `>`, `<=`, `>=`,
-`LIKE`, `ILIKE`, `IN`, `NOT IN`, `IS NULL`, or `IS NOT NULL`. The server
-passes each value to PostgreSQL as a parameter, so a value cannot change the
-shape of the query; it checks the column names against the pipeline's table
-as well. The conditions in this recipe select one product and one version:
+`LIKE`, `ILIKE`, `IN`, `NOT IN`, `IS NULL`, or `IS NOT NULL`. The server passes
+each value to PostgreSQL as a parameter, so a value cannot change the shape of
+the query, and it quotes each column name as an identifier. It does not check
+the names against the table, so a column that does not exist makes the search
+fail; the server then replies with HTTP 500 and the `RETRIEVAL_REFUSED` code,
+and a message that says only that the document search could not be run because
+of a configuration or permissions problem. The conditions in this recipe select
+one product and one version:
 
 ```json
 {

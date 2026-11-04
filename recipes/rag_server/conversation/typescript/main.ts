@@ -19,11 +19,13 @@
 const baseUrl = (process.env.RAG_SERVER_URL || "http://localhost:8080").replace(/\/+$/, "");
 const pipeline = process.env.RAG_PIPELINE || "cookbook";
 
-// The second question makes sense only with the first in front of it,
-// because "it" and "then" refer to the first question and its answer.
+// The second question does not say which version of the Acme Widget it
+// means, so only the first question and its answer, which the model
+// receives as history, settle that. The search uses only the current
+// question, which is why this one still names the product.
 const questions = [
   "How long does the Acme Widget 2.0 take to charge?",
-  "And how many hours will it then run for?",
+  "And how many hours does the Acme Widget run for once it is charged?",
 ];
 
 // The server waits for the language model before it replies, and a small

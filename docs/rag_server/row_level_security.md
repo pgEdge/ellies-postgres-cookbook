@@ -37,7 +37,11 @@ documents, each owned by one of two made-up people. The
 `scripts/start_rag_server.sh --identity` command in the [cookbook
 repository](https://github.com/pgEdge/ellies-postgres-cookbook) creates the
 table, the policy, and the database role, loads the documents, and starts the
-server in Docker.
+server in Docker. The role has no password, because the test server uses trust
+authentication, which accepts any connection without checking one. Do not copy
+that into a real deployment: give the role a password, or a client certificate,
+store it in your secrets manager, and use a PostgreSQL authentication method
+that checks it, such as `scram-sha-256`.
 
 The RAG Server can run each search as the person who asked, so that PostgreSQL
 decides which rows the person may read. This depends on four things, and the
@@ -83,7 +87,12 @@ The server does not check these headers itself, apart from the address of the
 peer that sent them, so a proxy that you control must remove any such header
 that arrives from outside and set its own; if clients can reach the server
 directly, any of them can claim to be anyone. The programs in this recipe play
-the part of the proxy, to show the effect.
+the part of the proxy, to show the effect. Run the server on a private
+interface that only the proxy can reach, and not on a public one, because any
+host that can connect to it from a trusted address can claim any identity. The
+demonstration value of `trusted_proxies` above covers every private address
+range (RFC 1918) so that it works in Docker; in a real deployment, list only
+the address of your proxy.
 
 Because the identity is server-wide, this recipe needs its own server, apart
 from the one that the other RAG Server recipes use. Set `RAG_SERVER_URL` to the

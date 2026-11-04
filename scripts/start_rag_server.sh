@@ -40,7 +40,7 @@
 #
 # Options:
 #   --name NAME       container name (default: cookbook-rag-server)
-#   --port PORT       host port to publish (default: 8080)
+#   --port PORT       host port to publish, on 127.0.0.1 only (default: 8080)
 #   --network NET     Docker network to join; created if it does not exist
 #   --pg-host HOST    PostgreSQL host as the container sees it
 #                     (default: host.docker.internal)
@@ -49,7 +49,8 @@
 #   --ollama-url URL  Ollama URL as the container sees it
 #                     (default: http://host.docker.internal:11434)
 #   --identity        start the identity-enabled server described above
-#                     (default name: cookbook-rag-server-identity)
+#                     (default name: cookbook-rag-server-identity,
+#                     unless --name is given)
 #
 # Environment:
 #   OLLAMA_URL         Ollama URL as this script sees it, for embedding the
@@ -71,6 +72,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 image="${COOKBOOK_RAG_IMAGE:-ghcr.io/pgedge/rag-server:2.0.0}"
 host_ollama="${OLLAMA_URL:-http://localhost:11434}"
 name="cookbook-rag-server"
+name_given=""
 port=8080
 network=""
 pg_host="host.docker.internal"
@@ -80,14 +82,14 @@ identity=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --name)       name="${2:?--name needs a value}"; shift 2 ;;
+        --name)       name="${2:?--name needs a value}"; name_given=1; shift 2 ;;
         --port)       port="${2:?--port needs a value}"; shift 2 ;;
         --network)    network="${2:?--network needs a value}"; shift 2 ;;
         --pg-host)    pg_host="${2:?--pg-host needs a value}"; shift 2 ;;
         --pg-port)    pg_port="${2:?--pg-port needs a value}"; shift 2 ;;
         --ollama-url) ollama_url="${2:?--ollama-url needs a value}"; shift 2 ;;
         --identity)   identity=1; shift ;;
-        -h|--help)    sed -n '3,70p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '3,/^$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *)            echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -100,7 +102,7 @@ work="$(mktemp -d)"
 if [[ -n "$identity" ]]; then
     fixture="$root/scripts/fixtures/rag_private_documents.json"
     pipeline_name="cookbook_private"
-    [[ "$name" == "cookbook-rag-server" ]] && name="cookbook-rag-server-identity"
+    [[ -z "$name_given" ]] && name="cookbook-rag-server-identity"
 else
     fixture="$root/scripts/fixtures/rag_documents.json"
     pipeline_name="cookbook"
@@ -275,13 +277,13 @@ fi
 
 echo "Starting $name from $image on port $port" >&2
 started=1
-docker run -d --name "$name" -p "$port:8080" \
+docker run -d --name "$name" -p "127.0.0.1:$port:8080" \
     ${network_args[@]+"${network_args[@]}"} \
     --add-host host.docker.internal:host-gateway \
     -v "$config:/etc/pgedge:ro" \
     "$image" >/dev/null
 
-url="http://localhost:$port"
+url="http://127.0.0.1:$port"
 for _ in $(seq 1 60); do
     if curl -fsS "$url/v1/live" 2>/dev/null | grep -q '"ok"' &&
        curl -fsS "$url/v1/pipelines" 2>/dev/null \

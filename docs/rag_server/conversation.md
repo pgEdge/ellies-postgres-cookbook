@@ -15,7 +15,7 @@ writes them, but the output has the following shape:
 ```text
 You: How long does the Acme Widget 2.0 take to charge?
 Assistant: The Acme Widget 2.0 takes ninety minutes to charge fully.
-You: And how many hours will it then run for?
+You: And how many hours does the Acme Widget run for once it is charged?
 Assistant: Once charged, it runs for eighteen hours.
 ```
 
@@ -29,19 +29,22 @@ documents and starts the server in Docker, and the [Preparing Data for the RAG
 Server](prepare_data.md) recipe shows how to build such a table and pipeline
 yourself.
 
-The second question, 'And how many hours will it then run for?', names neither
-the product nor the subject, so the pipeline can answer it only if it knows
-what the first question was about. The request body therefore carries a
-`messages` list next to the `query`. Each message has a `role` of `user` or
-`assistant`, and a `content` string, and the list holds the earlier turns in
-order. The pipeline uses the history to understand the new question and to
-search for the right documents. The [Asking a Question](ask_question.md) recipe
-describes the request without a history. The following example shows the body
-of the second request:
+The second question, 'And how many hours does the Acme Widget run for once it
+is charged?', does not say which version of the product it means, so the model
+can answer it only if it knows what the first question was about. The request
+body therefore carries a `messages` list next to the `query`. Each message has
+a `role` of `user` or `assistant`, and a `content` string, and the list holds
+the earlier turns in order. The pipeline passes the history to the language
+model, but it searches for documents using the `query` alone. A follow-up
+question must therefore still name its subject, here the Acme Widget, for the
+search to find the right documents, and the history only settles the details
+that the question leaves out, here the version. The [Asking a
+Question](ask_question.md) recipe describes the request without a history. The
+following example shows the body of the second request:
 
 ```json
 {
-  "query": "And how many hours will it then run for?",
+  "query": "And how many hours does the Acme Widget run for once it is charged?",
   "messages": [
     {"role": "user", "content": "How long does the Acme Widget 2.0 take to charge?"},
     {"role": "assistant", "content": "It takes ninety minutes."}
