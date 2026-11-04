@@ -168,10 +168,10 @@ for this reason.
 Recipes run concurrently against one shared server during development, so
 a recipe uses a `TEMPORARY` table wherever a single session suffices. When
 a recipe needs a table that several sessions share, the table is named
-`cookbook_<recipe slug>` (for example, `cookbook_bulk_copy`), and the
-program drops the table before it starts and again when it finishes. A
-recipe that uses `LISTEN` names its channel in the same way. Fixture data
-is obviously fake, such as `Jane Doe` and `jane.doe@example.com`.
+`cookbook_<recipe slug>` (for example, `cookbook_retry_transactions`), and
+the program drops the table before it starts and again when it finishes. A
+recipe that uses `LISTEN` names its channel in the same way. Fixture data is
+obviously fake, such as `Jane Doe` and `jane.doe@example.com`.
 
 Run only one copy of a recipe at a time against a server. Recipes that share
 a `cookbook_<slug>` table, such as `retry_transactions`, would race with a

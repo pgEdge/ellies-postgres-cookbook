@@ -106,7 +106,7 @@ while IFS= read -r marker; do
             sed 's/^/     /' "$log"
             failures=$((failures + 1))
         elif [[ -x "$check" ]] && \
-             ! printf '%s\n' "$actual" | "$check" >"$log" 2>&1; then
+             ! printf '%s\n' "$actual" | "$check" >>"$log" 2>&1; then
             echo "FAIL $dir (check_output rejected the output)"
             sed 's/^/     /' "$log"
             failures=$((failures + 1))

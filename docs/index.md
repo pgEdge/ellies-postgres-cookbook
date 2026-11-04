@@ -7,7 +7,9 @@ query, and walks through the code that answers the question one step at a
 time.
 
 Every recipe presents the code in the following languages, except the
-recipes for the pgEdge Go LLM Library, which are Go only:
+recipes for the pgEdge Go LLM Library, which are Go only, and the Using a
+Connection Pool recipe, which has no C program because libpq has no
+built-in connection pool:
 
 - Python
 - TypeScript

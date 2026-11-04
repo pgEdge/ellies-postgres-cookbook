@@ -83,6 +83,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ollama/models
+          # Bump the suffix when a model tag is re-published upstream, or the
+          # stale cache is restored and the new layers are never saved.
           key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
 
       - name: Install Ollama and pull models
