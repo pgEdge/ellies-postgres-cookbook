@@ -1,0 +1,6 @@
+# --8<-- [start:deps]
+source "https://rubygems.org"
+
+# The pg gem wraps libpq, so libpq and its headers must be installed.
+gem "pg", "~> 1.6"
+# --8<-- [end:deps]

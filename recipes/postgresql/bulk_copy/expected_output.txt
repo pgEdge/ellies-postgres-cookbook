@@ -1,0 +1,3 @@
+Copied 1000 rows
+Rows in table: 1000
+Sum of ids: 500500
