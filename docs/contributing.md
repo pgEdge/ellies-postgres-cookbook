@@ -19,6 +19,8 @@ recipes/
   postgresql/
     connect_and_query/
       expected_output.txt         # The output every program must produce.
+      check_output                # Optional; replaces expected_output.txt.
+      failure_env.txt             # Optional; makes the server unreachable.
       requires.txt                # Optional; extra variables required.
       python/                     # One complete project per language.
       typescript/
@@ -34,12 +36,17 @@ scripts/
   check_tabs.py                   # Validates tab groups in the docs.
   render_docs.py                  # Renders the docs for publication.
   run_example.sh                  # Builds and runs one program.
+  start_test_server.sh            # Starts a TLS-enabled test server.
   test_recipes.sh                 # Tests every program.
 ```
 
 The cookbook groups recipes by product; recipes for PostgreSQL itself live
 under `postgresql/`, and recipes for pgEdge Starfleet will live under
 `starfleet/`.
+
+Recipes for the pgEdge Go LLM Library are the exception to the
+one-program-per-language rule; the section on single-language recipes
+below describes their layout.
 
 ## Using the Canonical Language Labels
 
@@ -149,6 +156,16 @@ A step that needs no code in a particular language should still keep the
 tab for that language, with a sentence that explains why; the Closing the
 Connection step of the first recipe demonstrates this approach.
 
+## Sharing the Test Server
+
+Recipes run concurrently against one shared server during development, so
+a recipe uses a `TEMPORARY` table wherever a single session suffices. When
+a recipe needs a table that several sessions share, the table is named
+`cookbook_<recipe slug>` (for example, `cookbook_bulk_copy`), and the
+program drops the table before it starts and again when it finishes. A
+recipe that uses `LISTEN` names its channel in the same way. Fixture data
+is obviously fake, such as `Jane Doe` and `jane.doe@example.com`.
+
 ## Testing the Programs
 
 The `scripts/test_recipes.sh` script builds and runs every program, and
@@ -166,6 +183,75 @@ Recipes that need more than a PostgreSQL server, such as recipes for the
 pgEdge Starfleet API, list the extra environment variables that they need
 in a `requires.txt` file. The test script skips those recipes when any of
 the variables are unset.
+
+A recipe whose output varies from run to run, such as a reply from a
+language model, has an executable `check_output` file in place of
+`expected_output.txt`; a recipe never has both. The test script pipes the
+standard output of each program to `check_output`, and the program passes
+when the script exits with status 0. The script checks the shape of the
+output, such as a non-empty reply, the expected line prefixes, or
+well-formed values, and never the exact text, and it must fail on empty
+output and on error messages.
+
+The unreachable-server run sets `PGPORT=1` by default. A recipe whose
+program does not use the `PG*` variables, such as one that calls a
+language model, replaces that default with a `failure_env.txt` file of
+`NAME=value` lines, one per line, which the test script exports for that
+run. The following example points an LLM recipe at a closed port:
+
+```text
+LLM_BASE_URL=http://localhost:1
+```
+
+The `scripts/start_test_server.sh` script starts the server that
+continuous integration uses: the `pgvector/pgvector:pg18` image in Docker,
+with trust authentication and TLS enabled. The script generates a
+certificate authority and a server certificate into a temporary directory
+each time it runs, with subject alternative names for `localhost`,
+`127.0.0.1`, and any host names given as arguments, and it never writes
+the keys into the repository. The script prints the path of the root
+certificate as `PGSSLROOTCERT=<path>`; export that variable to run the TLS
+recipe, which `requires.txt` skips otherwise. The following commands start
+a server on port 5433, test the Python programs against it, and remove it:
+
+```bash
+scripts/start_test_server.sh --name cookbook-pg --port 5433
+export PGHOST=localhost PGPORT=5433 PGUSER=postgres
+scripts/test_recipes.sh python
+docker rm -f cookbook-pg
+```
+
+The script accepts `--name`, `--network`, and `--port` options, and the
+`COOKBOOK_PG_IMAGE` environment variable overrides the image.
+
+## Writing Single-Language Recipes
+
+Recipes for the
+[pgEdge Go LLM Library](https://github.com/pgEdge/pgedge-go-llm-lib) show
+Go only, because the library is a Go package. These recipes live under
+`recipes/go_llm_lib/<slug>/go/`, with their pages at
+`docs/go_llm_lib/<slug>.md`, and they appear in the navigation under the
+group Using the pgEdge Go LLM Library. A single-language page uses plain
+fenced code blocks with snippet includes instead of content tabs, so
+`scripts/check_tabs.py` ignores the page without any exemption. The
+program still marks its sections as described earlier, and each section
+must still be complete, copyable code.
+
+The programs read the following variables, and treat an empty value as
+unset:
+
+| Variable         | Default            | Purpose                           |
+|------------------|--------------------|-----------------------------------|
+| `LLM_PROVIDER`   | `ollama`           | The provider for chat requests.   |
+| `LLM_MODEL`      | `qwen2.5:1.5b`     | The chat model.                   |
+| `LLM_API_KEY`    | none               | The API key, if one is needed.     |
+| `LLM_BASE_URL`   | the provider's own | Overrides the provider endpoint.  |
+| `EMBED_PROVIDER` | `ollama`           | The provider for embeddings.      |
+| `EMBED_MODEL`    | `nomic-embed-text` | The embedding model.              |
+
+Every recipe defaults to a local Ollama server, so the first recipe
+explains how to run the examples with Ollama and the two models. Recipes
+that need a cloud API key list the variable in `requires.txt`.
 
 ## Publishing the Documentation
 

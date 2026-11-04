@@ -18,28 +18,23 @@ jobs:
       matrix:
         language: [python, typescript, java, csharp, go, rust, ruby, c]
 
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       PGHOST: localhost
       PGPORT: 5432
       PGDATABASE: postgres
       PGUSER: postgres
-      PGPASSWORD: postgres
 
     steps:
       - uses: actions/checkout@v4
+
+      # The test server is the pgvector image with TLS on and trust
+      # authentication, so no password is needed. The script prints the
+      # path of the CA certificate that the TLS recipe verifies against.
+      - name: Start PostgreSQL
+        run: |
+          scripts/start_test_server.sh --port 5432 \
+            | tee "$RUNNER_TEMP/server.out"
+          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
 
       - name: Install libpq
         if: matrix.language == 'c' || matrix.language == 'ruby'
@@ -79,6 +74,32 @@ jobs:
         if: matrix.language == 'ruby'
         with:
           ruby-version: '3.4'
+
+      # The LLM library recipes default to a local Ollama server. The
+      # models are large, so cache them between runs.
+      - name: Cache Ollama models
+        if: matrix.language == 'go'
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
+
+      - name: Install Ollama and pull models
+        if: matrix.language == 'go'
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          # The installer may start a system service that keeps its models
+          # elsewhere; run our own server as this user so that it uses the
+          # cached ~/.ollama/models directory.
+          sudo systemctl stop ollama || true
+          nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:11434/
+          ollama pull qwen2.5:1.5b
+          ollama pull nomic-embed-text
 
       - name: Test recipes
         run: scripts/test_recipes.sh ${{ matrix.language }}

@@ -6,7 +6,8 @@ answers a single question, such as how to connect to a database and run a
 query, and walks through the code that answers the question one step at a
 time.
 
-Every recipe presents the code in the following languages:
+Every recipe presents the code in the following languages, except the
+recipes for the pgEdge Go LLM Library, which are Go only:
 
 - Python
 - TypeScript
