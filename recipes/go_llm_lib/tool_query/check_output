@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#
+# Checks the shape of the tool_query output, which varies from run to run:
+# a "Tool call: count_types(<name>)" line, then an "Answer:" line that
+# holds some text. Fails on empty or blank output and on error text.
+#
+# Copyright (c) 2026, pgEdge, Inc.
+# This code is released under the PostgreSQL License.
+
+set -uo pipefail
+
+output="$(cat)"
+
+if [[ -z "${output//[[:space:]]/}" ]]; then
+    echo "check_output: the program printed nothing" >&2
+    exit 1
+fi
+
+first="$(printf '%s\n' "$output" | sed -n 1p)"
+if [[ ! "$first" =~ ^Tool\ call:\ count_types\([A-Za-z0-9_]+\)$ ]]; then
+    echo "check_output: unexpected first line: $first" >&2
+    exit 1
+fi
+
+# Everything after the first line is the answer, which must start with
+# the "Answer:" prefix and carry text of its own.
+rest="$(printf '%s\n' "$output" | sed -n '2,$p')"
+if [[ "$rest" != Answer:* ]]; then
+    echo "check_output: the second line does not start with 'Answer:'" >&2
+    exit 1
+fi
+answer="${rest#Answer:}"
+if [[ -z "${answer//[[:space:]]/}" ]]; then
+    echo "check_output: the answer is blank" >&2
+    exit 1
+fi
+
+if grep -qiE '^(error|panic|fatal)' <<<"$output"; then
+    echo "check_output: the output contains error text" >&2
+    exit 1
+fi
