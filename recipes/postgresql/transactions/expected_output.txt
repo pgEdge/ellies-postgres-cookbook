@@ -1,0 +1,4 @@
+Transferred 30 from account 1 to account 2
+Transfer of 500 from account 1 to account 2 failed and was rolled back
+Account 1 balance: 70
+Account 2 balance: 80
