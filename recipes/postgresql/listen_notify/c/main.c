@@ -7,6 +7,7 @@
  */
 
 /* --8<-- [start:imports] */
+#include <errno.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -151,8 +152,10 @@ elapsed_ms(const struct timespec *start)
 }
 
 /*
- * Wait for a notification, and return it, or NULL on timeout or error.
- * The caller frees the notification with PQfreemem().
+ * Wait for a notification, and return it. The caller frees the
+ * notification with PQfreemem(). On failure the function returns NULL and
+ * sets *problem to NULL for a timeout, or to a message that describes an
+ * error.
  *
  * libpq never reads from the socket by itself while the program is idle.
  * The loop therefore asks poll() to wait until the socket is readable,
@@ -160,7 +163,7 @@ elapsed_ms(const struct timespec *start)
  * for the next queued notification.
  */
 static PGnotify *
-wait_for_notification(PGconn *conn, int timeout_ms)
+wait_for_notification(PGconn *conn, int timeout_ms, const char **problem)
 {
     struct timespec start;
     struct pollfd pfd;
@@ -168,22 +171,42 @@ wait_for_notification(PGconn *conn, int timeout_ms)
     clock_gettime(CLOCK_MONOTONIC, &start);
     pfd.fd = PQsocket(conn);
     pfd.events = POLLIN;
+    *problem = NULL;
 
     for (;;)
     {
         PGnotify *message;
         long remaining;
+        int ready;
 
         if (!PQconsumeInput(conn))
+        {
+            *problem = PQerrorMessage(conn);
             return NULL;
+        }
 
         message = PQnotifies(conn);
         if (message != NULL)
             return message;
 
         remaining = timeout_ms - elapsed_ms(&start);
-        if (remaining <= 0 || poll(&pfd, 1, (int) remaining) <= 0)
+        if (remaining <= 0)
             return NULL;
+
+        ready = poll(&pfd, 1, (int) remaining);
+        if (ready == 0)
+            return NULL;
+
+        /*
+         * A signal can interrupt poll() with EINTR; the loop then works
+         * out the remaining time again and retries. Any other failure is
+         * an error, not a timeout.
+         */
+        if (ready < 0 && errno != EINTR)
+        {
+            *problem = strerror(errno);
+            return NULL;
+        }
     }
 }
 /* --8<-- [end:wait] */
@@ -196,6 +219,7 @@ main(void)
     PGconn *listener = connect_to_server();
     PGconn *sender = connect_to_server();
     PGnotify *message;
+    const char *problem;
 
     if (PQstatus(listener) != CONNECTION_OK)
         fprintf(stderr, "Database error: %s", PQerrorMessage(listener));
@@ -210,9 +234,15 @@ main(void)
 
         if (!send_notification(sender, CHANNEL, "Hello from connection B"))
             fprintf(stderr, "Database error: %s", PQerrorMessage(sender));
-        else if ((message = wait_for_notification(listener, TIMEOUT_MS)) == NULL)
-            fprintf(stderr, "No notification within %d seconds\n",
-                    TIMEOUT_MS / 1000);
+        else if ((message = wait_for_notification(listener, TIMEOUT_MS,
+                                                  &problem)) == NULL)
+        {
+            if (problem == NULL)
+                fprintf(stderr, "No notification within %d seconds\n",
+                        TIMEOUT_MS / 1000);
+            else
+                fprintf(stderr, "Wait failed: %s\n", problem);
+        }
         else
         {
             printf("Received notification on '%s': %s\n",

@@ -28,9 +28,11 @@ delivered when the sending transaction commits, and a listener hears only
 notifications sent after its `LISTEN` took effect, so each example runs
 `LISTEN` and `NOTIFY` outside an explicit transaction, where each statement
 commits as soon as it completes. The listener is therefore subscribed
-before the sender sends. Second, no driver receives a notification
-asynchronously on its own: the program has to ask the driver to wait for
-one, and each driver offers its own way of doing so.
+before the sender sends. Second, a notification reaches the program only when the driver reads
+from the connection, and each driver offers its own way of doing so. Some
+drivers read when the program asks them to wait for a notification, and
+node-postgres reads in the background and emits an event when a
+notification arrives.
 
 ## Preparing the Ingredients
 

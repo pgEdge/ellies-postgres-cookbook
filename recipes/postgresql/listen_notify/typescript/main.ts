@@ -67,15 +67,18 @@ async function notify(
 // --8<-- [end:notify]
 
 // --8<-- [start:wait]
-// Starts waiting for one notification, and returns a promise for it. The
-// promise rejects if no notification arrives within the timeout. Call this
+// Starts waiting for one notification. The promise resolves with the
+// notification, or rejects if none arrives within the timeout. Call this
 // before sending the notification: node-postgres emits a notification as
-// soon as it arrives, and an event with no listener is lost.
+// soon as it arrives, and an event with no listener is lost. Calling
+// cancel() stops the timer and the listener, which lets the program exit
+// at once if it gives up waiting.
 function waitForNotification(
   client: pg.Client,
   timeoutMs: number,
-): Promise<pg.Notification> {
-  return new Promise((resolve, reject) => {
+): { promise: Promise<pg.Notification>; cancel: () => void } {
+  let cancel = (): void => {};
+  const promise = new Promise<pg.Notification>((resolve, reject) => {
     const timer = setTimeout(() => {
       client.removeListener("notification", onNotification);
       reject(new Error(`No notification within ${timeoutMs / 1000} seconds`));
@@ -87,7 +90,12 @@ function waitForNotification(
     }
 
     client.once("notification", onNotification);
+    cancel = () => {
+      clearTimeout(timer);
+      client.removeListener("notification", onNotification);
+    };
   });
+  return { promise, cancel };
 }
 // --8<-- [end:wait]
 
@@ -113,9 +121,17 @@ async function main(): Promise<number> {
     console.log(`Listening on channel '${CHANNEL}'`);
 
     const pending = waitForNotification(listener, TIMEOUT_MS);
-    await notify(sender, CHANNEL, "Hello from connection B");
+    try {
+      await notify(sender, CHANNEL, "Hello from connection B");
+    } catch (err) {
+      // Stop the timer, so the program does not wait for it, and mark the
+      // promise as handled, so Node does not report it as unhandled.
+      pending.cancel();
+      pending.promise.catch(() => {});
+      throw err;
+    }
 
-    const message = await pending;
+    const message = await pending.promise;
     console.log(
       `Received notification on '${message.channel}': ${message.payload}`,
     );
