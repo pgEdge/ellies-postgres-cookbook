@@ -7,6 +7,11 @@ Linked tabs switch by label, so a misspelt label ("Javascript" for
 "TypeScript", say) or a missing tab silently breaks the language switcher
 for readers. This check runs in CI alongside the docs build.
 
+Pages under docs/rag_server, docs/ai_dba_workbench, and docs/starfleet
+document HTTP API recipes, and use the API languages (Python, TypeScript,
+and Go) in place of the full set; every other page uses the full set. In
+both cases a curl tab may follow the languages.
+
 Tab groups whose labels are not language names (for example, "Linux" and
 "macOS") are ignored, unless they mix in a language label.
 
@@ -23,7 +28,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from languages import CURL, LABELS, PLACEHOLDER
+from languages import CURL, LABELS, PLACEHOLDER, product_languages
 
 TAB = re.compile(r'^(?P<indent>\s*)===[+!]? "(?P<label>[^"]+)"')
 LANGUAGE_LABELS = set(LABELS) | {CURL.label}
@@ -62,8 +67,13 @@ def tab_groups(path: Path):
         yield start, group
 
 
-def check(path: Path) -> list[str]:
+def check(path: Path, docs: Path) -> list[str]:
     problems = []
+    # The page's product is its first directory under docs/.
+    relative = path.relative_to(docs).parts
+    product = relative[0] if len(relative) > 1 else ""
+    labels_for_page = [language.label
+                       for language in product_languages(product)]
     unfilled = PLACEHOLDER.split("{label}")[-1]
     for number, line in enumerate(path.read_text().splitlines(), 1):
         if unfilled in line:
@@ -72,7 +82,8 @@ def check(path: Path) -> list[str]:
     for line, labels in tab_groups(path):
         if not LANGUAGE_LABELS.intersection(labels):
             continue
-        expected = LABELS + ([CURL.label] if CURL.label in labels else [])
+        expected = labels_for_page + ([CURL.label] if CURL.label in labels
+                                      else [])
         if labels != expected:
             problems.append(
                 f"{path}:{line}: tabs are {labels}, expected {expected}")
@@ -179,7 +190,7 @@ def main() -> None:
     docs = Path(sys.argv[1] if len(sys.argv) > 1 else "docs")
     problems = check_sections(Path("recipes"))
     for path in sorted(docs.rglob("*.md")):
-        problems += check(path)
+        problems += check(path, docs)
     for problem in problems:
         print(problem)
     if problems:

@@ -7,7 +7,11 @@ Usage:
     scripts/tabs.py <recipe directory> <section> [<section> ...]
 
 Each section produces one tab group with a tab for every language, in the
-canonical order. Two section names are special:
+canonical order. Recipes under recipes/rag_server, recipes/ai_dba_workbench,
+and recipes/starfleet use the API languages (Python, TypeScript, and Go)
+instead of the full set, and get a curl tab after them, in every group
+except deps, when the recipe has a curl/main.sh file. Two section names are
+special:
 
     deps    includes the deps section of each dependency manifest, or the
             whole manifest if it has no section markers (package.json
@@ -20,7 +24,8 @@ equivalent of the feature. For a language whose directory is missing, the
 tab holds a placeholder sentence instead of an include (and the script
 warns on stderr), so that the author replaces it by hand with a short
 explanation. Every tab group still lists all the canonical languages, which
-is what scripts/check_tabs.py enforces.
+is what scripts/check_tabs.py enforces. The same applies to the API
+languages of an HTTP API recipe.
 
 Example:
     scripts/tabs.py recipes/postgresql/connect_and_query deps imports
@@ -32,7 +37,7 @@ This code is released under the PostgreSQL License.
 import sys
 from pathlib import Path
 
-from languages import LANGUAGES, PLACEHOLDER
+from languages import CURL, PLACEHOLDER, product_languages
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -60,9 +65,22 @@ def include(recipe: Path, language, section: str) -> tuple[str, str]:
     return f"{path}:{section}", language.highlight
 
 
+def recipe_languages(recipe: Path, section: str) -> list:
+    """Return the languages of the recipe's tabs for one section.
+
+    The recipe's product is its parent directory, as in
+    recipes/<product>/<slug>.
+    """
+    languages = product_languages(recipe.parent.name)
+    if (section != "deps" and
+            (recipe / CURL.directory / CURL.source).is_file()):
+        languages.append(CURL)
+    return languages
+
+
 def tab_group(recipe: Path, section: str) -> str:
     lines = []
-    for language in LANGUAGES:
+    for language in recipe_languages(recipe, section):
         if not (recipe / language.directory).is_dir():
             print(f"warning: {recipe.name} has no {language.directory} "
                   "directory; edit the placeholder tab by hand",

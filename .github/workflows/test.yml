@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Weekly, so that the Starfleet recipes (which run only on a schedule or
+  # by hand) and the published products are checked regularly.
+  schedule:
+    - cron: '17 5 * * 1'
 
 permissions:
   contents: read
@@ -104,12 +108,240 @@ jobs:
           ollama pull qwen2.5:1.5b
           ollama pull nomic-embed-text
 
+      # The HTTP API recipes need their products running, so they have jobs
+      # of their own below.
       - name: Test recipes
         env:
           # Recipes that list a variable in requires.txt run only when the
           # secret exists, so forks without the secret skip them.
           VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
-        run: scripts/test_recipes.sh ${{ matrix.language }}
+        run: >-
+          scripts/test_recipes.sh
+          --exclude recipes/rag_server
+          --exclude recipes/ai_dba_workbench
+          --exclude recipes/starfleet
+          ${{ matrix.language }}
+
+  rag_server:
+    name: Recipes (RAG Server)
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The product containers reach the test server by name on a shared
+      # network.
+      - name: Start PostgreSQL
+        run: |
+          scripts/start_test_server.sh --network cookbook-ci --port 5432 \
+            | tee "$RUNNER_TEMP/server.out"
+          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
+
+      - name: Install psql and jq
+        run: |
+          if ! command -v psql >/dev/null || ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client jq
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
+
+      # Listen on every address, so that containers can reach Ollama at
+      # host.docker.internal as well as the host itself.
+      - name: Install Ollama and pull models
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          OLLAMA_HOST=0.0.0.0:11434 \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:11434/
+          ollama pull qwen2.5:1.5b
+          ollama pull nomic-embed-text
+
+      - name: Start the RAG Server
+        run: |
+          scripts/start_rag_server.sh --network cookbook-ci \
+            --pg-host cookbook-test-pg --pg-port 5432 \
+            > "$RUNNER_TEMP/rag.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/rag.env"
+
+      - name: Test recipes
+        if: hashFiles('recipes/rag_server/**') != ''
+        run: >-
+          scripts/test_recipes.sh --dir recipes/rag_server
+          python typescript go curl
+
+      - name: Show the RAG Server log
+        if: failure()
+        run: docker logs cookbook-rag-server || true
+
+  workbench:
+    name: Recipes (AI DBA Workbench)
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The product containers reach the test server by name on a shared
+      # network.
+      - name: Start PostgreSQL
+        run: |
+          scripts/start_test_server.sh --network cookbook-ci --port 5432 \
+            | tee "$RUNNER_TEMP/server.out"
+          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
+
+      - name: Install psql and jq
+        run: |
+          if ! command -v psql >/dev/null || ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client jq
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
+
+      # Listen on every address, so that containers can reach Ollama at
+      # host.docker.internal as well as the host itself.
+      - name: Install Ollama and pull models
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          OLLAMA_HOST=0.0.0.0:11434 \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:11434/
+          ollama pull qwen2.5:1.5b
+          ollama pull nomic-embed-text
+
+      # The token and the password are generated for this run only, but
+      # mask them anyway before they reach the environment file.
+      - name: Start the AI DBA Workbench
+        run: |
+          scripts/start_workbench.sh --name cookbook-workbench \
+            --network cookbook-ci \
+            --pg-host cookbook-test-pg --pg-port 5432 \
+            > "$RUNNER_TEMP/workbench.env"
+          sed -n 's/^WORKBENCH_\(TOKEN\|PASSWORD\)=/::add-mask::/p' \
+            "$RUNNER_TEMP/workbench.env"
+          cat "$RUNNER_TEMP/workbench.env" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/workbench.env"
+
+      - name: Test recipes
+        if: hashFiles('recipes/ai_dba_workbench/**') != ''
+        run: >-
+          scripts/test_recipes.sh --dir recipes/ai_dba_workbench
+          python typescript go curl
+
+      - name: Show the Workbench logs
+        if: failure()
+        run: docker compose -p cookbook-workbench logs || true
+
+  # The Starfleet recipes create billable resources (always named
+  # cookbook-..., and always deleted again), so they run only by hand and
+  # on the weekly schedule, one run at a time. Without the credentials
+  # (before they are configured, say, or on a fork) the job skips its
+  # steps and succeeds.
+  starfleet:
+    name: Recipes (Starfleet)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: starfleet-recipes
+      cancel-in-progress: false
+
+    env:
+      STARFLEET_CLIENT_ID: ${{ secrets.STARFLEET_CLIENT_ID }}
+      STARFLEET_CLIENT_SECRET: ${{ secrets.STARFLEET_CLIENT_SECRET }}
+
+    steps:
+      # Secrets cannot appear in an if: condition, so check them here.
+      - name: Check for the Starfleet credentials
+        id: credentials
+        run: |
+          missing=""
+          for name in STARFLEET_CLIENT_ID STARFLEET_CLIENT_SECRET; do
+            if [[ -z "${!name:-}" ]]; then missing+=" $name"; fi
+          done
+          if [[ -n "$missing" ]]; then
+            echo "::notice::Skipping the Starfleet recipes; these secrets are not set:$missing"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.credentials.outputs.available == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.credentials.outputs.available == 'true'
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        if: steps.credentials.outputs.available == 'true'
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-go@v5
+        if: steps.credentials.outputs.available == 'true'
+        with:
+          go-version: '1.26.10'
+
+      - name: Test recipes
+        if: >-
+          steps.credentials.outputs.available == 'true' &&
+          hashFiles('recipes/starfleet/**') != ''
+        run: >-
+          scripts/test_recipes.sh --dir recipes/starfleet
+          python typescript go curl
 
   docs:
     name: Documentation

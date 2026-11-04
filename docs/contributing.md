@@ -37,12 +37,17 @@ scripts/
   render_docs.py                  # Renders the docs for publication.
   run_example.sh                  # Builds and runs one program.
   start_test_server.sh            # Starts a TLS-enabled test server.
+  start_rag_server.sh             # Starts the pgEdge RAG Server.
+  start_workbench.sh              # Starts the AI DBA Workbench.
+  fixtures/rag_documents.json     # The RAG Server's sample documents.
   test_recipes.sh                 # Tests every program.
 ```
 
 The cookbook groups recipes by product; recipes for PostgreSQL itself live
-under `postgresql/`, and recipes for pgEdge Starfleet will live under
-`starfleet/`.
+under `postgresql/`. Recipes for the HTTP APIs of pgEdge products live
+under `rag_server/` for the pgEdge RAG Server, `ai_dba_workbench/` for
+the AI DBA Workbench, and `starfleet/` for the pgEdge Starfleet API; the
+section on HTTP API recipes below describes them.
 
 Recipes for the pgEdge Go LLM Library are the exception to the
 one-program-per-language rule; the section on single-language recipes
@@ -68,12 +73,24 @@ The following table lists each label with its directory and source file:
 | Ruby       | `ruby`       | `main.rb`                 |
 | C          | `c`          | `main.c`                  |
 
-Recipes that call a REST API add a `curl` tab after the C tab; the C tab
-for those recipes may explain that libpq does not apply. The
-`scripts/tabs.py` script does not generate the `curl` tab, so authors add
-that tab by hand. The
-`scripts/languages.py` file defines the list, and `scripts/check_tabs.py`
-fails the build if any tab group departs from the list.
+Which set of labels a page uses depends on its product directory, and
+two rules apply:
+
+- Pages under `docs/rag_server/`, `docs/ai_dba_workbench/`, and
+  `docs/starfleet/` document HTTP API recipes, and use only the API
+  languages, which are Python, TypeScript, and Go, in that order. A `curl`
+  tab may follow them, for a recipe with a `curl/main.sh` script.
+- Every other page uses all eight languages, in the order above.
+
+In both cases a recipe may omit a language by leaving out its directory;
+the tab stays on the page, and the author replaces the placeholder
+sentence that `scripts/tabs.py` writes into it, as described in the
+section on adding a recipe. The `scripts/tabs.py` script picks the set
+from the recipe's product directory under `recipes/`, and adds the `curl`
+tab, in every group except `deps`, when the recipe has a `curl/main.sh`
+file. The `scripts/languages.py` file defines both sets and the API
+product directories, and `scripts/check_tabs.py` fails the build if any
+tab group departs from the set for its page.
 
 ## Marking Sections in the Code
 
@@ -193,9 +210,18 @@ scripts/test_recipes.sh python go
 Recipes that need more than a PostgreSQL server, such as recipes for the
 pgEdge Starfleet API, list the extra environment variables that they need
 in a `requires.txt` file. The test script skips those recipes when any of
-the variables are unset. Continuous integration passes these variables
-from repository secrets of the same name, and skips the recipe when a secret
-is absent.
+the variables are unset or empty. Continuous integration passes these
+variables from repository secrets of the same name, and skips the recipe
+when a secret is absent.
+
+The `--dir` option limits a run to the recipes under one directory, and
+the `--exclude` option skips the recipes under one; both options may be
+repeated. The following command tests the RAG Server recipes in every
+API language:
+
+```bash
+scripts/test_recipes.sh --dir recipes/rag_server python typescript go curl
+```
 
 A recipe whose output varies from run to run, such as a reply from a
 language model, has an executable `check_output` file in place of
@@ -215,6 +241,10 @@ run. The following example points an LLM recipe at a closed port:
 ```text
 LLM_BASE_URL=http://localhost:1
 ```
+
+A `curl` program takes part in the unreachable-server run only when the
+recipe has a `failure_env.txt` file, because a shell script never reads
+the `PG*` variables through libpq.
 
 The `scripts/start_test_server.sh` script starts the server that
 continuous integration uses: the `pgvector/pgvector:pg18` image in Docker,
@@ -265,6 +295,87 @@ unset:
 Every recipe defaults to a local Ollama server, so the first recipe
 explains how to run the examples with Ollama and the two models. Recipes
 that need a cloud API key list the variable in `requires.txt`.
+
+## Writing HTTP API Recipes
+
+Recipes for the pgEdge RAG Server, the AI DBA Workbench API, and the
+pgEdge Starfleet API live under `recipes/<product>/<slug>/`, with their
+pages at `docs/<product>/<slug>.md`, where `<product>` is `rag_server`,
+`ai_dba_workbench`, or `starfleet`. Each recipe has Python, TypeScript,
+and Go programs, and a `curl/main.sh` script unless its steps cannot be
+written as HTTP calls. The Python programs use `httpx`, the TypeScript
+programs use the built-in `fetch` function, the Go programs use the
+`net/http` package, and the curl scripts use `jq` to read JSON.
+
+Every page states the product version that its examples target, near the
+top of the page; the RAG Server recipes target RAG Server 2.0.0, the
+Workbench recipes target AI DBA Workbench 1.0.0, and the Starfleet recipes
+target the Starfleet Managed API v1.
+
+The programs read the following variables, and treat an empty value as
+unset:
+
+| Variable                  | Default                  | Purpose                                  |
+|---------------------------|--------------------------|------------------------------------------|
+| `RAG_SERVER_URL`          | `http://localhost:8080`  | The RAG Server's base URL.               |
+| `RAG_PIPELINE`            | `cookbook`               | The pipeline to query.                   |
+| `WORKBENCH_URL`           | `http://localhost:8080`  | The Workbench server's base URL.         |
+| `WORKBENCH_TOKEN`         | none                     | A Workbench API token.                   |
+| `WORKBENCH_USERNAME`      | none                     | The user for the login recipe.           |
+| `WORKBENCH_PASSWORD`      | none                     | The password for the login recipe.       |
+| `STARFLEET_CLIENT_ID`     | none                     | The Starfleet API client ID.             |
+| `STARFLEET_CLIENT_SECRET` | none                     | The Starfleet API client secret.         |
+| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The Starfleet API's base URL.            |
+
+Each recipe lists the variables that have no default in `requires.txt`,
+so the test script skips the recipe when they are not set. A
+`failure_env.txt` file points the URL variable at port 1, so that every
+program, including the curl script, must fail when the service is
+unreachable. A recipe whose output comes from a language model has a
+`check_output` script instead of `expected_output.txt`.
+
+The `scripts/start_rag_server.sh` script loads the fictional Acme Widget
+documents in `scripts/fixtures/rag_documents.json` into a
+`cookbook_rag_documents` table on the test server, embedding each one
+with the Ollama `nomic-embed-text` model, and starts the RAG Server 2.0.0
+container with a `cookbook` pipeline that uses Ollama for embeddings and
+the `qwen2.5:1.5b` model for answers. The script prints the
+`RAG_SERVER_URL` and `RAG_PIPELINE` lines to export.
+
+The `scripts/start_workbench.sh` script starts AI DBA Workbench 1.0.0 with
+the Docker Compose file from the `v1.0.0` tag and the published images,
+using Ollama as its language model. The script creates a `cookbook` user
+with a generated password and an API token, registers the test server as
+a monitored connection, and waits until the collector has stored metrics
+for it. The script then prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`,
+`WORKBENCH_USERNAME`, `WORKBENCH_PASSWORD`, and `WORKBENCH_CONNECTION_ID`
+lines to export; the generated secrets stay in a temporary directory and
+never enter the repository.
+
+Both scripts accept `--name`, `--port`, `--network`, `--pg-host`,
+`--pg-port`, and `--ollama-url` options; the `--pg-host` and `--pg-port`
+options give the test server's address as the containers see it, which
+defaults to the Docker host. On Linux, a service on the Docker host is
+reachable from the containers only when it listens on an address other
+than `127.0.0.1`, so start Ollama with `OLLAMA_HOST=0.0.0.0:11434` there;
+Docker Desktop has no such restriction. The following commands
+start the test server and the RAG Server on a shared network, and test
+the RAG Server recipes:
+
+```bash
+scripts/start_test_server.sh --network cookbook --port 5433
+export PGHOST=localhost PGPORT=5433 PGUSER=postgres
+eval "$(scripts/start_rag_server.sh --network cookbook \
+    --pg-host cookbook-test-pg --pg-port 5432 --port 8081)"
+export RAG_SERVER_URL RAG_PIPELINE
+scripts/test_recipes.sh --dir recipes/rag_server python typescript go curl
+```
+
+The Starfleet recipes use a real Starfleet account, so a recipe that
+creates a billable resource names the resource with a `cookbook-` prefix
+and always deletes the resource again, even when a step fails. Continuous
+integration runs the Starfleet recipes only when started by hand and on a
+weekly schedule, and skips them when the credentials are not configured.
 
 ## Publishing the Documentation
 

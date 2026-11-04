@@ -1,0 +1,58 @@
+[
+  {
+    "id": 1,
+    "title": "Charging the Acme Widget",
+    "product": "Acme Widget",
+    "version": "1.0",
+    "content": "The Acme Widget 1.0 charges through its micro-USB port. A full charge takes four hours, and a fully charged Acme Widget 1.0 runs for twelve hours."
+  },
+  {
+    "id": 2,
+    "title": "Resetting the Acme Widget",
+    "product": "Acme Widget",
+    "version": "1.0",
+    "content": "To reset the Acme Widget 1.0 to its factory settings, hold down the power button for ten seconds until the status light flashes blue."
+  },
+  {
+    "id": 3,
+    "title": "Charging the Acme Widget",
+    "product": "Acme Widget",
+    "version": "2.0",
+    "content": "The Acme Widget 2.0 charges through its USB-C port. A full charge takes ninety minutes, and a fully charged Acme Widget 2.0 runs for eighteen hours."
+  },
+  {
+    "id": 4,
+    "title": "Resetting the Acme Widget",
+    "product": "Acme Widget",
+    "version": "2.0",
+    "content": "To reset the Acme Widget 2.0 to its factory settings, hold down the power and volume buttons together for five seconds until the status light flashes green."
+  },
+  {
+    "id": 5,
+    "title": "Connecting the Acme Widget Pro to Wi-Fi",
+    "product": "Acme Widget Pro",
+    "version": "1.0",
+    "content": "The Acme Widget Pro 1.0 connects to 2.4 GHz Wi-Fi networks only. Pair it with a network through the Settings page of the Acme Companion app."
+  },
+  {
+    "id": 6,
+    "title": "Acme Widget Pro Warranty",
+    "product": "Acme Widget Pro",
+    "version": "1.0",
+    "content": "The Acme Widget Pro 1.0 comes with a one-year limited warranty, which covers manufacturing defects but not accidental damage."
+  },
+  {
+    "id": 7,
+    "title": "Connecting the Acme Widget Pro to Wi-Fi",
+    "product": "Acme Widget Pro",
+    "version": "2.0",
+    "content": "The Acme Widget Pro 2.0 connects to both 2.4 GHz and 5 GHz Wi-Fi networks. Pair it with a network by scanning the QR code on the base of the device with the Acme Companion app."
+  },
+  {
+    "id": 8,
+    "title": "Acme Widget Pro Warranty",
+    "product": "Acme Widget Pro",
+    "version": "2.0",
+    "content": "The Acme Widget Pro 2.0 comes with a three-year warranty, which covers manufacturing defects and one accidental damage repair."
+  }
+]

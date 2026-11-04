@@ -3,7 +3,12 @@
 # Test every recipe implementation for the given languages, or for all
 # languages if none are given.
 #
-# Usage: scripts/test_recipes.sh [language ...]
+# Usage: scripts/test_recipes.sh [--dir DIR ...] [--exclude DIR ...]
+#            [language ...]
+#
+# --dir limits the run to the recipes under DIR (for example,
+# recipes/rag_server), and --exclude skips the recipes under DIR; both may
+# be repeated. By default every recipe under recipes/ is tested.
 #
 # A recipe is any directory under recipes/ that contains an
 # expected_output.txt file or an executable check_output file (never
@@ -18,10 +23,13 @@
 #      with a non-zero status, which shows that its error handling works.
 #      A failure_env.txt file of NAME=value lines replaces the default of
 #      PGPORT=1 for recipes whose programs do not use the PG* variables.
+#      curl programs, which never use the PG* variables, take part in this
+#      test only when the recipe has a failure_env.txt file.
 #
 # Recipes that need more than a plain PostgreSQL server (for example, the
 # pgEdge Starfleet API) contain a requires.txt file listing the
-# environment variables they need; they are skipped when any are unset.
+# environment variables they need; they are skipped when any are unset or
+# empty.
 #
 # Copyright (c) 2026, pgEdge, Inc.
 # This code is released under the PostgreSQL License.
@@ -31,7 +39,34 @@ set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-languages=("$@")
+dirs=()
+excludes=()
+languages=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dir)     dirs+=("${2:?--dir needs a value}"); shift 2 ;;
+        --exclude) excludes+=("${2:?--exclude needs a value}"); shift 2 ;;
+        *)         languages+=("$1"); shift ;;
+    esac
+done
+[[ ${#dirs[@]} -eq 0 ]] && dirs=(recipes)
+for dir in "${dirs[@]}"; do
+    if [[ ! -d "$dir" ]]; then
+        echo "No such directory: $dir" >&2
+        exit 2
+    fi
+done
+
+# Reports whether a recipe lies under one of the --exclude directories.
+excluded() {
+    local recipe="$1" exclude
+    for exclude in ${excludes[@]+"${excludes[@]}"}; do
+        exclude="${exclude%/}"
+        [[ "$recipe" == "$exclude" || "$recipe" == "$exclude"/* ]] && return 0
+    done
+    return 1
+}
+
 failures=0
 tested=0
 
@@ -63,6 +98,8 @@ while IFS= read -r marker; do
 
     # A recipe with both files is found twice; report it only once.
     [[ "$marker" == */check_output && -f "$expected" ]] && continue
+
+    excluded "$recipe" && continue
 
     # A recipe has one way of checking its output, never two.
     if [[ -f "$expected" && -e "$check" ]]; then
@@ -115,7 +152,7 @@ while IFS= read -r marker; do
             echo "FAIL $dir (unexpected output)"
             sed 's/^/     /' "$log"
             failures=$((failures + 1))
-        elif [[ "$language" != "curl" ]] && \
+        elif [[ "$language" != "curl" || -f "$recipe/failure_env.txt" ]] && \
              run_unreachable "$recipe" "$dir" >/dev/null 2>"$log"; then
             echo "FAIL $dir (succeeded when the server was unreachable)"
             failures=$((failures + 1))
@@ -124,7 +161,8 @@ while IFS= read -r marker; do
         fi
         rm -f "$log"
     done
-done < <(find recipes \( -name expected_output.txt -o -name check_output \) | sort)
+done < <(find "${dirs[@]%/}" \( -name expected_output.txt -o -name check_output \) \
+          | sort -u)
 
 echo
 echo "$tested tested, $failures failed"
