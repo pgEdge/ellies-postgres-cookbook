@@ -35,8 +35,10 @@ theme:
   custom_dir: docs/overrides
   favicon: img/favicon.ico
 
-  logo_dark_mode: 'img/logo-dark.png'
-  logo_light_mode: 'img/logo-light.png'
+  # Zensical defaults to its own `modern` variant, whose palette has no
+  # `white` or `black` primary colour, so the header would fall back to
+  # indigo. `classic` matches the primary pgEdge documentation site.
+  variant: classic
 
   features:
     - content.code.copy
@@ -68,6 +70,12 @@ theme:
 
 extra:
   generator: false
+
+  # Zensical drops theme keys it does not recognise, so these live here
+  # rather than under `theme:`, as they do on the primary pgEdge
+  # documentation site. Rendered by docs/overrides/partials/logo.html.
+  logo_dark_mode: 'img/logo-dark.png'
+  logo_light_mode: 'img/logo-light.png'
 
 copyright: Copyright &copy; 2026 pgEdge, Inc
 repo_url: https://github.com/pgEdge/ellies-postgres-cookbook
