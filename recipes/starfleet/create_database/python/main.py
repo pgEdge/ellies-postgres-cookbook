@@ -28,6 +28,9 @@ import httpx
 TIMEOUT_SECONDS = 900
 POLL_SECONDS = 10
 
+# How many times to look for a database whose create reply was lost.
+LOOKUP_ATTEMPTS = 3
+
 
 def settings() -> dict:
     """Reads the API settings from the environment.
@@ -102,16 +105,20 @@ def choose_placement(config: dict, token: str) -> tuple[str, str]:
 
 
 # --8<-- [start:create]
-def create_database(
-    config: dict, token: str, name: str, display_name: str, region: str, size: str
-) -> dict:
-    """Creates a database that only this machine can reach, and returns
-    the API's description of it, which includes its ID."""
+def client_ip(config: dict, token: str) -> str:
+    """Returns the address that the API sees requests come from."""
     # A new database is closed to everyone until an allowlist rule admits
     # an address. The API reports the address it sees this request come
     # from, which is the one to admit; a bare address means a single host.
-    ip = api(config, token, "GET", "/client-ip")["ip_address"]
+    return api(config, token, "GET", "/client-ip")["ip_address"]
 
+
+def create_database(
+    config: dict, token: str, name: str, display_name: str, region: str,
+    size: str, ip: str,
+) -> dict:
+    """Creates a database that only this machine can reach, and returns
+    the API's description of it, which includes its ID."""
     return api(config, token, "POST", "/databases", {
         # The name becomes the Postgres database name, so it holds only
         # letters and digits, and the readable cookbook- prefix goes in
@@ -197,6 +204,19 @@ def find_database(config: dict, token: str, name: str):
     return None
 
 
+def find_created_database(config: dict, token: str, name: str):
+    """Looks for the database a few times, because the service may not
+    have recorded a request whose reply was lost until a little later.
+    Returns None if the database never appears."""
+    for attempt in range(LOOKUP_ATTEMPTS):
+        database_id = find_database(config, token, name)
+        if database_id is not None:
+            return database_id
+        if attempt < LOOKUP_ATTEMPTS - 1:
+            time.sleep(POLL_SECONDS)
+    return None
+
+
 def outcome_unknown(error: Exception) -> bool:
     """Reports whether a failed create request might still have created
     the database: no reply arrived, or the service failed with a 5xx
@@ -265,10 +285,11 @@ def main() -> int:
         # Look the database up by name afterwards only if the outcome of
         # the request is unknown, so that a refusal cannot lead the
         # cleanup to delete another database that has the same name.
+        ip = client_ip(config, token)
         lookup = True
         try:
             database = create_database(
-                config, token, name, display_name, region, size
+                config, token, name, display_name, region, size, ip
             )
         except (httpx.HTTPError, ValueError) as e:
             lookup = outcome_unknown(e)
@@ -295,7 +316,14 @@ def main() -> int:
         if token is not None and name is not None:
             try:
                 if database_id is None and lookup:
-                    database_id = find_database(config, token, name)
+                    database_id = find_created_database(config, token, name)
+                    if database_id is None:
+                        print(
+                            f"Error: the database {name} was not found; "
+                            "check your account for it by hand",
+                            file=sys.stderr,
+                        )
+                        exit_code = 1
                 if database_id is not None:
                     delete_database(config, token, database_id)
                     print("Deleted database")

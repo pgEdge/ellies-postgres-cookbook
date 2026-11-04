@@ -42,6 +42,9 @@ const (
 	timeout      = 15 * time.Minute
 	pollInterval = 10 * time.Second
 
+	// How many times to look for a database whose create reply was lost.
+	lookupAttempts = 3
+
 	// How many times to try connecting to the database before giving up.
 	connectAttempts = 6
 )
@@ -225,7 +228,7 @@ func randomSuffix() (string, error) {
 
 // createDatabase creates a database that only this machine can reach,
 // and returns the API's description of it, which includes its ID.
-func createDatabase(ctx context.Context, token, name, displayName, region, size string) (*Database, error) {
+func clientIP(ctx context.Context, token string) (string, error) {
 	// A new database is closed to everyone until an allowlist rule admits
 	// an address. The API reports the address it sees this request come
 	// from, which is the one to admit; a bare address means a single host.
@@ -233,9 +236,12 @@ func createDatabase(ctx context.Context, token, name, displayName, region, size 
 		IPAddress string `json:"ip_address"`
 	}
 	if err := api(ctx, token, http.MethodGet, "/client-ip", nil, &ip); err != nil {
-		return nil, err
+		return "", err
 	}
+	return ip.IPAddress, nil
+}
 
+func createDatabase(ctx context.Context, token, name, displayName, region, size, ip string) (*Database, error) {
 	var database Database
 	err := api(ctx, token, http.MethodPost, "/databases", map[string]any{
 		// The name becomes the Postgres database name, so it holds only
@@ -247,7 +253,7 @@ func createDatabase(ctx context.Context, token, name, displayName, region, size 
 		"region":       region,
 		"size":         size,
 		"ip_allowlist": map[string]any{
-			"rules": []map[string]string{{"cidr": ip.IPAddress, "label": "cookbook"}},
+			"rules": []map[string]string{{"cidr": ip, "label": "cookbook"}},
 		},
 	}, &database)
 	if err != nil {
@@ -402,6 +408,21 @@ func isTransient(err error) bool {
 		apiErr.Status >= 500
 }
 
+// findCreatedDatabase looks for the database a few times, because the
+// service may not have recorded a request whose reply was lost until a
+// little later. It returns an empty string if the database never appears.
+func findCreatedDatabase(ctx context.Context, token, name string) (string, error) {
+	for attempt := 1; ; attempt++ {
+		id, err := findDatabase(ctx, token, name)
+		if err != nil || id != "" || attempt == lookupAttempts {
+			return id, err
+		}
+		if err := sleep(ctx); err != nil {
+			return "", err
+		}
+	}
+}
+
 // outcomeUnknown reports whether a failed create request might still have
 // created the database: no reply arrived, the reply could not be decoded,
 // or the service failed with a 5xx status. A 4xx reply is a definite
@@ -523,10 +544,14 @@ func run() (err error) {
 	defer func() {
 		cleanup := context.Background()
 		if databaseID == "" && lookup {
-			id, findErr := findDatabase(cleanup, token, name)
+			id, findErr := findCreatedDatabase(cleanup, token, name)
 			if findErr != nil {
 				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr),
 					fmt.Errorf("delete the database %s by hand, because it may still be billing", name))
+				return
+			}
+			if id == "" {
+				err = errors.Join(err, fmt.Errorf("the database %s was not found; check your account for it by hand", name))
 				return
 			}
 			databaseID = id
@@ -544,8 +569,12 @@ func run() (err error) {
 	// Look the database up by name afterwards only if the outcome of the
 	// request is unknown, so that a refusal cannot lead the cleanup to
 	// delete another database that has the same name.
+	ip, err := clientIP(ctx, token)
+	if err != nil {
+		return err
+	}
 	lookup = true
-	database, err := createDatabase(ctx, token, name, displayName, region, size)
+	database, err := createDatabase(ctx, token, name, displayName, region, size, ip)
 	if err != nil {
 		lookup = outcomeUnknown(err)
 		return err

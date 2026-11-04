@@ -99,15 +99,17 @@ choose_placement() {
 # --8<-- [end:placement]
 
 # --8<-- [start:create]
+# Prints the address that the API sees requests come from. A new database
+# is closed to everyone until an allowlist rule admits an address, and this
+# is the one to admit; a bare address means a single host.
+client_ip() {
+    api GET /client-ip | jq -er '.ip_address'
+}
+
 # Creates a database that only this machine can reach, and prints the
 # API's description of it, which includes its ID.
 create_database() {
-    local name="$1" display_name="$2" region="$3" size="$4" ip
-    # A new database is closed to everyone until an allowlist rule admits
-    # an address. The API reports the address it sees this request come
-    # from, which is the one to admit; a bare address means a single host.
-    ip="$(api GET /client-ip | jq -er '.ip_address')" || return 1
-
+    local name="$1" display_name="$2" region="$3" size="$4" ip="$5"
     # The name becomes the Postgres database name, so it holds only letters
     # and digits, and the readable cookbook- prefix goes in the display
     # name. The script also uses the name to find the database again if the
@@ -178,6 +180,23 @@ find_database() {
         <<<"${reply%$'\n'*}"
 }
 
+# Prints the ID of the database with the given name, looking up to three
+# times because the service may not have recorded a request whose reply was
+# lost until a little later. Prints nothing if the database never appears,
+# and fails if a lookup fails.
+find_created_database() {
+    local attempt id
+    for ((attempt = 1; attempt <= 3; attempt++)); do
+        id="$(find_database "$1")" || return 1
+        if [[ -n "$id" ]]; then
+            echo "$id"
+            return 0
+        fi
+        ((attempt < 3)) && sleep "$poll_seconds"
+    done
+    return 0
+}
+
 # Deletes the database and waits until the API no longer lists it. A status
 # of 000 means that no reply arrived; that, 409 (which the API gives whilst a
 # database is still being created), 429, and the 5xx statuses are worth
@@ -231,10 +250,13 @@ cleanup() {
         # If the script has no ID and cannot tell whether the create request
         # worked, look for the database by name.
         if [[ -z "$database_id" && "$lookup" == 1 ]]; then
-            if ! database_id="$(find_database "$name")"; then
+            if ! database_id="$(find_created_database "$name")"; then
                 echo "Error: could not look for database $name" >&2
                 echo "Delete the database $name by hand, because it may still be billing" >&2
                 database_id=""
+                status=1
+            elif [[ -z "$database_id" ]]; then
+                echo "Error: the database $name was not found; check your account for it by hand" >&2
                 status=1
             fi
         fi
@@ -260,7 +282,7 @@ main() {
 
     token="$(get_token)"
 
-    local placement region size suffix database display_name reply status
+    local placement region size suffix database display_name reply status ip
     placement="$(choose_placement)"
     region="${placement% *}"
     size="${placement#* }"
@@ -277,8 +299,9 @@ main() {
     # delete another database that has the same name. The create_database
     # function ends its output with the HTTP status on a line of its own,
     # which is 000 if no reply arrived.
+    ip="$(client_ip)"
     lookup=1
-    if ! reply="$(create_database "$name" "cookbook-$suffix" "$region" "$size")"; then
+    if ! reply="$(create_database "$name" "cookbook-$suffix" "$region" "$size" "$ip")"; then
         status="${reply##*$'\n'}"
         echo "Error: creating the database failed" >&2
         echo "${reply%$'\n'*}" >&2

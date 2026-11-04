@@ -23,6 +23,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 const TIMEOUT_MS = 900_000;
 const POLL_MS = 10_000;
 
+// How many times to look for a database whose create reply was lost.
+const LOOKUP_ATTEMPTS = 3;
+
 // Read the API settings from the environment. The || operator, unlike ??,
 // also treats an empty variable as unset.
 const baseUrl = (
@@ -140,18 +143,22 @@ interface Database {
 
 // Creates a database that only this machine can reach, and returns the
 // API's description of it, which includes its ID.
+async function clientIp(token: string): Promise<string> {
+  // A new database is closed to everyone until an allowlist rule admits
+  // an address. The API reports the address it sees this request come
+  // from, which is the one to admit; a bare address means a single host.
+  const reply = await api<{ ip_address: string }>(token, "GET", "/client-ip");
+  return reply!.ip_address;
+}
+
 async function createDatabase(
   token: string,
   name: string,
   displayName: string,
   region: string,
   size: string,
+  ip: string,
 ): Promise<Database> {
-  // A new database is closed to everyone until an allowlist rule admits
-  // an address. The API reports the address it sees this request come
-  // from, which is the one to admit; a bare address means a single host.
-  const ip = await api<{ ip_address: string }>(token, "GET", "/client-ip");
-
   const database = await api<Database>(token, "POST", "/databases", {
     // The name becomes the Postgres database name, so it holds only
     // letters and digits, and the readable cookbook- prefix goes in the
@@ -161,7 +168,7 @@ async function createDatabase(
     display_name: displayName,
     region,
     size,
-    ip_allowlist: { rules: [{ cidr: ip!.ip_address, label: "cookbook" }] },
+    ip_allowlist: { rules: [{ cidr: ip, label: "cookbook" }] },
   });
   return database!;
 }
@@ -206,6 +213,23 @@ function isTransient(err: unknown): boolean {
     return true;
   }
   return err.status === 409 || err.status === 429 || err.status >= 500;
+}
+
+// Looks for the database a few times, because the service may not have
+// recorded a request whose reply was lost until a little later. Returns
+// undefined if the database never appears.
+async function findCreatedDatabase(
+  token: string,
+  name: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  for (let attempt = 1; ; attempt++) {
+    const id = await findDatabase(token, name, signal);
+    if (id || attempt === LOOKUP_ATTEMPTS) {
+      return id;
+    }
+    await sleep(POLL_MS);
+  }
 }
 
 // Reports whether a failed create request might still have created the
@@ -320,6 +344,7 @@ async function main(): Promise<number> {
     // Look the database up by name afterwards only if the outcome of the
     // request is unknown, so that a refusal cannot lead the cleanup to
     // delete another database that has the same name.
+    const ip = await clientIp(token);
     lookup = true;
     let database;
     try {
@@ -329,6 +354,7 @@ async function main(): Promise<number> {
         `cookbook-${suffix}`,
         region,
         size,
+        ip,
       );
     } catch (err) {
       lookup = outcomeUnknown(err);
@@ -353,7 +379,17 @@ async function main(): Promise<number> {
     if (token && name) {
       try {
         if (!databaseId && lookup) {
-          databaseId = await findDatabase(token, name, new AbortController().signal);
+          databaseId = await findCreatedDatabase(
+            token,
+            name,
+            new AbortController().signal,
+          );
+          if (!databaseId) {
+            console.error(
+              `Error: the database ${name} was not found; check your account for it by hand`,
+            );
+            exitCode = 1;
+          }
         }
         if (databaseId) {
           await deleteDatabase(token, databaseId);

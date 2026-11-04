@@ -371,13 +371,16 @@ gone. The following code deletes the database. If the outcome of the create
 request is unknown (no reply arrived, the service answered with a 5xx status,
 the reply could not be read, or you interrupted the program during the
 request), the program has no database ID, so it first lists the databases and
-picks the one with the name that it chose before the request. It does not look
-after a 4xx reply, because that is a definite refusal. The request passes
-`limit=100` and `descending=true`, but the API specification does not say which
-property it sorts on, so the program cannot be sure that a new database is on
-the first page of an account with more than 100 databases. The program repeats
-the listing in the same way as the delete, and if it still fails, prints the
-name of the database and tells you to delete it by hand:
+picks the one with the name that it chose before the request. If the list has
+no such database, the program tries up to three times, ten seconds apart, in
+case the service has not yet recorded the request, and then reports the name so
+that you can check your account by hand. It does not look after a 4xx reply,
+because that is a definite refusal. The request passes `limit=100` and
+`descending=true`, but the API specification does not say which property it
+sorts on, so the program cannot be sure that a new database is on the first
+page of an account with more than 100 databases. The program repeats the
+listing in the same way as the delete, and if it still fails, prints the name
+of the database and tells you to delete it by hand:
 
 === "Python"
 
