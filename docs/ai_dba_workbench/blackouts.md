@@ -32,12 +32,24 @@ read from the environment.
 
 The examples need a running Workbench server that monitors at least one
 PostgreSQL server, and an API token for a user that may manage blackouts. The
-Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
-example uses the `fetch` function that Node.js provides, and the Go example
-uses the `net/http` package from the standard library. The curl example is a
-bash script that uses [jq](https://jqlang.org/) to build the requests and read
-the JSON replies. The following tabs show the dependency declaration from each
-example project:
+following table lists the HTTP client and the JSON library that each example
+uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to build
+the requests and read the JSON replies. The Rust example also uses
+[humantime](https://docs.rs/humantime) to write the start and end times, and
+[signal-hook](https://docs.rs/signal-hook) to catch signals. The following tabs
+show the dependency declaration from each example project:
 
 === "Python"
 
@@ -51,10 +63,34 @@ example project:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Blackouts.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/blackouts/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -74,10 +110,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -118,10 +178,34 @@ and stops with an error when the token or the connection ID is missing:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -151,10 +235,34 @@ tabs show the helper function from each program:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -186,10 +294,34 @@ following tabs show how each program creates the blackout:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:create"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:create"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:create"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:create"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:create"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:create"
     ```
 
 === "curl"
@@ -217,10 +349,34 @@ tabs show how each program reads the blackout:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:read"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:read"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:read"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:read"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:read"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:read"
     ```
 
 === "curl"
@@ -250,10 +406,34 @@ blackout:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:stop"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:stop"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:stop"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:stop"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:stop"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:stop"
     ```
 
 === "curl"
@@ -280,10 +460,34 @@ blackout:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:delete"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:delete"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:delete"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:delete"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:delete"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:delete"
     ```
 
 === "curl"
@@ -298,16 +502,26 @@ The main part of each program deletes the blackout on every path, so that a
 failure after the create call does not leave alerts suppressed for the next
 hour. This includes SIGINT (Ctrl+C) and SIGTERM: each program catches both
 signals, so that the default action of ending the program does not skip the
-cleanup. A signal makes the next request that the program would send fail with
-an `Interrupted` error, or abandons the request in progress (in the TypeScript
-and Go programs), and the cleanup then deletes the blackout. In the Python,
-TypeScript and Go programs, the create call and the delete call ignore
-signals, so that the program never loses the ID of a blackout that the server
-created, and a second signal during the cleanup does nothing. The Python
-program uses a `finally` block and a signal handler, the TypeScript program
-keeps the delete step in a variable that runs after the `try` block, and the Go
-program returns the delete step from its `run()` function to `main()`, which
-uses `signal.NotifyContext`.
+cleanup. In every program except the Java one, a signal makes the next request
+that the program would send fail with an `Interrupted` error, or abandons the
+request in progress (in the TypeScript, C# and Go programs), and the cleanup
+then deletes the blackout. In these programs the create call and the delete
+call ignore signals, so that the program never loses the ID of a blackout that
+the server created, and a second signal during the cleanup does nothing. The
+Python program uses a `finally` block and a signal handler, the TypeScript
+program keeps the delete step in a variable that runs after the `try` block,
+and the Go program returns the delete step from its `run()` function to
+`main()`, which uses `signal.NotifyContext`. The C# program registers a
+`PosixSignalRegistration` handler that cancels the requests in progress, the
+Rust program sets a flag with signal-hook, and the Ruby program sets one with
+`Signal.trap` and deletes the blackout in an `ensure` block.
+
+Java's supported API cannot catch a signal, so the Java program registers a
+shutdown hook, which the JVM runs when SIGINT or SIGTERM ends the program. The
+hook deletes the blackout if the program has not already done so, and the JVM
+then exits with a non-zero status. The hook and the create call share a lock,
+so a signal during the create call makes the hook wait until the program has
+recorded the ID of the new blackout.
 
 The curl script cannot ignore signals during the create call, because
 Ctrl+C in a terminal sends SIGINT to every process in the foreground group,
@@ -333,10 +547,34 @@ following tabs show the main part of each program:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -351,8 +589,8 @@ request to the `stop` path of the blackout.
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/blackouts).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/blackouts).
 Set `WORKBENCH_URL`, `WORKBENCH_TOKEN`, and `WORKBENCH_CONNECTION_ID` for your
 server, and then run the command for your language from the corresponding
 project directory. The following tabs show the commands that build and run each
@@ -374,10 +612,35 @@ example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -402,10 +665,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/blackouts/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/blackouts/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/blackouts/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/blackouts/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/blackouts/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/blackouts/ruby/main.rb"
     ```
 
 === "curl"
@@ -421,11 +708,12 @@ recipe:
 
 - The [Authenticating with the AI DBA Workbench API](authenticate.md) recipe
   explains how to create the API token that these examples use.
-- The [Listing and Acknowledging Alerts with the AI DBA Workbench
-  API](alerts.md) recipe shows the alerts that a blackout suppresses.
-- The AI DBA Workbench [blackouts
-  guide](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/user-guide/blackouts.md)
+- The
+  [Listing and Acknowledging Alerts with the AI DBA Workbench API](alerts.md)
+  recipe shows the alerts that a blackout suppresses.
+- The AI DBA Workbench
+  [blackouts guide](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/user-guide/blackouts.md)
   describes how blackouts affect alerting.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

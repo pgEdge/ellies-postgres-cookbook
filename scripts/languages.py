@@ -55,7 +55,7 @@ API_LANGUAGES = [language for language in LANGUAGES
 # The first API recipes were written in Python, TypeScript and Go only.
 # A product stays on that set until its recipes gain the other languages,
 # and is then removed from this tuple.
-THREE_LANGUAGE_PRODUCTS = ("ai_dba_workbench", "starfleet")
+THREE_LANGUAGE_PRODUCTS = ("starfleet",)
 THREE_LANGUAGES = [language for language in LANGUAGES
                    if language.directory in ("python", "typescript", "go")]
 API_PRODUCTS = ("rag_server", "ai_dba_workbench", "starfleet",

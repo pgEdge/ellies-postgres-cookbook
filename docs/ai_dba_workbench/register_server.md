@@ -32,12 +32,22 @@ prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`, `WORKBENCH_USERNAME`,
 read from the environment.
 
 The examples need a running Workbench server, a user that can log in, and the
-ID of an existing connection. The Python example uses
-[httpx](https://www.python-httpx.org/), the TypeScript example uses the `fetch`
-function that Node.js provides, and the Go example uses the `net/http` package
-from the standard library. The curl example is a bash script that uses
-[jq](https://jqlang.org/) to read the JSON replies. The following tabs show the
-dependency declaration from each example project:
+ID of an existing connection. The following table lists the HTTP client and the
+JSON library that each example uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -51,10 +61,34 @@ dependency declaration from each example project:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/register_server/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/RegisterServer.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/register_server/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -74,10 +108,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -137,10 +195,34 @@ error when a required variable is missing:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -170,10 +252,34 @@ tabs show the helper function from each program:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -202,10 +308,34 @@ logs in:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:login"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:login"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:login"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:login"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:login"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:login"
     ```
 
 === "curl"
@@ -234,10 +364,34 @@ the connection:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:lookup"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:lookup"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:lookup"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:lookup"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:lookup"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:lookup"
     ```
 
 === "curl"
@@ -268,10 +422,34 @@ following tabs show how each program registers the server:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:register"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:register"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:register"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:register"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:register"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:register"
     ```
 
 === "curl"
@@ -300,10 +478,34 @@ connection in the list:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:list"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:list"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:list"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:list"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:list"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:list"
     ```
 
 === "curl"
@@ -330,10 +532,34 @@ each program deletes the connection:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:delete"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:delete"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:delete"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:delete"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:delete"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:delete"
     ```
 
 === "curl"
@@ -346,12 +572,15 @@ each program deletes the connection:
 
 The main part of each program deletes the connection on every path, so that a
 failure after the registration does not leave a monitored server behind. The
-Python program uses a `finally` block, and the TypeScript program keeps the
-delete step in a variable that runs after the `try` block. The Go program
-returns the delete step from its `run()` function to `main()`, and the curl
-script uses an `EXIT` trap. Each program reports a failure on `stderr` and
-exits with a non-zero status. The following tabs show the main part of each
-program:
+Python program uses a `finally` block and the Ruby program an `ensure` block,
+and the TypeScript program keeps the delete step in a variable that runs after
+the `try` block. The Java and C# programs keep the connection's ID in a
+variable that the code after the `try` block checks. The Go program returns
+the delete step from its `run()` function to `main()`, the Rust program's
+`run()` function records what to delete in a value that `main()` owns, and
+the curl script uses an `EXIT` trap. Each program reports a failure on
+`stderr` and exits with a non-zero status. The following tabs show the main
+part of each program:
 
 === "Python"
 
@@ -365,10 +594,34 @@ program:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -379,8 +632,8 @@ program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/register_server).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/register_server).
 Set `WORKBENCH_URL`, `WORKBENCH_USERNAME`, `WORKBENCH_PASSWORD`, and
 `WORKBENCH_CONNECTION_ID` for your server, and then run the command for your
 language from the corresponding project directory. The following tabs show the
@@ -402,10 +655,35 @@ commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -431,10 +709,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/register_server/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/register_server/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/register_server/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/register_server/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/register_server/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/register_server/ruby/main.rb"
     ```
 
 === "curl"
@@ -452,6 +754,6 @@ recipe:
   that the Workbench issues.
 - The [Listing and Acknowledging Alerts](alerts.md) recipe shows how to work
   with the alerts that a monitored server raises.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

@@ -40,11 +40,22 @@ read from the environment.
 
 The examples need a running Workbench server that monitors at least one
 PostgreSQL server, and an API token for a user that can read its metrics. The
-Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
-example uses the `fetch` function that Node.js provides, and the Go example
-uses the `net/http` package from the standard library. The curl example is a
-bash script that uses [jq](https://jqlang.org/) to read the JSON replies. The
-following tabs show the dependency declaration from each example project:
+following table lists the HTTP client and the JSON library that each example
+uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -58,10 +69,34 @@ following tabs show the dependency declaration from each example project:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/metrics/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Metrics.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/metrics/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/Gemfile:deps"
     ```
 
 To see the top queries, install the extension on the monitored server. Add
@@ -87,10 +122,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -127,10 +186,34 @@ or the connection ID is missing:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -161,10 +244,34 @@ collect. The following tabs show the helper function from each program:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -198,10 +305,34 @@ metrics:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:query_metrics"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:query_metrics"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:query_metrics"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:query_metrics"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:query_metrics"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:query_metrics"
     ```
 
 === "curl"
@@ -234,10 +365,34 @@ lines. The following tabs show how each program reads the top queries:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:top_queries"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:top_queries"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:top_queries"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:top_queries"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:top_queries"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:top_queries"
     ```
 
 === "curl"
@@ -264,10 +419,34 @@ with a non-zero status. The following tabs show the main part of each program:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -278,8 +457,8 @@ with a non-zero status. The following tabs show the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/metrics).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/metrics).
 Set `WORKBENCH_URL`, `WORKBENCH_TOKEN`, and `WORKBENCH_CONNECTION_ID` for your
 server, and then run the command for your language from the corresponding
 project directory. The following tabs show the commands that build and run each
@@ -301,10 +480,35 @@ example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -330,10 +534,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/metrics/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/metrics/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/metrics/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/metrics/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/metrics/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/metrics/ruby/main.rb"
     ```
 
 === "curl"
@@ -349,9 +577,9 @@ recipe:
 
 - The [Listing and Acknowledging Alerts](alerts.md) recipe shows how the
   Workbench raises alerts from these metrics.
-- The AI DBA Workbench [probes
-  guide](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/probes.md)
+- The AI DBA Workbench
+  [probes guide](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/probes.md)
   describes the probes and their collection intervals.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

@@ -1,0 +1,6 @@
+# --8<-- [start:deps]
+source "https://rubygems.org"
+
+# The program uses only Net::HTTP and JSON, which come with Ruby, so it
+# needs no gems.
+# --8<-- [end:deps]

@@ -54,12 +54,22 @@ read from the environment.
 
 The examples need a running Workbench server that monitors at least one
 PostgreSQL server, and an API token for a user that can change alert overrides
-and acknowledge alerts. The Python example uses
-[httpx](https://www.python-httpx.org/), the TypeScript example uses the `fetch`
-function that Node.js provides, and the Go example uses the `net/http` package
-from the standard library. The curl example is a bash script that uses
-[jq](https://jqlang.org/) to read the JSON replies. The following tabs show the
-dependency declaration from each example project:
+and acknowledge alerts. The following table lists the HTTP client and the JSON
+library that each example uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -73,10 +83,34 @@ dependency declaration from each example project:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/alerts/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Alerts.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/alerts/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -96,10 +130,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -137,10 +195,34 @@ when the token or the connection ID is missing:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -170,10 +252,34 @@ tabs show the helper function from each program:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -202,10 +308,34 @@ exceeds 3. The following tabs show how each program finds the rule:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:find_rule"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:find_rule"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:find_rule"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:find_rule"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:find_rule"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:find_rule"
     ```
 
 === "curl"
@@ -235,10 +365,34 @@ following tabs show how each program sets the override:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:set_override"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:set_override"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:set_override"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:set_override"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:set_override"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:set_override"
     ```
 
 === "curl"
@@ -276,10 +430,34 @@ tabs show how each program waits:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:wait_for_alert"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:wait_for_alert"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:wait_for_alert"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:wait_for_alert"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:wait_for_alert"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:wait_for_alert"
     ```
 
 === "curl"
@@ -307,10 +485,34 @@ program acknowledges the alert:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:acknowledge"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:acknowledge"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:acknowledge"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:acknowledge"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:acknowledge"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:acknowledge"
     ```
 
 === "curl"
@@ -337,10 +539,34 @@ how each program checks the status:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:check"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:check"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:check"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:check"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:check"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:check"
     ```
 
 === "curl"
@@ -371,10 +597,34 @@ The following tabs show how each program removes the acknowledgement:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:unacknowledge"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:unacknowledge"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:unacknowledge"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:unacknowledge"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:unacknowledge"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:unacknowledge"
     ```
 
 === "curl"
@@ -402,10 +652,34 @@ override:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:remove_override"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:remove_override"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:remove_override"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:remove_override"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:remove_override"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:remove_override"
     ```
 
 === "curl"
@@ -425,10 +699,13 @@ When the acknowledgement fails and the alert is still active, the server did
 not acknowledge it, so the program drops that step and reports the error; when
 the alert is no longer active, the program removes the acknowledgement only if
 the list of acknowledged alerts contains the alert, and keeps the step for the
-clean-up to retry if that fails. The Python program uses a `finally` block, the
-TypeScript and Go programs keep a list of undo steps, and the curl script uses
-an `EXIT` trap. Each program reports a failure on `stderr` and exits with a
-non-zero status. The following tabs show the main part of each program:
+clean-up to retry if that fails. The Python program uses a `finally` block and
+the Ruby program an `ensure` block, and the TypeScript and Go programs keep a
+list of undo steps. The Java, C# and Rust programs record the ID of the rule
+and of the alert, and undo each change whose ID is still recorded once the
+work finishes or fails; the curl script uses an `EXIT` trap. Each program
+reports a failure on `stderr` and exits with a non-zero status. The following
+tabs show the main part of each program:
 
 === "Python"
 
@@ -442,10 +719,34 @@ non-zero status. The following tabs show the main part of each program:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -456,8 +757,8 @@ non-zero status. The following tabs show the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/alerts).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/alerts).
 Set `WORKBENCH_URL`, `WORKBENCH_TOKEN`, and `WORKBENCH_CONNECTION_ID` for your
 server, and then run the command for your language from the corresponding
 project directory. The following tabs show the commands that build and run each
@@ -479,10 +780,35 @@ example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -508,10 +834,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/alerts/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/alerts/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/alerts/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/alerts/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/alerts/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/alerts/ruby/main.rb"
     ```
 
 === "curl"
@@ -529,6 +879,6 @@ recipe:
   token that this recipe needs.
 - The [Querying Metrics](metrics.md) recipe reads the data that the alerter
   evaluates.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

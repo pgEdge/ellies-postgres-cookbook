@@ -32,11 +32,22 @@ prints the `WORKBENCH_URL`, `WORKBENCH_TOKEN`, `WORKBENCH_USERNAME`,
 read from the environment.
 
 The examples need a running Workbench server and a user that can log in. The
-Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
-example uses the `fetch` function that Node.js provides, and the Go example
-uses the `net/http` package from the standard library. The curl example is a
-bash script that uses [jq](https://jqlang.org/) to read the JSON replies. The
-following tabs show the dependency declaration from each example project:
+following table lists the HTTP client and the JSON library that each example
+uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to read
+the JSON replies. The following tabs show the dependency declaration from each
+example project:
 
 === "Python"
 
@@ -50,15 +61,40 @@ following tabs show the dependency declaration from each example project:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Authenticate.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/authenticate/go/go.mod:deps"
     ```
 
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/Gemfile:deps"
+    ```
+
 The Go project has no dependencies, so its `go.mod` file names only the version
-of Go, and the TypeScript project depends on the compiler and the Node.js type
-definitions only.
+of Go, the Ruby project's `Gemfile` names no gems, and the C# project
+references no packages. The TypeScript project depends on the compiler and the
+Node.js type definitions only.
 
 ## Importing the Libraries
 
@@ -77,10 +113,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -122,10 +182,34 @@ error when the user name or the password is missing:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -156,10 +240,34 @@ helper function from each program:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -190,10 +298,34 @@ in:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:login"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:login"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:login"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:login"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:login"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:login"
     ```
 
 === "curl"
@@ -221,10 +353,34 @@ tabs show how each program reads the reply:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:user_info"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:user_info"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:user_info"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:user_info"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:user_info"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:user_info"
     ```
 
 === "curl"
@@ -254,10 +410,34 @@ program creates the token:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:create_token"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:create_token"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:create_token"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:create_token"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:create_token"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:create_token"
     ```
 
 === "curl"
@@ -270,11 +450,14 @@ program creates the token:
 
 The program deletes the token with `DELETE /api/v1/rbac/tokens/{id}`, using the
 ID from the reply to the create call. Each program runs the delete step even
-when an earlier step fails. The Python program uses a `finally` block, the
-TypeScript program keeps the step in a variable that runs after the `try`
-block, the Go program returns the step from its `run()` function to `main()`,
-and the curl script uses an `EXIT` trap. The following tabs show how each
-program deletes the token:
+when an earlier step fails. The Python program uses a `finally` block and the
+Ruby program an `ensure` block, the TypeScript program keeps the step in a
+variable that runs after the `try` block, and the Java and C# programs keep the
+token's ID in a variable that the code after the `try` block checks. The Go
+program returns the step from its `run()` function to `main()`, the Rust
+program's `run()` function records what to delete in a value that `main()`
+owns, and the curl script uses an `EXIT` trap. The following tabs show how
+each program deletes the token:
 
 === "Python"
 
@@ -288,10 +471,34 @@ program deletes the token:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:delete_token"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:delete_token"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:delete_token"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:delete_token"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:delete_token"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:delete_token"
     ```
 
 === "curl"
@@ -319,10 +526,34 @@ the main part of each program:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -333,8 +564,8 @@ the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/authenticate).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/authenticate).
 Set `WORKBENCH_URL`, `WORKBENCH_USERNAME`, and `WORKBENCH_PASSWORD` for your
 server, and then run the command for your language from the corresponding
 project directory. The following tabs show the commands that build and run each
@@ -356,10 +587,35 @@ example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -385,10 +641,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/authenticate/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/authenticate/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/authenticate/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/authenticate/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/authenticate/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/authenticate/ruby/main.rb"
     ```
 
 === "curl"
@@ -406,6 +686,6 @@ recipe:
   from this recipe to register a server for monitoring.
 - The [Listing and Acknowledging Alerts](alerts.md) recipe uses an API token to
   manage alerts.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.

@@ -1,0 +1,16 @@
+[package]
+name = "blackouts"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The blocking client of reqwest, with rustls for TLS and JSON bodies.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+serde_json = "1"
+# The standard library can neither format a time in RFC 3339 nor catch a
+# signal, so these two small crates do it.
+humantime = "2.4"
+signal-hook = "0.4"
+# --8<-- [end:deps]

@@ -34,12 +34,22 @@ read from the environment.
 
 The examples need a running Workbench server that has an LLM provider
 configured, and an API token for a user that may use the chat feature. The
-Python example uses [httpx](https://www.python-httpx.org/), the TypeScript
-example uses the `fetch` function that Node.js provides, and the Go example
-uses the `net/http` package from the standard library. The curl example is a
-bash script that uses [jq](https://jqlang.org/) to build the requests and read
-the JSON replies. The following tabs show the dependency declaration from each
-example project:
+following table lists the HTTP client and the JSON library that each example
+uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl example is a bash script that uses [jq](https://jqlang.org/) to build
+the requests and read the JSON replies. The following tabs show the dependency
+declaration from each example project:
 
 === "Python"
 
@@ -53,10 +63,34 @@ example project:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/chat/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Chat.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/ai_dba_workbench/chat/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/ai_dba_workbench/chat/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -76,10 +110,34 @@ show the imports for each language:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -115,10 +173,34 @@ reads the settings and stops with an error when the token is missing:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -148,10 +230,34 @@ following tabs show the helper function from each program:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:request"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:request"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:request"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:request"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:request"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:request"
     ```
 
 === "curl"
@@ -182,10 +288,34 @@ provider:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:providers"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:providers"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:providers"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:providers"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:providers"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:providers"
     ```
 
 === "curl"
@@ -219,10 +349,34 @@ The following tabs show the two helper functions from each program:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:chat"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:chat"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:chat"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:chat"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:chat"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:chat"
     ```
 
 === "curl"
@@ -250,10 +404,34 @@ non-zero status. The following tabs show the main part of each program:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -264,8 +442,8 @@ non-zero status. The following tabs show the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/chat).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/ai_dba_workbench/chat).
 Set `WORKBENCH_URL` and `WORKBENCH_TOKEN` for your server, and then run the
 command for your language from the corresponding project directory. The
 following tabs show the commands that build and run each example:
@@ -286,10 +464,35 @@ following tabs show the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -314,10 +517,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/ai_dba_workbench/chat/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/ai_dba_workbench/chat/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/ai_dba_workbench/chat/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/ai_dba_workbench/chat/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/ai_dba_workbench/chat/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/ai_dba_workbench/chat/ruby/main.rb"
     ```
 
 === "curl"
@@ -335,6 +562,6 @@ recipe:
   explains how to create the API token that these examples use.
 - The [Calling AI DBA Workbench MCP Tools](mcp_tools.md) recipe shows how to
   run queries against a monitored server from a program.
-- The AI DBA Workbench [API
-  reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
+- The AI DBA Workbench
+  [API reference](https://github.com/pgEdge/ai-dba-workbench/blob/v1.0.0/docs/admin-guide/api/reference.md)
   describes every endpoint.
