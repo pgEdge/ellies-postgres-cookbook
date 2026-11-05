@@ -222,18 +222,20 @@ public class Main {
         } catch (IOException | InterruptedException | JacksonException e) {
             System.err.println("Error: " + describe(e));
             status = 1;
-        }
-
-        // Delete the token whether or not a later step failed, so that a
-        // failed run does not leave a token behind.
-        if (created != null) {
-            try {
-                deleteToken(baseUrl, session, created.id());
-                System.out.println("Deleted the API token");
-            } catch (IOException | InterruptedException | JacksonException e) {
-                System.err.println(
-                        "Error: could not delete the token: " + describe(e));
-                status = 1;
+        } finally {
+            // Delete the token whether or not a later step failed, so that a
+            // failed run does not leave a token behind. The finally block also
+            // runs for an error that the catch does not handle.
+            if (created != null) {
+                try {
+                    deleteToken(baseUrl, session, created.id());
+                    System.out.println("Deleted the API token");
+                } catch (IOException | InterruptedException
+                        | JacksonException e) {
+                    System.err.println("Error: could not delete the token: "
+                            + describe(e));
+                    status = 1;
+                }
             }
         }
         System.exit(status);

@@ -393,26 +393,30 @@ public class Main {
         } catch (IOException | InterruptedException | JacksonException e) {
             System.err.println("Error: " + describe(e));
             status = 1;
-        }
-
-        // Undo the changes whether or not a step failed, so that the server
-        // does not keep raising alerts or hold an acknowledged one.
-        if (acknowledgedAlert != null) {
-            try {
-                unacknowledgeAlert(cfg, acknowledgedAlert);
-            } catch (IOException | InterruptedException | JacksonException e) {
-                System.err.println("Error: could not undo a change: "
-                        + describe(e));
-                status = 1;
+        } finally {
+            // Undo the changes whether or not a step failed, so that the
+            // server does not keep raising alerts or hold an acknowledged one.
+            // The finally block also runs for an error that the catch does not
+            // handle.
+            if (acknowledgedAlert != null) {
+                try {
+                    unacknowledgeAlert(cfg, acknowledgedAlert);
+                } catch (IOException | InterruptedException
+                        | JacksonException e) {
+                    System.err.println("Error: could not undo a change: "
+                            + describe(e));
+                    status = 1;
+                }
             }
-        }
-        if (overrideRule != null) {
-            try {
-                removeOverride(cfg, overrideRule);
-            } catch (IOException | InterruptedException | JacksonException e) {
-                System.err.println("Error: could not undo a change: "
-                        + describe(e));
-                status = 1;
+            if (overrideRule != null) {
+                try {
+                    removeOverride(cfg, overrideRule);
+                } catch (IOException | InterruptedException
+                        | JacksonException e) {
+                    System.err.println("Error: could not undo a change: "
+                            + describe(e));
+                    status = 1;
+                }
             }
         }
         System.exit(status);

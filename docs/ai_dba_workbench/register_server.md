@@ -575,7 +575,7 @@ failure after the registration does not leave a monitored server behind. The
 Python program uses a `finally` block and the Ruby program an `ensure` block,
 and the TypeScript program keeps the delete step in a variable that runs after
 the `try` block. The Java and C# programs keep the connection's ID in a
-variable that the code after the `try` block checks. The Go program returns
+variable that a `finally` block checks. The Go program returns
 the delete step from its `run()` function to `main()`, the Rust program's
 `run()` function records what to delete in a value that `main()` owns, and
 the curl script uses an `EXIT` trap. Each program reports a failure on

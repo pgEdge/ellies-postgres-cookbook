@@ -225,21 +225,24 @@ catch (Exception e) when (e is HttpRequestException
     Console.Error.WriteLine($"Error: {e.Message}");
     status = 1;
 }
-
-// Delete the connection whether or not a later step failed, so that a
-// failed run does not leave a server registered.
-if (newId is not null)
+finally
 {
-    try
+    // Delete the connection whether or not a later step failed, so that a
+    // failed run does not leave a server registered. The finally block also
+    // runs for an error that the catch does not handle.
+    if (newId is not null)
     {
-        await DeleteConnection(baseUrl, session, newId.Value);
-    }
-    catch (Exception e) when (e is HttpRequestException
-        or TaskCanceledException)
-    {
-        Console.Error.WriteLine(
-            $"Error: could not delete the connection: {e.Message}");
-        status = 1;
+        try
+        {
+            await DeleteConnection(baseUrl, session, newId.Value);
+        }
+        catch (Exception e) when (e is HttpRequestException
+            or TaskCanceledException)
+        {
+            Console.Error.WriteLine(
+                $"Error: could not delete the connection: {e.Message}");
+            status = 1;
+        }
     }
 }
 

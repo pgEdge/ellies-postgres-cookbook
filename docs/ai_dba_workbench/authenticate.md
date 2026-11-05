@@ -453,7 +453,7 @@ ID from the reply to the create call. Each program runs the delete step even
 when an earlier step fails. The Python program uses a `finally` block and the
 Ruby program an `ensure` block, the TypeScript program keeps the step in a
 variable that runs after the `try` block, and the Java and C# programs keep the
-token's ID in a variable that the code after the `try` block checks. The Go
+token's ID in a variable that a `finally` block checks. The Go
 program returns the step from its `run()` function to `main()`, the Rust
 program's `run()` function records what to delete in a value that `main()`
 owns, and the curl script uses an `EXIT` trap. The following tabs show how

@@ -295,28 +295,32 @@ catch (Exception e) when (Expected(e))
     Console.Error.WriteLine($"Error: {e.Message}");
     status = 1;
 }
-
-// Undo the changes whether or not a step failed, so that the server does
-// not keep raising alerts or hold an acknowledged one.
-var undo = new List<Func<Task>>();
-if (acknowledgedAlert is long pendingAlert)
+finally
 {
-    undo.Add(() => UnacknowledgeAlert(pendingAlert));
-}
-if (overrideRule is long pendingRule)
-{
-    undo.Add(() => RemoveOverride(pendingRule));
-}
-foreach (var step in undo)
-{
-    try
+    // Undo the changes whether or not a step failed, so that the server does
+    // not keep raising alerts or hold an acknowledged one. The finally block
+    // also runs for an error that the catch does not handle.
+    var undo = new List<Func<Task>>();
+    if (acknowledgedAlert is long pendingAlert)
     {
-        await step();
+        undo.Add(() => UnacknowledgeAlert(pendingAlert));
     }
-    catch (Exception e) when (Expected(e))
+    if (overrideRule is long pendingRule)
     {
-        Console.Error.WriteLine($"Error: could not undo a change: {e.Message}");
-        status = 1;
+        undo.Add(() => RemoveOverride(pendingRule));
+    }
+    foreach (var step in undo)
+    {
+        try
+        {
+            await step();
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            Console.Error.WriteLine(
+                $"Error: could not undo a change: {e.Message}");
+            status = 1;
+        }
     }
 }
 

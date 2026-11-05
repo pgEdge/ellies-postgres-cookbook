@@ -186,20 +186,23 @@ catch (Exception e) when (Expected(e))
     Console.Error.WriteLine($"Error: {e.Message}");
     status = 1;
 }
-
-// Delete the blackout whether or not a later step failed, so that a failed
-// run does not leave alerts suppressed.
-if (blackoutId is long pending)
+finally
 {
-    try
+    // Delete the blackout whether or not a later step failed, so that a failed
+    // run does not leave alerts suppressed. The finally block also runs for an
+    // error that the catch does not handle.
+    if (blackoutId is long pending)
     {
-        await DeleteBlackout(pending);
-    }
-    catch (Exception e) when (Expected(e))
-    {
-        Console.Error.WriteLine(
-            $"Error: could not delete the blackout: {e.Message}");
-        status = 1;
+        try
+        {
+            await DeleteBlackout(pending);
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            Console.Error.WriteLine(
+                $"Error: could not delete the blackout: {e.Message}");
+            status = 1;
+        }
     }
 }
 

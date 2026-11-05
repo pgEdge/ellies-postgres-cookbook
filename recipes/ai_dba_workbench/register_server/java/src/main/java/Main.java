@@ -281,17 +281,21 @@ public class Main {
         } catch (IOException | InterruptedException | JacksonException e) {
             System.err.println("Error: " + describe(e));
             status = 1;
-        }
-
-        // Delete the connection whether or not a later step failed, so
-        // that a failed run does not leave a server registered.
-        if (newId != null) {
-            try {
-                deleteConnection(baseUrl, session, newId);
-            } catch (IOException | InterruptedException | JacksonException e) {
-                System.err.println("Error: could not delete the connection: "
-                        + describe(e));
-                status = 1;
+        } finally {
+            // Delete the connection whether or not a later step failed, so
+            // that a failed run does not leave a server registered. The
+            // finally block also runs for an error that the catch does not
+            // handle.
+            if (newId != null) {
+                try {
+                    deleteConnection(baseUrl, session, newId);
+                } catch (IOException | InterruptedException
+                        | JacksonException e) {
+                    System.err.println(
+                            "Error: could not delete the connection: "
+                            + describe(e));
+                    status = 1;
+                }
             }
         }
         System.exit(status);

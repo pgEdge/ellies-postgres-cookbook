@@ -175,22 +175,25 @@ catch (Exception e) when (e is HttpRequestException
     Console.Error.WriteLine($"Error: {e.Message}");
     status = 1;
 }
-
-// Delete the token whether or not a later step failed, so that a failed
-// run does not leave a token behind.
-if (tokenId is not null)
+finally
 {
-    try
+    // Delete the token whether or not a later step failed, so that a failed
+    // run does not leave a token behind. The finally block also runs for an
+    // error that the catch does not handle.
+    if (tokenId is not null)
     {
-        await DeleteToken(baseUrl, session, tokenId.Value);
-        Console.WriteLine("Deleted the API token");
-    }
-    catch (Exception e) when (e is HttpRequestException
-        or TaskCanceledException)
-    {
-        Console.Error.WriteLine(
-            $"Error: could not delete the token: {e.Message}");
-        status = 1;
+        try
+        {
+            await DeleteToken(baseUrl, session, tokenId.Value);
+            Console.WriteLine("Deleted the API token");
+        }
+        catch (Exception e) when (e is HttpRequestException
+            or TaskCanceledException)
+        {
+            Console.Error.WriteLine(
+                $"Error: could not delete the token: {e.Message}");
+            status = 1;
+        }
     }
 }
 
