@@ -267,8 +267,16 @@ signal to the program that is running and waits for the program to finish,
 so that a program that deletes what it created can do so.
 
 The `scripts/start_test_server.sh` script starts the server that
-continuous integration uses: the `pgvector/pgvector:pg18` image in Docker,
-with trust authentication and TLS enabled. The script generates a
+continuous integration uses: the `cookbook-test-server` image in Docker,
+with trust authentication and TLS enabled. The image adds
+`pg_semantic_cache` to the pgEdge Postgres image, which already carries
+pgvector, Snowflake, and the pgEdge Vectorizer; the script builds it from
+`scripts/test_server/Dockerfile` the first time it runs, and again after
+the Dockerfile changes. The server's vectorizer creates embeddings through
+Ollama with `nomic-embed-text`, at the URL that the `--ollama-url` option
+gives (`http://host.docker.internal:11434` by default); on Linux, Ollama
+must listen on an address that containers can reach, such as
+`OLLAMA_HOST=0.0.0.0:11434`. The script generates a
 certificate authority and a server certificate into a temporary directory
 each time it runs, with subject alternative names for `localhost`,
 `127.0.0.1`, and any host names given as arguments, and it never writes
@@ -284,8 +292,10 @@ scripts/test_recipes.sh python
 docker rm -f cookbook-pg
 ```
 
-The script accepts `--name`, `--network`, and `--port` options, and the
-`COOKBOOK_PG_IMAGE` environment variable overrides the image.
+The script accepts `--name`, `--network`, `--port`, and `--ollama-url`
+options, and the `COOKBOOK_PG_IMAGE` environment variable overrides the
+image. If the server fails to start, the script prints the server log,
+and removes the container and the certificate directory.
 
 ## Writing Single-Language Recipes
 

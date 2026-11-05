@@ -13,9 +13,156 @@ on:
 permissions:
   contents: read
 
+# Each recipe job runs only when something it depends on has changed; the
+# changes job decides which. The filtering is done per job rather than
+# with a paths filter on the workflow, because the Publish workflow waits
+# for a successful Test run, and a push that changes only the
+# documentation must still be published. A skipped job does not fail the
+# run.
 jobs:
+  changes:
+    name: Changed files
+    runs-on: ubuntu-latest
+    outputs:
+      recipes: ${{ steps.filter.outputs.recipes }}
+      rag_server: ${{ steps.filter.outputs.rag_server }}
+      workbench: ${{ steps.filter.outputs.workbench }}
+      extensions: ${{ steps.filter.outputs.extensions }}
+      server: ${{ steps.filter.outputs.server }}
+    steps:
+      # The whole history, so that the commit before a push is available.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A scheduled or manual run tests everything, and so does a push whose
+      # previous commit is unknown (a new branch, or a force push). For a
+      # pull request, the checkout is GitHub's merge commit, and its first
+      # parent is the base branch, so the difference between the two is
+      # exactly what the pull request changes.
+      - name: Decide which jobs to run
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          all=false
+          files=""
+          case "$EVENT" in
+            push)
+              if [[ "$BEFORE" =~ ^0*$ ]] ||
+                 ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                all=true
+              else
+                files="$(git diff --name-only "$BEFORE" HEAD)"
+              fi
+              ;;
+            pull_request)
+              files="$(git diff --name-only HEAD^1 HEAD)"
+              ;;
+            *)
+              all=true
+              ;;
+          esac
+
+          recipes=$all rag_server=$all workbench=$all extensions=$all
+          while IFS= read -r file; do
+            case "$file" in
+              # Everything that every recipe job runs.
+              .github/workflows/test.yml | \
+              scripts/test_recipes.sh | scripts/run_example.sh | \
+              scripts/start_test_server.sh | scripts/test_server/*)
+                recipes=true rag_server=true workbench=true extensions=true
+                ;;
+              scripts/start_rag_server.sh | scripts/fixtures/* | \
+              recipes/rag_server/* | docs/rag_server/*)
+                rag_server=true
+                ;;
+              scripts/start_workbench.sh | \
+              recipes/ai_dba_workbench/* | docs/ai_dba_workbench/*)
+                workbench=true
+                ;;
+              recipes/snowflake/* | docs/snowflake/* | \
+              recipes/vectorizer/* | docs/vectorizer/* | \
+              recipes/semantic_cache/* | docs/semantic_cache/*)
+                extensions=true
+                ;;
+              # Starfleet runs only by hand and on the schedule, and the
+              # MCP Server and Control Plane recipes have no job yet.
+              recipes/starfleet/* | docs/starfleet/* | \
+              recipes/postgres_mcp/* | docs/postgres_mcp/* | \
+              recipes/control_plane/* | docs/control_plane/*)
+                ;;
+              # The recipes job tests every other directory under recipes/.
+              recipes/* | docs/postgresql/* | docs/go_llm_lib/*)
+                recipes=true
+                ;;
+            esac
+          done <<<"$files"
+
+          server=false
+          if [[ "$recipes$rag_server$workbench$extensions" == *true* ]]; then
+            server=true
+          fi
+
+          echo "Event: $EVENT; testing everything: $all"
+          [[ -n "$files" ]] && printf 'Changed: %s\n' $files
+          for job in recipes rag_server workbench extensions server; do
+            echo "$job=${!job}" | tee -a "$GITHUB_OUTPUT"
+          done
+
+  # Every recipe job runs the same test server image, which takes several
+  # minutes to build, so it is built once and kept in the Actions cache
+  # under a key made from the Dockerfile's hash; later runs reuse it until
+  # the Dockerfile changes. The job starts a server from the new image
+  # before saving it, which also builds it (the start script names the
+  # image), and checks that it works.
+  test_server_image:
+    name: Test server image
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make the cache key
+        id: key
+        run: |
+          echo "key=cookbook-test-server-${{ hashFiles('scripts/test_server/Dockerfile') }}" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Look for the image in the cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ steps.key.outputs.key }}
+          lookup-only: true
+
+      - name: Build and check the image
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          scripts/start_test_server.sh --name cookbook-image-check \
+            --port 5432 >/dev/null
+          image="$(docker inspect --format '{{.Config.Image}}' cookbook-image-check)"
+          docker rm -f cookbook-image-check >/dev/null
+          mkdir -p "$RUNNER_TEMP/test-server-image"
+          docker save --output "$RUNNER_TEMP/test-server-image/image.tar" "$image"
+
+      - name: Save the image to the cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ steps.key.outputs.key }}
+
   recipes:
     name: Recipes (${{ matrix.language }})
+    needs: [changes, test_server_image]
+    if: needs.changes.outputs.recipes == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,14 +178,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The test server is the pgvector image with TLS on and trust
+      # The start script builds the image itself if the cache has lost it.
+      - name: Restore the test server image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ needs.test_server_image.outputs.cache-key }}
+
+      - name: Load the test server image
+        run: |
+          if [[ -f "$RUNNER_TEMP/test-server-image/image.tar" ]]; then
+            docker load --input "$RUNNER_TEMP/test-server-image/image.tar"
+            rm -rf "$RUNNER_TEMP/test-server-image"
+          else
+            echo "::warning::The test server image is not in the cache, so it will be built"
+          fi
+
+      # The test server is the cookbook-test-server image (pgEdge Postgres
+      # with the extensions that the recipes use) with TLS on and trust
       # authentication, so no password is needed. The script prints the
       # path of the CA certificate that the TLS recipe verifies against.
       - name: Start PostgreSQL
         run: |
-          scripts/start_test_server.sh --port 5432 \
-            | tee "$RUNNER_TEMP/server.out"
-          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
+          scripts/start_test_server.sh --port 5432 > "$RUNNER_TEMP/server.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/server.env"
 
       - name: Install libpq
         if: matrix.language == 'c' || matrix.language == 'ruby'
@@ -72,10 +235,12 @@ jobs:
           # The Go LLM recipes' go.mod files require go 1.26.10.
           go-version: '1.26.10'
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         if: matrix.language == 'rust'
+        with:
+          toolchain: stable
 
-      - uses: ruby/setup-ruby@v1
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
         if: matrix.language == 'ruby'
         with:
           ruby-version: '3.4'
@@ -91,15 +256,18 @@ jobs:
           # stale cache is restored and the new layers are never saved.
           key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
 
+      # The installer may start a system service that keeps its models
+      # elsewhere; run our own server as this user so that it uses the
+      # cached ~/.ollama/models directory. It listens on every address, so
+      # that the test server's vectorizer can reach it at
+      # host.docker.internal as well.
       - name: Install Ollama and pull models
         if: matrix.language == 'go'
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          # The installer may start a system service that keeps its models
-          # elsewhere; run our own server as this user so that it uses the
-          # cached ~/.ollama/models directory.
           sudo systemctl stop ollama || true
-          nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          OLLAMA_HOST=0.0.0.0:11434 \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
           for _ in $(seq 1 60); do
             curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
             sleep 1
@@ -108,8 +276,14 @@ jobs:
           ollama pull qwen2.5:1.5b
           ollama pull nomic-embed-text
 
-      # The HTTP API recipes need their products running, so they have jobs
-      # of their own below.
+      - name: Check that the test server can reach Ollama
+        if: matrix.language == 'go'
+        run: >-
+          docker exec cookbook-test-pg
+          curl -fsS --max-time 10 http://host.docker.internal:11434/
+
+      # The HTTP API recipes need their products running, and the extension
+      # recipes are psql scripts, so they have jobs of their own below.
       - name: Test recipes
         env:
           # Recipes that list a variable in requires.txt run only when the
@@ -120,10 +294,118 @@ jobs:
           --exclude recipes/rag_server
           --exclude recipes/ai_dba_workbench
           --exclude recipes/starfleet
+          --exclude recipes/snowflake
+          --exclude recipes/vectorizer
+          --exclude recipes/semantic_cache
+          --exclude recipes/postgres_mcp
+          --exclude recipes/control_plane
           ${{ matrix.language }}
+
+  # The Snowflake, Vectorizer and Semantic Cache recipes are psql scripts.
+  # The vectorizer's background worker in the test server embeds text
+  # through Ollama, so Ollama must be running with nomic-embed-text pulled
+  # before the recipes start; the recipes wait for the worker themselves.
+  extensions:
+    name: Recipes (extensions)
+    needs: [changes, test_server_image]
+    if: needs.changes.outputs.extensions == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the test server image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ needs.test_server_image.outputs.cache-key }}
+
+      - name: Load the test server image
+        run: |
+          if [[ -f "$RUNNER_TEMP/test-server-image/image.tar" ]]; then
+            docker load --input "$RUNNER_TEMP/test-server-image/image.tar"
+            rm -rf "$RUNNER_TEMP/test-server-image"
+          else
+            echo "::warning::The test server image is not in the cache, so it will be built"
+          fi
+
+      - name: Install psql and jq
+        run: |
+          if ! command -v psql >/dev/null || ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client jq
+          fi
+
+      # Only nomic-embed-text is needed here, but the other jobs' cache
+      # already holds it, so restore that cache rather than keep another.
+      - name: Restore the Ollama models
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
+
+      # Listen on every address, so that the test server's vectorizer can
+      # reach Ollama at host.docker.internal.
+      - name: Install Ollama and pull the embedding model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          OLLAMA_HOST=0.0.0.0:11434 \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:11434/
+          ollama pull nomic-embed-text
+
+      - name: Start PostgreSQL
+        run: |
+          scripts/start_test_server.sh --port 5432 > "$RUNNER_TEMP/server.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/server.env"
+
+      # Ask for an embedding from inside the container, the way the
+      # vectorizer will, which also loads the model before the recipes run.
+      - name: Check that the test server can embed text through Ollama
+        run: |
+          docker exec cookbook-test-pg curl -fsS --max-time 120 \
+            http://host.docker.internal:11434/api/embed \
+            -d '{"model": "nomic-embed-text", "input": "cookbook"}' \
+            | jq -e '.embeddings[0] | length == 768'
+
+      # test_recipes.sh fails when it finds no recipes, so test only the
+      # directories that have some, and pass when none do.
+      - name: Test recipes
+        run: |
+          dirs=()
+          for product in snowflake vectorizer semantic_cache; do
+            if [[ -d "recipes/$product" ]] &&
+               [[ -n "$(find "recipes/$product" \( -name expected_output.txt \
+                        -o -name check_output \) -print -quit)" ]]; then
+              dirs+=(--dir "recipes/$product")
+            fi
+          done
+          if [[ ${#dirs[@]} -eq 0 ]]; then
+            echo "::notice::There are no extension recipes to test yet"
+            exit 0
+          fi
+          scripts/test_recipes.sh "${dirs[@]}" sql
+
+      - name: Show the server and Ollama logs
+        if: failure()
+        run: |
+          docker logs cookbook-test-pg || true
+          cat "$RUNNER_TEMP/ollama.log" || true
 
   rag_server:
     name: Recipes (RAG Server)
+    needs: [changes, test_server_image]
+    if: needs.changes.outputs.rag_server == 'true'
     runs-on: ubuntu-latest
     env:
       PGHOST: localhost
@@ -136,13 +418,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore the test server image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ needs.test_server_image.outputs.cache-key }}
+
+      - name: Load the test server image
+        run: |
+          if [[ -f "$RUNNER_TEMP/test-server-image/image.tar" ]]; then
+            docker load --input "$RUNNER_TEMP/test-server-image/image.tar"
+            rm -rf "$RUNNER_TEMP/test-server-image"
+          else
+            echo "::warning::The test server image is not in the cache, so it will be built"
+          fi
+
       # The product containers reach the test server by name on a shared
       # network.
       - name: Start PostgreSQL
         run: |
           scripts/start_test_server.sh --network cookbook-ci --port 5432 \
-            | tee "$RUNNER_TEMP/server.out"
-          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
+            > "$RUNNER_TEMP/server.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/server.env"
 
       - name: Install psql and jq
         run: |
@@ -184,6 +481,11 @@ jobs:
           curl -fsS http://localhost:11434/
           ollama pull qwen2.5:1.5b
           ollama pull nomic-embed-text
+
+      - name: Check that the test server can reach Ollama
+        run: >-
+          docker exec cookbook-test-pg
+          curl -fsS --max-time 10 http://host.docker.internal:11434/
 
       - name: Start the RAG Server
         run: |
@@ -225,6 +527,8 @@ jobs:
 
   workbench:
     name: Recipes (AI DBA Workbench)
+    needs: [changes, test_server_image]
+    if: needs.changes.outputs.workbench == 'true'
     runs-on: ubuntu-latest
     env:
       PGHOST: localhost
@@ -235,13 +539,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore the test server image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ needs.test_server_image.outputs.cache-key }}
+
+      - name: Load the test server image
+        run: |
+          if [[ -f "$RUNNER_TEMP/test-server-image/image.tar" ]]; then
+            docker load --input "$RUNNER_TEMP/test-server-image/image.tar"
+            rm -rf "$RUNNER_TEMP/test-server-image"
+          else
+            echo "::warning::The test server image is not in the cache, so it will be built"
+          fi
+
       # The product containers reach the test server by name on a shared
       # network.
       - name: Start PostgreSQL
         run: |
           scripts/start_test_server.sh --network cookbook-ci --port 5432 \
-            | tee "$RUNNER_TEMP/server.out"
-          grep '^PGSSLROOTCERT=' "$RUNNER_TEMP/server.out" >> "$GITHUB_ENV"
+            > "$RUNNER_TEMP/server.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/server.env"
 
       - name: Install psql and jq
         run: |
@@ -283,6 +602,11 @@ jobs:
           curl -fsS http://localhost:11434/
           ollama pull qwen2.5:1.5b
           ollama pull nomic-embed-text
+
+      - name: Check that the test server can reach Ollama
+        run: >-
+          docker exec cookbook-test-pg
+          curl -fsS --max-time 10 http://host.docker.internal:11434/
 
       # The token and the password are generated for this run only, but
       # mask them anyway before they reach the environment file.

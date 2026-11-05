@@ -97,6 +97,23 @@ certs="$(mktemp -d)"
 # Keep the directory private; the container reads it as root.
 chmod 700 "$certs"
 
+# If anything fails from here on, show the server log (once the container
+# exists), remove the container, and delete the certificate directory,
+# which holds the private keys. On success the directory stays, because
+# clients need the CA certificate in it.
+container_started=""
+clean_up_on_failure() {
+    local status=$?
+    [[ $status -eq 0 ]] && return
+    if [[ -n "$container_started" ]]; then
+        echo "The server failed to start; its log follows." >&2
+        docker logs "$name" >&2 || true
+        docker rm -f "$name" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$certs"
+}
+trap clean_up_on_failure EXIT
+
 # Build the subject alternative name list: IP addresses and host names
 # need different prefixes.
 san="DNS:localhost,IP:127.0.0.1,DNS:$name"
@@ -152,6 +169,7 @@ fi
 # to every server process, including the vectorizer's background worker,
 # which reads enable_hybrid in its own session.
 echo "Starting $name from $image on port $port" >&2
+container_started=1
 docker run -d --name "$name" -p "$port:5432" \
     ${network_args[@]+"${network_args[@]}"} \
     --add-host host.docker.internal:host-gateway \
@@ -209,6 +227,5 @@ SQL
     sleep 1
 done
 
-echo "The server did not become ready; its log follows." >&2
-docker logs "$name" >&2 || true
+echo "The server did not become ready." >&2
 exit 1
