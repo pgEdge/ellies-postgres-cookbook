@@ -354,24 +354,24 @@ Control Plane v0.11.0.
 The programs read the following variables, and treat an empty value as
 unset:
 
-| Variable                  | Default                  | Purpose                                  |
-|---------------------------|--------------------------|------------------------------------------|
-| `RAG_SERVER_URL`          | `http://localhost:8080`  | The RAG Server's base URL.               |
-| `RAG_PIPELINE`            | `cookbook`; `cookbook_private` for row-level security | The pipeline to query. |
-| `OLLAMA_URL`              | `http://localhost:11434` | Ollama, for the data preparation recipe. |
-| `WORKBENCH_URL`           | `http://localhost:8080`  | The Workbench server's base URL.         |
-| `WORKBENCH_TOKEN`         | none                     | A Workbench API token.                   |
-| `WORKBENCH_USERNAME`      | none                     | The user for the login recipe.           |
-| `WORKBENCH_PASSWORD`      | none                     | The password for the login recipe.       |
-| `WORKBENCH_CONNECTION_ID` | none                     | The ID of a monitored connection.        |
-| `STARFLEET_CLIENT_ID`     | none                     | The Starfleet API client ID.             |
-| `STARFLEET_CLIENT_SECRET` | none                     | The Starfleet API client secret.         |
-| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The Starfleet API's base URL.            |
-| `CONTROL_PLANE_URL`       | `http://localhost:3000`  | The Control Plane's base URL.            |
-| `CONTROL_PLANE_DATABASE_ID` | `cookbook`               | The ID of an existing database.          |
-| `CONTROL_PLANE_DATABASE_USER` | `cookbook`               | The database user to connect as.         |
-| `CONTROL_PLANE_DATABASE_PASSWORD` | none                     | The password of that user.               |
-| `CONTROL_PLANE_RECIPE_PORT` | `6433`                   | The port of the database that the creation recipe adds. |
+| Variable                          | Default                                               | Purpose                                                 |
+|-----------------------------------|-------------------------------------------------------|---------------------------------------------------------|
+| `RAG_SERVER_URL`                  | `http://localhost:8080`                               | The RAG Server's base URL.                              |
+| `RAG_PIPELINE`                    | `cookbook`; `cookbook_private` for row-level security | The pipeline to query.                                  |
+| `OLLAMA_URL`                      | `http://localhost:11434`                              | Ollama, for the data preparation recipe.                |
+| `WORKBENCH_URL`                   | `http://localhost:8080`                               | The Workbench server's base URL.                        |
+| `WORKBENCH_TOKEN`                 | none                                                  | A Workbench API token.                                  |
+| `WORKBENCH_USERNAME`              | none                                                  | The user for the login recipe.                          |
+| `WORKBENCH_PASSWORD`              | none                                                  | The password for the login recipe.                      |
+| `WORKBENCH_CONNECTION_ID`         | none                                                  | The ID of a monitored connection.                       |
+| `STARFLEET_CLIENT_ID`             | none                                                  | The Starfleet API client ID.                            |
+| `STARFLEET_CLIENT_SECRET`         | none                                                  | The Starfleet API client secret.                        |
+| `STARFLEET_API_URL`               | `https://api.pgedge.com`                              | The Starfleet API's base URL.                           |
+| `CONTROL_PLANE_URL`               | `http://localhost:3000`                               | The Control Plane's base URL.                           |
+| `CONTROL_PLANE_DATABASE_ID`       | `cookbook`                                            | The ID of an existing database.                         |
+| `CONTROL_PLANE_DATABASE_USER`     | `cookbook`                                            | The database user to connect as.                        |
+| `CONTROL_PLANE_DATABASE_PASSWORD` | none                                                  | The password of that user.                              |
+| `CONTROL_PLANE_RECIPE_PORT`       | `6433`                                                | The port of the database that the creation recipe adds. |
 
 Each recipe lists the variables that have no default in `requires.txt`, so
 the test script skips the recipe when they are not set. The RAG Server
@@ -446,12 +446,14 @@ already in swarm mode, and creates a one-node database with the ID
 `cookbook` and a `cookbook` user with a generated password. The script
 prints the `CONTROL_PLANE_URL`, `CONTROL_PLANE_DATABASE_ID`,
 `CONTROL_PLANE_DATABASE_USER`, and `CONTROL_PLANE_DATABASE_PASSWORD` lines
-to export, and accepts `--name`, `--port`, `--pg-port`, and `--data-dir`
-options. Running it again with `--stop` and the same `--name` and `--port`
-removes only what it created, including any database whose ID starts with
-`cookbook-recipe-`, which is the prefix that a recipe must give to the
-databases that it creates. The following commands start the Control Plane,
-test the Control Plane recipes, and remove the Control Plane again:
+to export, and accepts `--name`, `--port`, `--pg-port`, `--data-dir`, and
+`--timeout` options; `--timeout` sets how many seconds the script waits for
+the database, 600 by default. Running it again with `--stop` and the same
+`--name`, `--port`, and `--data-dir` removes only what it created,
+including any database whose ID starts with `cookbook-recipe-`, which is
+the prefix that a recipe must give to the databases that it creates. The
+following commands start the Control Plane, test the Control Plane
+recipes, and remove the Control Plane again:
 
 ```bash
 eval "$(scripts/start_control_plane.sh)"

@@ -186,13 +186,36 @@ public class Main {
     // --8<-- [end:update]
 
     // --8<-- [start:wait]
-    /** Polls a task until it finishes, and throws unless it completed. */
+    /**
+     * Reports whether a failed request is worth repeating: no reply
+     * arrived, the server failed, or it answered 409, which the Control
+     * Plane does whilst another task, such as the update, is still running
+     * on the database.
+     */
+    static boolean isTransient(Exception e) {
+        if (e instanceof ControlPlaneException cpe) {
+            return cpe.status == 409 || cpe.status >= 500;
+        }
+        return e instanceof IOException;
+    }
+
+    /**
+     * Polls a task until it finishes, and throws unless it completed. A
+     * failed poll is repeated if it is worth repeating.
+     */
     static void waitForTask(String taskId)
             throws IOException, InterruptedException, ControlPlaneException {
         String path = "/v1/databases/" + DATABASE_ID + "/tasks/" + taskId;
         long deadline = System.nanoTime() + WAIT_FOR.toNanos();
         while (System.nanoTime() < deadline) {
-            String status = call("GET", path, null).path("status").asString("");
+            String status = "";
+            try {
+                status = call("GET", path, null).path("status").asString("");
+            } catch (IOException | ControlPlaneException e) {
+                if (!isTransient(e)) {
+                    throw e;
+                }
+            }
             if (status.equals("completed")) {
                 return;
             }
@@ -266,9 +289,7 @@ public class Main {
                 taskId = updateDatabase(original);
                 break;
             } catch (IOException | ControlPlaneException e) {
-                boolean worthRepeating = !(e instanceof ControlPlaneException cpe)
-                        || cpe.status == 409 || cpe.status >= 500;
-                if (!worthRepeating || System.nanoTime() >= deadline) {
+                if (!isTransient(e) || System.nanoTime() >= deadline) {
                     throw e;
                 }
             }
@@ -359,7 +380,12 @@ public class Main {
             // that the cleanup can wait between its requests.
             synchronized (LOCK) {
                 cleaning = true;
-                Thread.interrupted();
+                // The database connection does not stop for a signal, so
+                // check whether one arrived whilst it was open.
+                if (Thread.interrupted() && exitCode == 0) {
+                    System.err.println("Interrupted");
+                    exitCode = 130;
+                }
             }
             // Restore the original settings whether the example succeeded,
             // failed, or was interrupted.

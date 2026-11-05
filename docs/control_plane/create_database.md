@@ -25,21 +25,23 @@ Deleted database
 
 ## Preparing the Ingredients
 
-The examples assume a running Control Plane server with at least one host,
-and a free port on that host for the new database. The
-`scripts/start_control_plane.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) starts a
-suitable server in Docker; the [Checking the Cluster](cluster_status.md)
-recipe shows how to check that its hosts are healthy.
+The examples assume a running Control Plane server with at least one host, and
+a free port on that host for the new database. The
+`scripts/start_control_plane.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a suitable server in Docker; the
+[Checking the Cluster](cluster_status.md) recipe shows how to check that its
+hosts are healthy.
 
 The program calls the following endpoints:
 
-| Endpoint                    | Description                                         |
-|-----------------------------|-----------------------------------------------------|
-| `GET /v1/hosts`             | Lists the hosts that can run a database node.       |
-| `POST /v1/databases`        | Creates a database, and starts a task to build it.  |
-| `GET /v1/databases/{id}`    | Returns the database, with its state.               |
-| `DELETE /v1/databases/{id}` | Deletes a database, and starts a task to remove it. |
+| Endpoint                                 | Description                                         |
+|------------------------------------------|-----------------------------------------------------|
+| `GET /v1/hosts`                          | Lists the hosts that can run a database node.       |
+| `POST /v1/databases`                     | Creates a database, and starts a task to build it.  |
+| `GET /v1/databases/{id}`                 | Returns the database, with its state.               |
+| `DELETE /v1/databases/{id}`              | Deletes a database, and starts a task to remove it. |
+| `GET /v1/databases/{id}/tasks/{task_id}` | Returns a task, with its status.                    |
 
 The client chooses the ID of a new database. An ID has between 1 and 36
 characters, which are lowercase letters, digits and single hyphens, so each
@@ -160,7 +162,9 @@ following table describes the environment variables:
 | `CONTROL_PLANE_URL`         | `http://localhost:3000` | The base URL of the Control Plane.        |
 | `CONTROL_PLANE_RECIPE_PORT` | `6433`                  | A free port on the host for the database. |
 
-The following tabs show how each program reads its settings, and how it sends
+Each program checks that `CONTROL_PLANE_RECIPE_PORT` holds a number from 1 to
+65535 before it sends any request, and exits with an error if it does not. The
+following tabs show how each program reads its settings, and how it sends
 a request to the server:
 
 === "Python"
@@ -326,8 +330,9 @@ create request:
 
 Each program polls the database every five seconds, prints its state when the
 state changes, and stops when the database is `available` or `failed`. The
-`connection_info` of each instance holds the address and port that clients use.
-The following tabs show the wait:
+`connection_info` of each instance holds the address and port that clients use;
+an available database with no instances is reported as an error. The following
+tabs show the wait:
 
 === "Python"
 
@@ -379,12 +384,14 @@ The following tabs show the wait:
 
 ## Deleting the Database
 
-The delete request also starts a task, and the Control Plane answers 409
-whilst another task, such as the create, is still running, so each program
-repeats the request until the server accepts it. It then polls until the
-database is gone, which a 404 reply shows. The cleanup ignores Ctrl-C, so that
-a second interrupt cannot leave the database behind. The following tabs show
-the delete:
+The delete request also starts a task, and the Control Plane answers 409 whilst
+another task, such as the create, is still running, so each program repeats the
+request until the server accepts it. The reply holds the delete task, and the
+program then polls until the database is gone, which a 404 reply shows; whilst
+the database is still there, it also checks the task, and stops with an error
+if the task has `failed` or been `canceled`. The cleanup ignores Ctrl-C, so
+that a second interrupt cannot leave the database behind. The following tabs
+show the delete:
 
 === "Python"
 
@@ -439,12 +446,11 @@ the delete:
 The main part of each program creates the database and waits for it, then
 deletes it whether the example succeeded, failed, or was interrupted. Ctrl-C
 and `SIGTERM` stop the example without ending the process, so that the cleanup
-can run. The
-program sets a flag before the create request, because the database may exist
-even when no reply arrives, and clears it only if the server refuses the
-request with a 4xx status, which means that it created nothing. If the delete
-fails, the program names the database to delete by hand. The following tabs
-show the main part of each program:
+can run. The program sets a flag before the create request, because the
+database may exist even when no reply arrives, and clears it only if the server
+refuses the request with a 4xx status, which means that it created nothing. If
+the delete fails, the program names the database to delete by hand. The
+following tabs show the main part of each program:
 
 === "Python"
 
@@ -496,8 +502,8 @@ show the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/create_database).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/create_database).
 Set the environment variables for your Control Plane, and then run the command
 for your language from the corresponding project directory. The following tabs
 show the commands that build and run each example:
@@ -616,8 +622,8 @@ recipe:
   the task that builds a database.
 - The [Connecting to a Database](connect_database.md) recipe shows how to
   connect to a database once it is available.
-- The [pgEdge Control Plane
-  documentation](https://docs.pgedge.com/control-plane/v0-11/) describes every
-  endpoint and setting.
+- The
+  [pgEdge Control Plane documentation](https://docs.pgedge.com/control-plane/v0-11/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

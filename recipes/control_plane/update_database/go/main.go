@@ -188,21 +188,31 @@ func changedSpec(s spec) spec {
 // --8<-- [end:update]
 
 // --8<-- [start:wait]
+// isTransient reports whether a failed request is worth repeating: no
+// reply arrived, the server failed, or it answered 409, which the Control
+// Plane does whilst another task is still running on the database.
+func isTransient(err error) bool {
+	status := statusOf(err)
+	return status == 0 || status == http.StatusConflict || status >= 500
+}
+
 // waitForTask polls a task until it finishes, and returns an error unless
-// it completed.
+// it completed. A failed poll is repeated if it is worth repeating.
 func waitForTask(ctx context.Context, taskID string) error {
 	deadline := time.Now().Add(waitFor)
 	for time.Now().Before(deadline) {
 		var task struct {
 			Status string `json:"status"`
 		}
-		if err := call(ctx, http.MethodGet, "/v1/databases/"+databaseID+"/tasks/"+taskID, nil, &task); err != nil {
+		err := call(ctx, http.MethodGet, "/v1/databases/"+databaseID+"/tasks/"+taskID, nil, &task)
+		if err != nil && (ctx.Err() != nil || !isTransient(err)) {
 			return err
 		}
-		switch task.Status {
-		case "completed":
+		switch {
+		case err != nil:
+		case task.Status == "completed":
 			return nil
-		case "failed", "canceled":
+		case task.Status == "failed" || task.Status == "canceled":
 			return fmt.Errorf("the task finished with the status %s", task.Status)
 		}
 		if err := sleep(ctx); err != nil {
@@ -285,9 +295,7 @@ func restore(original spec) error {
 		if err == nil {
 			return waitForTask(ctx, taskID)
 		}
-		status := statusOf(err)
-		transient := status == 0 || status == 409 || status >= 500
-		if !transient || time.Now().After(deadline) {
+		if !isTransient(err) || time.Now().After(deadline) {
 			return err
 		}
 		sleep(ctx)

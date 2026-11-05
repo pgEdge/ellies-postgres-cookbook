@@ -15,6 +15,7 @@ This code is released under the PostgreSQL License.
 
 # --8<-- [start:imports]
 import os
+import re
 import secrets
 import signal
 import sys
@@ -28,7 +29,7 @@ import httpx
 # The or operator treats an empty variable as unset. The new database
 # listens on the given port on its host, so choose one that is free.
 BASE_URL = (os.environ.get("CONTROL_PLANE_URL") or "http://localhost:3000").rstrip("/")
-PORT = int(os.environ.get("CONTROL_PLANE_RECIPE_PORT") or "6433")
+PORT_TEXT = os.environ.get("CONTROL_PLANE_RECIPE_PORT") or "6433"
 
 TIMEOUT_SECONDS = 30.0
 
@@ -85,7 +86,7 @@ def create_database(client: httpx.Client, database_id: str, host: str) -> None:
         "id": database_id,
         "spec": {
             "database_name": "recipe",
-            "port": PORT,
+            "port": int(PORT_TEXT),
             "nodes": [{"name": "n1", "host_ids": [host]}],
         },
     })
@@ -107,7 +108,10 @@ def wait_until_available(client: httpx.Client, database_id: str) -> int:
             print(f"Database state: {state}")
             last = state
         if state == "available":
-            return database["instances"][0]["connection_info"]["port"]
+            instances = database.get("instances") or []
+            if not instances:
+                raise ControlPlaneError("the database is available but has no instances")
+            return instances[0]["connection_info"]["port"]
         if state == "failed":
             raise ControlPlaneError("the database has the state failed")
         time.sleep(POLL_SECONDS)
@@ -135,7 +139,7 @@ def delete_database(client: httpx.Client, database_id: str) -> None:
     deadline = time.monotonic() + WAIT_SECONDS
     while True:
         try:
-            call(client, "DELETE", path)
+            task_id = call(client, "DELETE", path)["task"]["task_id"]
             break
         except (httpx.TransportError, ControlPlaneError) as e:
             if getattr(e, "status", None) == 404:
@@ -145,10 +149,15 @@ def delete_database(client: httpx.Client, database_id: str) -> None:
             time.sleep(POLL_SECONDS)
 
     # The delete starts a task that removes the database; a 404 shows that
-    # it has finished.
+    # it has finished. Whilst the database is still there, the status of
+    # the task shows whether the delete failed.
     while time.monotonic() < deadline:
         try:
             call(client, "GET", path)
+            status = call(client, "GET", f"{path}/tasks/{task_id}").get("status")
+            if status in ("failed", "canceled"):
+                raise ControlPlaneError(
+                    f"the delete task finished with the status {status}")
         except (httpx.TransportError, ControlPlaneError) as e:
             if getattr(e, "status", None) == 404:
                 return
@@ -167,6 +176,13 @@ def stop(*_) -> None:
 
 
 def main() -> int:
+    # The new database listens on this port, so check it before creating
+    # anything.
+    if not re.fullmatch(r"[1-9][0-9]{0,4}", PORT_TEXT) or int(PORT_TEXT) > 65535:
+        print("CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535",
+              file=sys.stderr)
+        return 1
+
     # Turn SIGTERM into a KeyboardInterrupt, so that the finally block
     # runs, as it does for Ctrl-C.
     signal.signal(signal.SIGTERM, stop)
@@ -199,7 +215,7 @@ def main() -> int:
             print(f"Database is available on port {port}")
         # httpx.HTTPError is the base class for failures to reach the
         # server, such as a refused connection or a timeout.
-        except (httpx.HTTPError, ControlPlaneError, KeyError, IndexError) as e:
+        except (httpx.HTTPError, ControlPlaneError, KeyError) as e:
             print(f"Control Plane error: {e}", file=sys.stderr)
             exit_code = 1
         except KeyboardInterrupt:
@@ -215,7 +231,7 @@ def main() -> int:
                 try:
                     delete_database(client, database_id)
                     print("Deleted database")
-                except (httpx.HTTPError, ControlPlaneError) as e:
+                except (httpx.HTTPError, ControlPlaneError, KeyError) as e:
                     print(f"Control Plane error: {e}", file=sys.stderr)
                     print(f"Delete the database {database_id} by hand",
                           file=sys.stderr)

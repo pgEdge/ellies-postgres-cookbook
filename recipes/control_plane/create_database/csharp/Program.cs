@@ -20,6 +20,7 @@ using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 // --8<-- [end:imports]
 
@@ -36,7 +37,7 @@ static string BaseUrl() =>
 
 // The new database listens on the given port on its host, so choose one
 // that is free.
-static int Port() => int.Parse(EnvOr("CONTROL_PLANE_RECIPE_PORT", "6433"));
+static string PortText() => EnvOr("CONTROL_PLANE_RECIPE_PORT", "6433");
 
 const int TimeoutSeconds = 30;
 
@@ -112,7 +113,7 @@ static async Task CreateDatabaseAsync(
         spec = new
         {
             database_name = "recipe",
-            port = Port(),
+            port = int.Parse(PortText()),
             nodes = new[] { new { name = "n1", host_ids = new[] { host } } },
         },
     };
@@ -142,7 +143,12 @@ static async Task<string> WaitUntilAvailableAsync(
         }
         if (state == "available")
         {
-            return database["instances"]?[0]?["connection_info"]?["port"]?.ToString() ?? "";
+            if (database["instances"] is not JsonArray { Count: > 0 } instances)
+            {
+                throw new ControlPlaneException(
+                    "the database is available but has no instances");
+            }
+            return instances[0]?["connection_info"]?["port"]?.ToString() ?? "";
         }
         if (state == "failed")
         {
@@ -175,11 +181,15 @@ static async Task DeleteDatabaseAsync(HttpClient client, string databaseId)
 {
     var path = $"/v1/databases/{databaseId}";
     var clock = Stopwatch.StartNew();
+    string taskId;
     while (true)
     {
         try
         {
-            await CallAsync(client, HttpMethod.Delete, path, null, CancellationToken.None);
+            var reply = await CallAsync(
+                client, HttpMethod.Delete, path, null, CancellationToken.None);
+            taskId = reply["task"]?["task_id"]?.ToString()
+                ?? throw new ControlPlaneException("the delete reply has no task");
             break;
         }
         catch (ControlPlaneException e) when (e.Status == 404)
@@ -193,12 +203,21 @@ static async Task DeleteDatabaseAsync(HttpClient client, string databaseId)
     }
 
     // The delete starts a task that removes the database; a 404 shows that
-    // it has finished.
+    // it has finished. Whilst the database is still there, the status of the
+    // task shows whether the delete failed.
     while (clock.Elapsed.TotalSeconds < WaitSeconds)
     {
         try
         {
             await CallAsync(client, HttpMethod.Get, path, null, CancellationToken.None);
+            var task = await CallAsync(
+                client, HttpMethod.Get, $"{path}/tasks/{taskId}", null, CancellationToken.None);
+            var status = task["status"]?.ToString();
+            if (status is "failed" or "canceled")
+            {
+                throw new ControlPlaneException(
+                    $"the delete task finished with the status {status}");
+            }
         }
         catch (ControlPlaneException e) when (e.Status == 404)
         {
@@ -216,6 +235,14 @@ static async Task DeleteDatabaseAsync(HttpClient client, string databaseId)
 // --8<-- [end:delete]
 
 // --8<-- [start:main]
+// The new database listens on this port, so check it before creating
+// anything.
+if (!Regex.IsMatch(PortText(), @"^[1-9][0-9]{0,4}\z") || int.Parse(PortText()) > 65535)
+{
+    Console.Error.WriteLine("CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535");
+    return 1;
+}
+
 // Ctrl-C and SIGTERM cancel the token below instead of ending the process,
 // which lets the program delete its database before it exits. The
 // registrations stay in place, so a further Ctrl-C does not end the
@@ -265,6 +292,8 @@ try
 
     var port = await WaitUntilAvailableAsync(client, databaseId, interrupt.Token);
     Console.WriteLine($"Database is available on port {port}");
+    // A signal that arrives after the last request still counts.
+    interrupt.Token.ThrowIfCancellationRequested();
 }
 catch (OperationCanceledException) when (interrupt.IsCancellationRequested)
 {

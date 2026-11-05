@@ -21,11 +21,11 @@ Restored the original settings
 
 ## Preparing the Ingredients
 
-The examples assume a running Control Plane server with an available
-database, and a database user with the `LOGIN` attribute. The
-`scripts/start_control_plane.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) starts a
-server in Docker and creates a database with the ID `cookbook` and a
+The examples assume a running Control Plane server with an available database,
+and a database user with the `LOGIN` attribute. The
+`scripts/start_control_plane.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a server in Docker and creates a database with the ID `cookbook` and a
 `cookbook` user, and prints the password that it generated for that user.
 
 The program calls the following endpoints:
@@ -283,7 +283,9 @@ following tabs show the update:
 ## Waiting for the Task
 
 Each program polls the task every five seconds until its status is
-`completed`, and treats `failed` or `canceled` as an error. Against the
+`completed`, and treats `failed` or `canceled` as an error. A poll that gets
+no reply, a 409 or a server failure is repeated until the wait runs out, rather
+than ending the wait. Against the
 cookbook's one-node database, each update task took about 40 seconds. The
 following tabs show the wait:
 
@@ -337,9 +339,9 @@ following tabs show the wait:
 
 ## Checking the Setting
 
-Each program connects to the first available instance, as the [Connecting to
-a Database](connect_database.md) recipe does, and reads the current value of
-the setting. The following tabs show the check:
+Each program connects to the first available instance, as the
+[Connecting to a Database](connect_database.md) recipe does, and reads the
+current value of the setting. The following tabs show the check:
 
 === "Python"
 
@@ -452,7 +454,9 @@ The main part of each program reads the original specification, sends the
 update, waits for it, and checks the setting, then restores the original
 settings whether the example succeeded, failed, or was interrupted. Ctrl-C and
 `SIGTERM` stop the example without ending the process, so that the cleanup can
-run. The program sets a flag before the update request, because the change may
+run; a signal that arrives during a step that cannot be interrupted, such as
+some drivers' connection attempts, takes effect when that step returns. The
+program sets a flag before the update request, because the change may
 take effect even when no reply arrives, and clears it only if the server
 refuses the request with a 4xx status, which means that it changed nothing.
 If the restore fails, the program names the database whose settings to restore
@@ -508,8 +512,8 @@ by hand. The following tabs show the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/update_database).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/update_database).
 Set the environment variables for your Control Plane and database user, and
 then run the command for your language from the corresponding project
 directory. The following tabs show the commands that build and run each
@@ -629,8 +633,8 @@ recipe:
   task, which explains why an update failed.
 - The [Connecting to a Database](connect_database.md) recipe explains how to
   find the address of each instance.
-- The [pgEdge Control Plane
-  documentation](https://docs.pgedge.com/control-plane/v0-11/) describes every
-  endpoint and setting.
+- The
+  [pgEdge Control Plane documentation](https://docs.pgedge.com/control-plane/v0-11/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

@@ -124,17 +124,36 @@ function changedSpec(spec: Spec): Spec {
 // --8<-- [end:update]
 
 // --8<-- [start:wait]
+// Reports whether a failed request is worth repeating: no reply arrived,
+// the server failed, or it answered 409, which the Control Plane does
+// whilst another task, such as the update, is still running on the
+// database.
+function isTransient(err: unknown): boolean {
+  if (!(err instanceof ControlPlaneError)) {
+    return true;
+  }
+  return err.status !== undefined && (err.status === 409 || err.status >= 500);
+}
+
 // Polls a task until it finishes, and throws an error unless it
-// completed. The cleanup passes a signal that never aborts.
+// completed. A failed poll is repeated if it is worth repeating. The
+// cleanup passes a signal that never aborts.
 async function waitForTask(taskId: string, signal: AbortSignal = interrupt.signal): Promise<void> {
   const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
-    const task = await call<{ status?: string }>(
-      "GET",
-      `/v1/databases/${databaseId}/tasks/${taskId}`,
-      undefined,
-      signal,
-    );
+    let task: { status?: string } = {};
+    try {
+      task = await call<{ status?: string }>(
+        "GET",
+        `/v1/databases/${databaseId}/tasks/${taskId}`,
+        undefined,
+        signal,
+      );
+    } catch (err) {
+      if (signal.aborted || !isTransient(err)) {
+        throw err;
+      }
+    }
     if (task.status === "completed") {
       return;
     }
@@ -197,19 +216,11 @@ async function showSetting(): Promise<string> {
 // --8<-- [end:connect]
 
 // --8<-- [start:restore]
-// Reports whether a failed request is worth repeating: no reply arrived,
-// the server failed, or it answered 409, which the Control Plane does
-// whilst another task, such as the update, is still running on the
-// database.
-function isTransient(err: unknown): boolean {
-  if (!(err instanceof ControlPlaneError)) {
-    return true;
-  }
-  return err.status !== undefined && (err.status === 409 || err.status >= 500);
-}
-
-// Sends the original spec back and waits for the task. The cleanup runs
-// after Ctrl-C, so its requests and waits use a signal that never aborts.
+// Sends the original spec back and waits for the task. The Control Plane
+// answers 409 whilst another task, such as the update, is still running on
+// the database, so the program repeats the request, as it does when no
+// reply arrived or the server failed. The cleanup runs after Ctrl-C, so
+// its requests and waits use a signal that never aborts.
 async function restore(spec: Spec): Promise<void> {
   const never = new AbortController().signal;
   const deadline = Date.now() + waitMs;
@@ -275,6 +286,11 @@ async function main(): Promise<number> {
     console.log("Update completed");
 
     console.log(`${setting} is now ${await showSetting()}`);
+    // The database connection does not stop for Ctrl-C, so check whether
+    // a signal arrived whilst it was open.
+    if (interrupt.signal.aborted) {
+      throw new Error("Interrupted");
+    }
   } catch (err) {
     if (interrupt.signal.aborted) {
       console.error("Interrupted");

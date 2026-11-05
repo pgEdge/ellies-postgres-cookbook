@@ -90,16 +90,29 @@ changed_spec() {
 # --8<-- [end:update]
 
 # --8<-- [start:wait]
-# Polls a task until it finishes, and fails unless it completed.
+# Polls a task until it finishes, and fails unless it completed. A poll
+# that gets no reply, a 409 or a server failure is repeated. The function
+# returns on every error itself, because the restore runs it where errexit
+# does not apply.
 wait_for_task() {
-    local task_id="$1" deadline=$((SECONDS + wait_seconds)) status
+    local task_id="$1" deadline=$((SECONDS + wait_seconds)) reply code status
     while ((SECONDS < deadline)); do
-        status="$(get "/v1/databases/$database_id/tasks/$task_id" | jq -er '.status')"
-        case "$status" in
-            completed) return 0 ;;
-            failed|canceled)
-                echo "Control Plane error: the task finished with the status $status" >&2
-                return 1 ;;
+        reply="$(request GET "/v1/databases/$database_id/tasks/$task_id")"
+        code="${reply##*$'\n'}"
+        case "$code" in
+            200) status="$(jq -er '.status | strings' <<<"${reply%$'\n'*}")" || {
+                     echo "Control Plane error: Unexpected response: ${reply%$'\n'*}" >&2
+                     return 1
+                 }
+                 case "$status" in
+                     completed) return 0 ;;
+                     failed|canceled)
+                         echo "Control Plane error: the task finished with the status $status" >&2
+                         return 1 ;;
+                 esac ;;
+            000|409|5??) ;;
+            *) echo "Control Plane error: HTTP $code, ${reply%$'\n'*}" >&2
+               return 1 ;;
         esac
         sleep "$poll_seconds"
     done
@@ -142,9 +155,10 @@ show_setting() {
 # Sends the original spec back and waits for the task. The Control Plane
 # answers 409 whilst another task, such as the update, is still running on
 # the database, so the script repeats the request, as it does when no
-# reply arrived or the server failed.
+# reply arrived or the server failed. The cleanup runs this function where
+# errexit does not apply, so it checks every step itself.
 restore() {
-    local deadline=$((SECONDS + wait_seconds)) reply status
+    local deadline=$((SECONDS + wait_seconds)) reply status task_id
     while true; do
         reply="$(update_database "$original")"
         status="${reply##*$'\n'}"
@@ -160,7 +174,11 @@ restore() {
         fi
         sleep "$poll_seconds"
     done
-    wait_for_task "$(jq -er '.task.task_id' <<<"${reply%$'\n'*}")"
+    task_id="$(jq -er '.task.task_id | strings' <<<"${reply%$'\n'*}")" || {
+        echo "Control Plane error: Unexpected response: ${reply%$'\n'*}" >&2
+        return 1
+    }
+    wait_for_task "$task_id"
 }
 # --8<-- [end:restore]
 
@@ -187,8 +205,7 @@ main() {
     original="" changed=0
     trap cleanup EXIT
     # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    trap 'echo "Interrupted" >&2; exit 130' INT TERM
 
     if [[ -z "$database_password" ]]; then
         echo "CONTROL_PLANE_DATABASE_PASSWORD must be set" >&2
@@ -198,7 +215,7 @@ main() {
     # The spec that the API returns leaves out the passwords of the
     # database users, and an update may leave them out too, which keeps
     # them unchanged.
-    local reply status current
+    local reply status task_id current
     original="$(get "/v1/databases/$database_id" | jq -e '.spec')"
 
     # Restore unless the server refused the request with a 4xx status,
@@ -212,7 +229,11 @@ main() {
         echo "Control Plane error: HTTP $status, ${reply%$'\n'*}" >&2
         return 1
     fi
-    wait_for_task "$(jq -er '.task.task_id' <<<"${reply%$'\n'*}")"
+    task_id="$(jq -er '.task.task_id | strings' <<<"${reply%$'\n'*}")" || {
+        echo "Control Plane error: Unexpected response: ${reply%$'\n'*}" >&2
+        return 1
+    }
+    wait_for_task "$task_id"
     echo "Update completed"
 
     current="$(show_setting)"

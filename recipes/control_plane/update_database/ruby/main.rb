@@ -110,11 +110,28 @@ end
 # --8<-- [end:update]
 
 # --8<-- [start:wait]
+# Reports whether a failed request is worth repeating: no reply arrived,
+# the server failed, or it answered 409, which the Control Plane does
+# whilst another task is still running on the database.
+def transient?(error)
+  return true unless error.is_a?(ControlPlaneError)
+
+  !error.status.nil? && (error.status == 409 || error.status >= 500)
+end
+
 # Polls a task until it finishes, and raises an error unless it completed.
+# A failed poll is repeated if it is worth repeating.
 def wait_for_task(task_id)
   deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + WAIT_SECONDS
   while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
-    status = call("GET", "/v1/databases/#{DATABASE_ID}/tasks/#{task_id}")["status"]
+    begin
+      status = call("GET", "/v1/databases/#{DATABASE_ID}/tasks/#{task_id}")["status"]
+    rescue ControlPlaneError, *NETWORK_ERRORS => e
+      raise unless transient?(e)
+
+      sleep POLL_SECONDS
+      next
+    end
     return if status == "completed"
     if %w[failed canceled].include?(status)
       raise ControlPlaneError, "the task finished with the status #{status}"
@@ -163,9 +180,7 @@ def restore(spec)
   begin
     task_id = update_database(spec)
   rescue ControlPlaneError, *NETWORK_ERRORS => e
-    transient = !e.is_a?(ControlPlaneError) ||
-                (!e.status.nil? && (e.status == 409 || e.status >= 500))
-    raise if !transient || Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+    raise if !transient?(e) || Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
 
     sleep POLL_SECONDS
     retry
@@ -196,7 +211,7 @@ begin
   begin
     task_id = update_database(changed_spec(original))
   rescue ControlPlaneError => e
-    changed = false if e.status && e.status < 500
+    changed = false if e.status&.between?(400, 499)
     raise
   end
   wait_for_task(task_id)

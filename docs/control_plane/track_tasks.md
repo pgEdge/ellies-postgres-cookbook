@@ -27,9 +27,9 @@ Status: completed
 ## Preparing the Ingredients
 
 The examples assume a running Control Plane server with a database. The
-`scripts/start_control_plane.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) starts a
-server in Docker and creates a database with the ID `cookbook`, whose
+`scripts/start_control_plane.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a server in Docker and creates a database with the ID `cookbook`, whose
 creation task the program follows.
 
 The program calls three endpoints, and each takes a `GET` request. The
@@ -376,8 +376,8 @@ of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/track_tasks).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/track_tasks).
 Set the environment variables for your Control Plane, and then run the command
 for your language from the corresponding project directory. The following tabs
 show the commands that build and run each example:
@@ -496,8 +496,8 @@ recipe:
   start an update task and wait for it to finish.
 - The [Creating a Database](create_database.md) recipe shows how to create a
   database, which starts a task like the one that this recipe follows.
-- The [pgEdge Control Plane
-  documentation](https://docs.pgedge.com/control-plane/v0-11/) describes every
-  endpoint and setting.
+- The
+  [pgEdge Control Plane documentation](https://docs.pgedge.com/control-plane/v0-11/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

@@ -19,11 +19,11 @@ Spock: 5.0.12
 
 ## Preparing the Ingredients
 
-The examples assume a running Control Plane server with an available
-database, and a database user with the `LOGIN` attribute. The
-`scripts/start_control_plane.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) starts a
-server in Docker and creates a database with the ID `cookbook` and a
+The examples assume a running Control Plane server with an available database,
+and a database user with the `LOGIN` attribute. The
+`scripts/start_control_plane.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+starts a server in Docker and creates a database with the ID `cookbook` and a
 `cookbook` user, and prints the password that it generated for that user.
 
 The program reads the database with a `GET /v1/databases/{id}` request. Each
@@ -376,8 +376,8 @@ part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/connect_database).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/control_plane/connect_database).
 Set the environment variables for your Control Plane and database user, and
 then run the command for your language from the corresponding project
 directory. The following tabs show the commands that build and run each
@@ -498,8 +498,8 @@ recipe:
   connection.
 - The [Creating a Database](create_database.md) recipe shows how to create a
   database to connect to.
-- The [pgEdge Control Plane
-  documentation](https://docs.pgedge.com/control-plane/v0-11/) describes every
-  endpoint and setting.
+- The
+  [pgEdge Control Plane documentation](https://docs.pgedge.com/control-plane/v0-11/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

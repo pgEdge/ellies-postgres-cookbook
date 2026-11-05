@@ -92,12 +92,28 @@ def changed_spec(spec: dict) -> dict:
 
 
 # --8<-- [start:wait]
+def is_transient(error: Exception) -> bool:
+    """Reports whether a failed request is worth repeating: no reply
+    arrived, the server failed, or it answered 409, which the Control
+    Plane does whilst another task is still running on the database."""
+    if isinstance(error, httpx.TransportError):
+        return True
+    status = getattr(error, "status", None)
+    return status is not None and (status == 409 or status >= 500)
+
+
 def wait_for_task(client: httpx.Client, task_id: str) -> None:
     """Polls a task until it finishes, and raises an error unless it
-    completed."""
+    completed. A failed poll is repeated if it is worth repeating."""
     deadline = time.monotonic() + WAIT_SECONDS
     while time.monotonic() < deadline:
-        task = call(client, "GET", f"/v1/databases/{DATABASE_ID}/tasks/{task_id}")
+        try:
+            task = call(client, "GET", f"/v1/databases/{DATABASE_ID}/tasks/{task_id}")
+        except (httpx.TransportError, ControlPlaneError) as e:
+            if not is_transient(e):
+                raise
+            time.sleep(POLL_SECONDS)
+            continue
         status = task.get("status")
         if status == "completed":
             return
@@ -147,10 +163,7 @@ def restore(client: httpx.Client, spec: dict) -> None:
             task_id = update_database(client, spec)
             break
         except (httpx.TransportError, ControlPlaneError) as e:
-            status = getattr(e, "status", None)
-            transient = isinstance(e, httpx.TransportError) or (
-                status is not None and (status == 409 or status >= 500))
-            if not transient or time.monotonic() >= deadline:
+            if not is_transient(e) or time.monotonic() >= deadline:
                 raise
             time.sleep(POLL_SECONDS)
     wait_for_task(client, task_id)

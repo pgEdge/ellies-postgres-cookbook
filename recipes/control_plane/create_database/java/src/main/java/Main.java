@@ -199,8 +199,12 @@ public class Main {
                 last = state;
             }
             if (state.equals("available")) {
-                return database.path("instances").path(0)
-                        .path("connection_info").path("port").asInt();
+                JsonNode instance = database.path("instances").path(0);
+                if (instance.isMissingNode()) {
+                    throw new ControlPlaneException(
+                            "the database is available but has no instances");
+                }
+                return instance.path("connection_info").path("port").asInt();
             }
             if (state.equals("failed")) {
                 throw new ControlPlaneException("the database has the state failed");
@@ -238,9 +242,10 @@ public class Main {
             throws IOException, InterruptedException, ControlPlaneException {
         String path = "/v1/databases/" + databaseId;
         long deadline = System.nanoTime() + WAIT_FOR.toNanos();
+        String taskId;
         while (true) {
             try {
-                call("DELETE", path, null);
+                taskId = call("DELETE", path, null).path("task").path("task_id").asString("");
                 break;
             } catch (IOException | ControlPlaneException e) {
                 if (isGone(e)) {
@@ -253,11 +258,22 @@ public class Main {
             Thread.sleep(POLL_INTERVAL.toMillis());
         }
 
+        if (taskId.isEmpty()) {
+            throw new ControlPlaneException("the delete reply has no task");
+        }
+
         // The delete starts a task that removes the database; a 404 shows
-        // that it has finished.
+        // that it has finished. Whilst the database is still there, the
+        // status of the task shows whether the delete failed.
         while (System.nanoTime() < deadline) {
             try {
                 call("GET", path, null);
+                String status = call("GET", path + "/tasks/" + taskId, null)
+                        .path("status").asString("");
+                if (status.equals("failed") || status.equals("canceled")) {
+                    throw new ControlPlaneException(
+                            "the delete task finished with the status " + status);
+                }
             } catch (IOException | ControlPlaneException e) {
                 if (isGone(e)) {
                     return;
@@ -284,6 +300,13 @@ public class Main {
     static volatile boolean shuttingDown = false;
 
     public static void main(String[] args) {
+        // The new database listens on this port, so check it before
+        // creating anything.
+        if (!PORT.matches("[1-9][0-9]{0,4}") || Integer.parseInt(PORT) > 65535) {
+            System.err.println("CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535");
+            System.exit(1);
+        }
+
         Thread mainThread = Thread.currentThread();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             shuttingDown = true;
@@ -347,7 +370,11 @@ public class Main {
             // that the cleanup can wait between its requests.
             synchronized (LOCK) {
                 cleaning = true;
-                Thread.interrupted();
+                // A signal that arrived after the last request still counts.
+                if (Thread.interrupted() && exitCode == 0) {
+                    System.err.println("Interrupted");
+                    exitCode = 130;
+                }
             }
             // Delete the database whether the example succeeded, failed, or
             // was interrupted.

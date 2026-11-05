@@ -88,16 +88,26 @@ create_database() {
 
 # --8<-- [start:wait]
 # Polls the database, printing its state each time it changes, until the
-# state is available. A failed state ends the wait at once.
+# state is available, and then sets available_port to the port of its
+# first instance. Each instance runs one node, and its connection_info
+# holds the address and port that clients use. A failed state ends the
+# wait at once.
 wait_until_available() {
-    local id="$1" deadline=$((SECONDS + wait_seconds)) state last=""
+    local id="$1" deadline=$((SECONDS + wait_seconds)) database state last=""
     while ((SECONDS < deadline)); do
-        state="$(get "/v1/databases/$id" | jq -er '.state')"
+        database="$(get "/v1/databases/$id")"
+        state="$(jq -er '.state' <<<"$database")"
         if [[ "$state" != "$last" ]]; then
             echo "Database state: $state"
             last="$state"
         fi
-        [[ "$state" == "available" ]] && return 0
+        if [[ "$state" == "available" ]]; then
+            available_port="$(jq -er '.instances[0].connection_info.port' <<<"$database")" || {
+                echo "Control Plane error: the database is available but has no instances" >&2
+                return 1
+            }
+            return 0
+        fi
         if [[ "$state" == "failed" ]]; then
             echo "Control Plane error: the database has the state failed" >&2
             return 1
@@ -106,13 +116,6 @@ wait_until_available() {
     done
     echo "Control Plane error: the database was not available after $wait_seconds seconds" >&2
     return 1
-}
-
-# Prints the port of the first instance of the database. Each instance
-# runs one node, and its connection_info holds the address and port that
-# clients use.
-instance_port() {
-    get "/v1/databases/$1" | jq -er '.instances[0].connection_info.port'
 }
 # --8<-- [end:wait]
 
@@ -124,12 +127,17 @@ instance_port() {
 # database is already gone.
 delete_database() {
     local id="$1" deadline=$((SECONDS + wait_seconds)) reply status
+    local task_id task_status
 
     while true; do
         reply="$(request DELETE "/v1/databases/$id")"
         status="${reply##*$'\n'}"
         case "$status" in
-            200) break ;;
+            200) task_id="$(jq -er '.task.task_id' <<<"${reply%$'\n'*}")" || {
+                     echo "Control Plane error: Unexpected response: ${reply%$'\n'*}" >&2
+                     return 1
+                 }
+                 break ;;
             404) return 0 ;;
             000|409|5??) ;;
             *) echo "Control Plane error: HTTP $status, ${reply%$'\n'*}" >&2
@@ -143,13 +151,22 @@ delete_database() {
     done
 
     # The delete starts a task that removes the database; a 404 shows that
-    # it has finished.
+    # it has finished. Whilst the database is still there, the status of
+    # the task shows whether the delete failed.
     while true; do
         reply="$(request GET "/v1/databases/$id")"
         status="${reply##*$'\n'}"
         case "$status" in
             404) return 0 ;;
-            200|000|5??) ;;
+            200) reply="$(request GET "/v1/databases/$id/tasks/$task_id")"
+                 if [[ "${reply##*$'\n'}" == 200 ]]; then
+                     task_status="$(jq -r '.status // empty' <<<"${reply%$'\n'*}")"
+                     if [[ "$task_status" == failed || "$task_status" == canceled ]]; then
+                         echo "Control Plane error: the delete task finished with the status $task_status" >&2
+                         return 1
+                     fi
+                 fi ;;
+            000|5??) ;;
             *) echo "Control Plane error: HTTP $status, ${reply%$'\n'*}" >&2
                return 1 ;;
         esac
@@ -182,11 +199,15 @@ cleanup() {
 }
 
 main() {
-    database_id="" created=0
+    database_id="" created=0 available_port=""
+    if ! [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] || ((port > 65535)); then
+        echo "CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535" >&2
+        exit 1
+    fi
+
     trap cleanup EXIT
     # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    trap 'echo "Interrupted" >&2; exit 130' INT TERM
 
     local host reply status
     host="$(first_host)"
@@ -212,7 +233,7 @@ main() {
     echo "Created database $database_id"
 
     wait_until_available "$database_id"
-    echo "Database is available on port $(instance_port "$database_id")"
+    echo "Database is available on port $available_port"
 }
 
 main

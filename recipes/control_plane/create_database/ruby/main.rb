@@ -29,7 +29,7 @@ end
 # The new database listens on the given port on its host, so choose one
 # that is free.
 BASE_URL = env_or("CONTROL_PLANE_URL", "http://localhost:3000").sub(%r{/+\z}, "")
-PORT = Integer(env_or("CONTROL_PLANE_RECIPE_PORT", "6433"))
+PORT_TEXT = env_or("CONTROL_PLANE_RECIPE_PORT", "6433")
 
 TIMEOUT_SECONDS = 30
 
@@ -105,7 +105,7 @@ def create_database(database_id, host)
          id: database_id,
          spec: {
            database_name: "recipe",
-           port: PORT,
+           port: Integer(PORT_TEXT, 10),
            nodes: [{ name: "n1", host_ids: [host] }]
          }
        })
@@ -127,7 +127,12 @@ def wait_until_available(database_id)
       puts "Database state: #{state}"
       last = state
     end
-    return database.dig("instances", 0, "connection_info", "port") if state == "available"
+    if state == "available"
+      instance = (database["instances"] || []).first
+      raise ControlPlaneError, "the database is available but has no instances" unless instance
+
+      return instance.fetch("connection_info").fetch("port")
+    end
     raise ControlPlaneError, "the database has the state failed" if state == "failed"
 
     sleep POLL_SECONDS
@@ -153,7 +158,7 @@ def delete_database(database_id)
   path = "/v1/databases/#{database_id}"
   deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + WAIT_SECONDS
   begin
-    call("DELETE", path)
+    task_id = call("DELETE", path).fetch("task").fetch("task_id")
   rescue ControlPlaneError, *NETWORK_ERRORS => e
     return if e.is_a?(ControlPlaneError) && e.status == 404
     raise if !transient?(e) || Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
@@ -163,10 +168,15 @@ def delete_database(database_id)
   end
 
   # The delete starts a task that removes the database; a 404 shows that
-  # it has finished.
+  # it has finished. Whilst the database is still there, the status of the
+  # task shows whether the delete failed.
   while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
     begin
       call("GET", path)
+      status = call("GET", "#{path}/tasks/#{task_id}")["status"]
+      if %w[failed canceled].include?(status)
+        raise ControlPlaneError, "the delete task finished with the status #{status}"
+      end
     rescue ControlPlaneError, *NETWORK_ERRORS => e
       return if e.is_a?(ControlPlaneError) && e.status == 404
       raise unless transient?(e)
@@ -178,6 +188,13 @@ end
 # --8<-- [end:delete]
 
 # --8<-- [start:main]
+# The new database listens on this port, so check it before creating
+# anything.
+unless PORT_TEXT.match?(/\A[1-9][0-9]{0,4}\z/) && Integer(PORT_TEXT, 10) <= 65_535
+  warn "CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535"
+  exit 1
+end
+
 exit_code = 0
 created = false
 # The client chooses the ID of a new database, so the program knows it
@@ -196,14 +213,14 @@ begin
   begin
     create_database(database_id, host)
   rescue ControlPlaneError => e
-    created = false if e.status && e.status < 500
+    created = false if e.status&.between?(400, 499)
     raise
   end
   puts "Created database #{database_id}"
 
   port = wait_until_available(database_id)
   puts "Database is available on port #{port}"
-rescue ControlPlaneError, *NETWORK_ERRORS => e
+rescue ControlPlaneError, KeyError, *NETWORK_ERRORS => e
   warn "Control Plane error: #{e.message}"
   exit_code = 1
 # Ctrl-C raises Interrupt, and SIGTERM raises SignalException.
@@ -220,7 +237,7 @@ ensure
     begin
       delete_database(database_id)
       puts "Deleted database"
-    rescue ControlPlaneError, *NETWORK_ERRORS => e
+    rescue ControlPlaneError, KeyError, *NETWORK_ERRORS => e
       warn "Control Plane error: #{e.message}"
       warn "Delete the database #{database_id} by hand"
       exit_code = 1

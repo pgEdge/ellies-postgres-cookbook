@@ -45,8 +45,17 @@ fn base_url() -> String {
 
 /// The port that the new database listens on, on its host; choose one
 /// that is free.
-fn port() -> String {
+fn port_text() -> String {
     env_or("CONTROL_PLANE_RECIPE_PORT", "6433")
+}
+
+/// Returns the port number in text, or None unless text is a plain
+/// decimal number from 1 to 65535.
+fn parse_port(text: &str) -> Option<u16> {
+    let plain = !text.starts_with('0')
+        && text.len() <= 5
+        && text.bytes().all(|b| b.is_ascii_digit());
+    if plain { text.parse().ok().filter(|&port| port > 0) } else { None }
 }
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -110,13 +119,20 @@ fn call(client: &Client, method: Method, path: &str, body: Option<&Value>) -> Re
     }
 }
 
+/// Fails if the user has pressed Ctrl-C. A request does not stop for
+/// Ctrl-C, so the program checks the flag after each one.
+fn check_interrupted() -> Result<(), BoxError> {
+    if INTERRUPTED.load(Ordering::SeqCst) {
+        return Err("interrupted".into());
+    }
+    Ok(())
+}
+
 /// Waits for the poll interval, and fails if the user presses Ctrl-C.
 fn pause() -> Result<(), BoxError> {
     let end = Instant::now() + POLL_INTERVAL;
     while Instant::now() < end {
-        if INTERRUPTED.load(Ordering::SeqCst) {
-            return Err("interrupted".into());
-        }
+        check_interrupted()?;
         thread::sleep(Duration::from_millis(100));
     }
     Ok(())
@@ -139,10 +155,12 @@ fn first_host(client: &Client) -> Result<String, BoxError> {
 /// Asks the Control Plane to create a database with one node. The reply
 /// holds the database and the task that creates it; the work happens in
 /// the background after the reply.
-fn create_database(client: &Client, database_id: &str, host: &str) -> Result<(), BoxError> {
-    let port: u16 = port()
-        .parse()
-        .map_err(|_| format!("CONTROL_PLANE_RECIPE_PORT is not a port: {}", port()))?;
+fn create_database(
+    client: &Client,
+    database_id: &str,
+    host: &str,
+    port: u16,
+) -> Result<(), BoxError> {
     let body = json!({
         "id": database_id,
         "spec": {
@@ -166,13 +184,17 @@ fn wait_until_available(client: &Client, database_id: &str) -> Result<u64, BoxEr
     let mut last = String::new();
     while Instant::now() < deadline {
         let database = call(client, Method::GET, &format!("/v1/databases/{database_id}"), None)?;
+        check_interrupted()?;
         let state = database["state"].as_str().unwrap_or("unknown").to_string();
         if state != last {
             println!("Database state: {state}");
             last = state.clone();
         }
         if state == "available" {
-            return database["instances"][0]["connection_info"]["port"]
+            let instance = database["instances"]
+                .get(0)
+                .ok_or("the database is available but has no instances")?;
+            return instance["connection_info"]["port"]
                 .as_u64()
                 .ok_or_else(|| "Unexpected response: missing port".into());
         }
@@ -203,19 +225,30 @@ fn is_transient(error: &BoxError) -> bool {
 fn delete_database(client: &Client, database_id: &str) -> Result<(), BoxError> {
     let path = format!("/v1/databases/{database_id}");
     let deadline = Instant::now() + WAIT_FOR;
-    loop {
+    let task_id = loop {
         match call(client, Method::DELETE, &path, None) {
-            Ok(_) => break,
+            Ok(reply) => break reply["task"]["task_id"].as_str().unwrap_or_default().to_string(),
             Err(e) if status_of(&e) == Some(404) => return Ok(()),
             Err(e) if !is_transient(&e) || Instant::now() >= deadline => return Err(e),
             Err(_) => thread::sleep(POLL_INTERVAL),
         }
+    };
+    if task_id.is_empty() {
+        return Err("the delete reply has no task".into());
     }
 
     // The delete starts a task that removes the database; a 404 shows that
-    // it has finished.
+    // it has finished. Whilst the database is still there, the status of
+    // the task shows whether the delete failed.
+    let task_path = format!("{path}/tasks/{task_id}");
     while Instant::now() < deadline {
-        match call(client, Method::GET, &path, None) {
+        let polled = call(client, Method::GET, &path, None)
+            .and_then(|_| call(client, Method::GET, &task_path, None));
+        match polled {
+            Ok(task) if matches!(task["status"].as_str(), Some("failed" | "canceled")) => {
+                let status = task["status"].as_str().unwrap_or_default();
+                return Err(format!("the delete task finished with the status {status}").into());
+            }
             Err(e) if status_of(&e) == Some(404) => return Ok(()),
             Err(e) if !is_transient(&e) => return Err(e),
             _ => thread::sleep(POLL_INTERVAL),
@@ -247,8 +280,9 @@ fn random_suffix() -> Result<String, BoxError> {
 
 /// Creates the database and waits for it. It sets created once the
 /// database may exist, so that the caller knows whether to delete it.
-fn run(client: &Client, database_id: &str, created: &mut bool) -> Result<(), BoxError> {
+fn run(client: &Client, database_id: &str, port: u16, created: &mut bool) -> Result<(), BoxError> {
     let host = first_host(client)?;
+    check_interrupted()?;
     println!("Host: {host}");
 
     // Clean up unless the server refused the request with a 4xx status,
@@ -256,12 +290,13 @@ fn run(client: &Client, database_id: &str, created: &mut bool) -> Result<(), Box
     // database with this ID already exists, and is not this program's to
     // delete.
     *created = true;
-    if let Err(e) = create_database(client, database_id, host.as_str()) {
+    if let Err(e) = create_database(client, database_id, host.as_str(), port) {
         if matches!(status_of(&e), Some(400..=499)) {
             *created = false;
         }
         return Err(e);
     }
+    check_interrupted()?;
     println!("Created database {database_id}");
 
     let port = wait_until_available(client, database_id)?;
@@ -272,6 +307,13 @@ fn run(client: &Client, database_id: &str, created: &mut bool) -> Result<(), Box
 /// Deletes the database whether the example succeeded, failed, or was
 /// interrupted, and exits with a failure status after a failure.
 fn main() -> ExitCode {
+    // The new database listens on this port, so check it before creating
+    // anything.
+    let Some(port) = parse_port(&port_text()) else {
+        eprintln!("CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535");
+        return ExitCode::FAILURE;
+    };
+
     // The handler stays in place, so a further Ctrl-C does not end the
     // process during the cleanup either. The termination feature of the
     // ctrlc crate makes it handle SIGTERM too.
@@ -300,14 +342,14 @@ fn main() -> ExitCode {
 
     let mut created = false;
     let mut exit_code = ExitCode::SUCCESS;
-    if let Err(e) = run(&client, &database_id, &mut created) {
-        if INTERRUPTED.load(Ordering::SeqCst) {
-            eprintln!("Interrupted");
-            exit_code = ExitCode::from(130);
-        } else {
-            report(&e);
-            exit_code = ExitCode::FAILURE;
-        }
+    // A signal that arrives after the last request still counts.
+    let result = run(&client, &database_id, port, &mut created);
+    if INTERRUPTED.load(Ordering::SeqCst) {
+        eprintln!("Interrupted");
+        exit_code = ExitCode::from(130);
+    } else if let Err(e) = result {
+        report(&e);
+        exit_code = ExitCode::FAILURE;
     }
 
     if created {

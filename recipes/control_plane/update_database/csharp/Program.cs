@@ -122,16 +122,36 @@ static JsonObject ChangedSpec(JsonObject spec)
 // --8<-- [end:update]
 
 // --8<-- [start:wait]
+// Reports whether a failed request is worth repeating: no reply arrived,
+// the server failed, or it answered 409, which the Control Plane does
+// whilst another task, such as the update, is still running on the
+// database. TaskCanceledException is a timeout unless the caller's token
+// was cancelled, which the caller checks.
+static bool IsTransient(Exception e) => e switch
+{
+    ControlPlaneException cpe => cpe.Status is 409 or >= 500,
+    HttpRequestException or TaskCanceledException => true,
+    _ => false,
+};
+
 // Polls a task until it finishes, and throws an exception unless it
-// completed.
+// completed. A failed poll is repeated if it is worth repeating.
 static async Task WaitForTaskAsync(HttpClient client, string taskId, CancellationToken token)
 {
     var clock = Stopwatch.StartNew();
     while (clock.Elapsed.TotalSeconds < WaitSeconds)
     {
-        var task = await CallAsync(
-            client, HttpMethod.Get, $"/v1/databases/{DatabaseId()}/tasks/{taskId}", null, token);
-        var status = task["status"]?.ToString();
+        string? status = null;
+        try
+        {
+            var task = await CallAsync(
+                client, HttpMethod.Get, $"/v1/databases/{DatabaseId()}/tasks/{taskId}", null, token);
+            status = task["status"]?.ToString();
+        }
+        catch (Exception e) when (IsTransient(e) && !token.IsCancellationRequested)
+        {
+            // Check again after the pause.
+        }
         if (status == "completed")
         {
             return;
@@ -199,10 +219,7 @@ static async Task RestoreAsync(HttpClient client, JsonObject original)
             taskId = await UpdateDatabaseAsync(client, original, CancellationToken.None);
             break;
         }
-        catch (Exception e) when (
-            e is ControlPlaneException { Status: 409 or >= 500 }
-                or HttpRequestException or TaskCanceledException
-            && clock.Elapsed.TotalSeconds < WaitSeconds)
+        catch (Exception e) when (IsTransient(e) && clock.Elapsed.TotalSeconds < WaitSeconds)
         {
             await Task.Delay(TimeSpan.FromSeconds(PollSeconds));
         }
@@ -269,6 +286,8 @@ try
     Console.WriteLine("Update completed");
 
     Console.WriteLine($"{Setting} is now {await ShowSettingAsync(client, interrupt.Token)}");
+    // A signal that arrives after the last request still counts.
+    interrupt.Token.ThrowIfCancellationRequested();
 }
 catch (OperationCanceledException) when (interrupt.IsCancellationRequested)
 {

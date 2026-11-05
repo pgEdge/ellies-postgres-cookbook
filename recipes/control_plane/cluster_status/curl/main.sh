@@ -15,7 +15,7 @@
 set -euo pipefail
 
 for tool in curl jq; do
-    command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
+    command -v "$tool" >/dev/null || { echo "Control Plane error: $tool is required" >&2; exit 1; }
 done
 # --8<-- [end:imports]
 

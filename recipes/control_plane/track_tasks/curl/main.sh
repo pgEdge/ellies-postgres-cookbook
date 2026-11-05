@@ -15,7 +15,7 @@
 set -euo pipefail
 
 for tool in curl jq; do
-    command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
+    command -v "$tool" >/dev/null || { echo "Control Plane error: $tool is required" >&2; exit 1; }
 done
 # --8<-- [end:imports]
 
@@ -86,7 +86,7 @@ follow_task() {
             completed|failed|canceled) break ;;
         esac
         if ((SECONDS >= deadline)); then
-            echo "Error: task $task_id was still $status after $FOLLOW_SECONDS seconds" >&2
+            echo "Control Plane error: task $task_id was still $status after $FOLLOW_SECONDS seconds" >&2
             return 1
         fi
         sleep "$POLL_SECONDS"

@@ -110,14 +110,21 @@ fn call(client: &Client, method: Method, path: &str, body: Option<&Value>) -> Re
     }
 }
 
-/// Waits for the poll interval. When check is true, it fails if the user
-/// presses Ctrl-C; the cleanup passes false, so that it carries on.
+/// Fails if check is true and the user has pressed Ctrl-C. A request does
+/// not stop for Ctrl-C, so the program checks the flag after each one; the
+/// cleanup passes false, so that it carries on.
+fn check_interrupted(check: bool) -> Result<(), BoxError> {
+    if check && INTERRUPTED.load(Ordering::SeqCst) {
+        return Err("interrupted".into());
+    }
+    Ok(())
+}
+
+/// Waits for the poll interval, checking for Ctrl-C as above.
 fn pause(check: bool) -> Result<(), BoxError> {
     let end = Instant::now() + POLL_INTERVAL;
     while Instant::now() < end {
-        if check && INTERRUPTED.load(Ordering::SeqCst) {
-            return Err("interrupted".into());
-        }
+        check_interrupted(check)?;
         thread::sleep(Duration::from_millis(100));
     }
     Ok(())
@@ -156,20 +163,38 @@ fn changed_spec(spec: &Value) -> Value {
 // --8<-- [end:update]
 
 // --8<-- [start:wait]
-/// Polls a task until it finishes, and fails unless it completed. When
-/// check is true, Ctrl-C ends the wait.
+/// Reports whether a failed request is worth repeating: no reply arrived,
+/// the server failed, or it answered 409, which the Control Plane does
+/// whilst another task, such as the update, is still running on the
+/// database.
+fn is_transient(error: &BoxError) -> bool {
+    match status_of(error) {
+        Some(status) => status == 409 || status >= 500,
+        None => error.is::<reqwest::Error>(),
+    }
+}
+
+/// Polls a task until it finishes, and fails unless it completed. A failed
+/// poll is repeated if it is worth repeating. When check is true, Ctrl-C
+/// ends the wait.
 fn wait_for_task(client: &Client, task_id: &str, check: bool) -> Result<(), BoxError> {
     let path = format!("/v1/databases/{}/tasks/{task_id}", database_id());
     let deadline = Instant::now() + WAIT_FOR;
     while Instant::now() < deadline {
-        let task = call(client, Method::GET, &path, None)?;
-        match task["status"].as_str() {
-            Some("completed") => return Ok(()),
-            Some(status @ ("failed" | "canceled")) => {
-                return Err(format!("the task finished with the status {status}").into())
-            }
-            _ => pause(check)?,
+        let task = call(client, Method::GET, &path, None);
+        check_interrupted(check)?;
+        match task {
+            Ok(task) => match task["status"].as_str() {
+                Some("completed") => return Ok(()),
+                Some(status @ ("failed" | "canceled")) => {
+                    return Err(format!("the task finished with the status {status}").into())
+                }
+                _ => {}
+            },
+            Err(e) if !is_transient(&e) => return Err(e),
+            Err(_) => {}
         }
+        pause(check)?;
     }
     Err(format!("the task was still running after {} seconds", WAIT_FOR.as_secs()).into())
 }
@@ -240,11 +265,7 @@ fn restore(client: &Client, original: &Value) -> Result<(), BoxError> {
         match update_database(client, original) {
             Ok(task_id) => break task_id,
             Err(e) => {
-                let transient = match status_of(&e) {
-                    Some(status) => status == 409 || status >= 500,
-                    None => e.is::<reqwest::Error>(),
-                };
-                if !transient || Instant::now() >= deadline {
+                if !is_transient(&e) || Instant::now() >= deadline {
                     return Err(e);
                 }
                 thread::sleep(POLL_INTERVAL);
@@ -275,6 +296,7 @@ fn run(client: &Client, password: &str, original: &mut Value, changed: &mut bool
     // database users, and an update may leave them out too, which keeps
     // them unchanged.
     let database = call(client, Method::GET, &format!("/v1/databases/{}", database_id()), None)?;
+    check_interrupted(true)?;
     *original = database["spec"].clone();
 
     // Restore unless the server refused the request with a 4xx status,
@@ -290,6 +312,7 @@ fn run(client: &Client, password: &str, original: &mut Value, changed: &mut bool
             return Err(e.into());
         }
     };
+    check_interrupted(true)?;
     wait_for_task(client, &task_id, true)?;
     println!("Update completed");
 
@@ -325,16 +348,17 @@ fn main() -> ExitCode {
     let mut original = Value::Null;
     let mut changed = false;
     let mut exit_code = ExitCode::SUCCESS;
-    if let Err(e) = run(&client, &password, &mut original, &mut changed) {
+    // A signal that arrives after the last request, or whilst the program
+    // is connected to the database, still counts.
+    let result = run(&client, &password, &mut original, &mut changed);
+    if INTERRUPTED.load(Ordering::SeqCst) {
+        eprintln!("Interrupted");
+        exit_code = ExitCode::from(130);
+    } else if let Err(e) = result {
         exit_code = ExitCode::FAILURE;
-        if INTERRUPTED.load(Ordering::SeqCst) {
-            eprintln!("Interrupted");
-            exit_code = ExitCode::from(130);
-        } else {
-            match e {
-                ShowError::ControlPlane(e) => report("Control Plane error", e.as_ref()),
-                ShowError::Database(e) => report("Database error", &e),
-            }
+        match e {
+            ShowError::ControlPlane(e) => report("Control Plane error", e.as_ref()),
+            ShowError::Database(e) => report("Database error", &e),
         }
     }
 

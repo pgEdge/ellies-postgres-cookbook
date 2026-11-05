@@ -25,7 +25,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 // new database listens on the given port on its host, so choose one that
 // is free.
 const baseUrl = (process.env.CONTROL_PLANE_URL || "http://localhost:3000").replace(/\/+$/, "");
-const port = Number(process.env.CONTROL_PLANE_RECIPE_PORT || "6433");
+const portText = process.env.CONTROL_PLANE_RECIPE_PORT || "6433";
 
 const timeoutMs = 30_000;
 
@@ -108,7 +108,7 @@ async function createDatabase(databaseId: string, host: string): Promise<void> {
     id: databaseId,
     spec: {
       database_name: "recipe",
-      port,
+      port: Number(portText),
       nodes: [{ name: "n1", host_ids: [host] }],
     },
   });
@@ -118,14 +118,14 @@ async function createDatabase(databaseId: string, host: string): Promise<void> {
 // --8<-- [start:wait]
 interface Database {
   state?: string;
-  instances?: { connection_info?: { port?: number } }[];
+  instances?: { connection_info: { port: number } }[];
 }
 
 // Polls the database, printing its state each time it changes, until the
 // state is available, and returns the port of its first instance. Each
 // instance runs one node, and its connection_info holds the address and
 // port that clients use. A failed state ends the wait at once.
-async function waitUntilAvailable(databaseId: string): Promise<number | undefined> {
+async function waitUntilAvailable(databaseId: string): Promise<number> {
   const deadline = Date.now() + waitMs;
   let last: string | undefined;
   while (Date.now() < deadline) {
@@ -135,7 +135,11 @@ async function waitUntilAvailable(databaseId: string): Promise<number | undefine
       last = database.state;
     }
     if (database.state === "available") {
-      return database.instances?.[0]?.connection_info?.port;
+      const instance = database.instances?.[0];
+      if (!instance) {
+        throw new ControlPlaneError("the database is available but has no instances");
+      }
+      return instance.connection_info.port;
     }
     if (database.state === "failed") {
       throw new ControlPlaneError("the database has the state failed");
@@ -169,9 +173,11 @@ async function deleteDatabase(databaseId: string): Promise<void> {
   const never = new AbortController().signal;
   const path = `/v1/databases/${databaseId}`;
   const deadline = Date.now() + waitMs;
+  let taskId: string;
   for (;;) {
     try {
-      await call("DELETE", path, undefined, never);
+      const reply = await call<{ task: { task_id: string } }>("DELETE", path, undefined, never);
+      taskId = reply.task.task_id;
       break;
     } catch (err) {
       if (isGone(err)) {
@@ -185,10 +191,15 @@ async function deleteDatabase(databaseId: string): Promise<void> {
   }
 
   // The delete starts a task that removes the database; a 404 shows that
-  // it has finished.
+  // it has finished. Whilst the database is still there, the status of the
+  // task shows whether the delete failed.
   while (Date.now() < deadline) {
     try {
       await call("GET", path, undefined, never);
+      const task = await call<{ status: string }>("GET", `${path}/tasks/${taskId}`, undefined, never);
+      if (task.status === "failed" || task.status === "canceled") {
+        throw new ControlPlaneError(`the delete task finished with the status ${task.status}`);
+      }
     } catch (err) {
       if (isGone(err)) {
         return;
@@ -218,6 +229,13 @@ function describe(err: unknown): string {
 }
 
 async function main(): Promise<number> {
+  // The new database listens on this port, so check it before creating
+  // anything.
+  if (!/^[1-9][0-9]{0,4}$/.test(portText) || Number(portText) > 65535) {
+    console.error("CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535");
+    return 1;
+  }
+
   let exitCode = 0;
   let created = false;
   // The client chooses the ID of a new database, so the program knows it
@@ -245,6 +263,10 @@ async function main(): Promise<number> {
 
     const instancePort = await waitUntilAvailable(databaseId);
     console.log(`Database is available on port ${instancePort}`);
+    // A signal that arrives after the last request still counts.
+    if (interrupt.signal.aborted) {
+      throw new Error("Interrupted");
+    }
   } catch (err) {
     if (interrupt.signal.aborted) {
       console.error("Interrupted");

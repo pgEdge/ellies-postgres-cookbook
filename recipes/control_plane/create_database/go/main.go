@@ -47,9 +47,19 @@ func envOr(name, fallback string) string {
 // The new database listens on the given port on its host, so choose one
 // that is free.
 var (
-	baseURL = strings.TrimRight(envOr("CONTROL_PLANE_URL", "http://localhost:3000"), "/")
-	port    = envOr("CONTROL_PLANE_RECIPE_PORT", "6433")
+	baseURL  = strings.TrimRight(envOr("CONTROL_PLANE_URL", "http://localhost:3000"), "/")
+	portText = envOr("CONTROL_PLANE_RECIPE_PORT", "6433")
 )
+
+// parsePort returns the port number in text, and false unless text is a
+// plain decimal number from 1 to 65535.
+func parsePort(text string) (int, bool) {
+	number, err := strconv.Atoi(text)
+	if err != nil || number < 1 || number > 65535 || strconv.Itoa(number) != text {
+		return 0, false
+	}
+	return number, true
+}
 
 const timeout = 30 * time.Second
 
@@ -161,16 +171,12 @@ func firstHost(ctx context.Context) (string, error) {
 // createDatabase asks the Control Plane to create a database with one
 // node. The reply holds the database and the task that creates it; the
 // work happens in the background after the reply.
-func createDatabase(ctx context.Context, databaseID, host string) error {
-	portNumber, err := strconv.Atoi(port)
-	if err != nil {
-		return fmt.Errorf("CONTROL_PLANE_RECIPE_PORT is not a number: %s", port)
-	}
+func createDatabase(ctx context.Context, databaseID, host string, port int) error {
 	body := map[string]any{
 		"id": databaseID,
 		"spec": map[string]any{
 			"database_name": "recipe",
-			"port":          portNumber,
+			"port":          port,
 			"nodes": []map[string]any{
 				{"name": "n1", "host_ids": []string{host}},
 			},
@@ -208,7 +214,9 @@ func waitUntilAvailable(ctx context.Context, databaseID string) (int, error) {
 			last = database.State
 		}
 		switch {
-		case database.State == "available" && len(database.Instances) > 0:
+		case database.State == "available" && len(database.Instances) == 0:
+			return 0, errors.New("the database is available but has no instances")
+		case database.State == "available":
 			return database.Instances[0].ConnectionInfo.Port, nil
 		case database.State == "failed":
 			return 0, errors.New("the database has the state failed")
@@ -239,8 +247,13 @@ func deleteDatabase(databaseID string) error {
 	ctx := context.Background()
 	path := "/v1/databases/" + databaseID
 	deadline := time.Now().Add(waitFor)
+	var reply struct {
+		Task struct {
+			TaskID string `json:"task_id"`
+		} `json:"task"`
+	}
 	for {
-		err := call(ctx, http.MethodDelete, path, nil, nil)
+		err := call(ctx, http.MethodDelete, path, nil, &reply)
 		if err == nil {
 			break
 		}
@@ -254,9 +267,19 @@ func deleteDatabase(databaseID string) error {
 	}
 
 	// The delete starts a task that removes the database; a 404 shows that
-	// it has finished.
+	// it has finished. Whilst the database is still there, the status of
+	// the task shows whether the delete failed.
 	for time.Now().Before(deadline) {
 		err := call(ctx, http.MethodGet, path, nil, nil)
+		if err == nil {
+			var task struct {
+				Status string `json:"status"`
+			}
+			err = call(ctx, http.MethodGet, path+"/tasks/"+reply.Task.TaskID, nil, &task)
+			if err == nil && (task.Status == "failed" || task.Status == "canceled") {
+				return fmt.Errorf("the delete task finished with the status %s", task.Status)
+			}
+		}
 		if statusOf(err) == http.StatusNotFound {
 			return nil
 		}
@@ -274,7 +297,7 @@ func deleteDatabase(databaseID string) error {
 // run creates the database and waits for it, and returns any error to the
 // caller. It sets created once the database may exist, so that the caller
 // knows whether to delete it.
-func run(ctx context.Context, databaseID string, created *bool) error {
+func run(ctx context.Context, databaseID string, port int, created *bool) error {
 	host, err := firstHost(ctx)
 	if err != nil {
 		return err
@@ -286,7 +309,7 @@ func run(ctx context.Context, databaseID string, created *bool) error {
 	// database with this ID already exists, and is not this program's to
 	// delete.
 	*created = true
-	if err := createDatabase(ctx, databaseID, host); err != nil {
+	if err := createDatabase(ctx, databaseID, host, port); err != nil {
 		if status := statusOf(err); status >= 400 && status < 500 {
 			*created = false
 		}
@@ -305,6 +328,14 @@ func run(ctx context.Context, databaseID string, created *bool) error {
 // main deletes the database whether the example succeeded, failed, or was
 // interrupted, and exits with a non-zero status after a failure.
 func main() {
+	// The new database listens on this port, so check it before creating
+	// anything.
+	port, ok := parsePort(portText)
+	if !ok {
+		fmt.Fprintln(os.Stderr, "CONTROL_PLANE_RECIPE_PORT must be a port number from 1 to 65535")
+		os.Exit(1)
+	}
+
 	// Ctrl-C and SIGTERM end the context instead of the process, which
 	// lets the program delete its database before it exits. The handlers
 	// stay in place, so a further Ctrl-C does not end the process during
@@ -320,14 +351,14 @@ func main() {
 
 	exitCode := 0
 	created := false
-	if err := run(ctx, databaseID, &created); err != nil {
-		if ctx.Err() != nil {
-			fmt.Fprintln(os.Stderr, "Interrupted")
-			exitCode = 130
-		} else {
-			fmt.Fprintf(os.Stderr, "Control Plane error: %v\n", err)
-			exitCode = 1
-		}
+	err := run(ctx, databaseID, port, &created)
+	switch {
+	case ctx.Err() != nil:
+		fmt.Fprintln(os.Stderr, "Interrupted")
+		exitCode = 130
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "Control Plane error: %v\n", err)
+		exitCode = 1
 	}
 
 	if created {
