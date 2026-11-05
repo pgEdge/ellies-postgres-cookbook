@@ -116,9 +116,14 @@ fn select_cheap_products(client: &Client) -> Result<(), BoxError> {
 
 // --8<-- [start:insert]
 /// Tries to add a row. query_database runs every query in a read-only
-/// transaction, so PostgreSQL itself refuses the INSERT, and the tool
-/// returns the error with isError set to true. The function returns an
-/// error if the server accepts the write.
+/// transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+/// 25006, and the tool returns the error with isError set to true. The
+/// INSERT leaves out id, which the table requires, so that even a server
+/// that allows writes would refuse it rather than save a row. That is
+/// why the function checks for the read-only error itself rather than
+/// for any error, and fails if the write succeeds or fails for another
+/// reason. It prints only the last line of the error, which holds
+/// PostgreSQL's message, because some errors start with the query.
 fn try_insert(client: &Client) -> Result<(), BoxError> {
     let (text, failed) = call_tool(
         client,
@@ -130,10 +135,14 @@ fn try_insert(client: &Client) -> Result<(), BoxError> {
                       'A made-up product that is never saved')",
         }),
     )?;
+    let error_line = text.trim().lines().last().unwrap_or("");
     if !failed {
         return Err("The server accepted a write".into());
     }
-    println!("INSERT rejected: {text}");
+    if !text.contains("SQLSTATE 25006") {
+        return Err(format!("The INSERT failed for another reason: {error_line}").into());
+    }
+    println!("INSERT rejected: {error_line}");
     Ok(())
 }
 // --8<-- [end:insert]

@@ -242,8 +242,10 @@ block has a `Source` line that gives the rank from the vector search, such as
 `(vector search rank: #1, chunk: 1)`, and the program picks the block ranked
 first, whose text follows the next blank line. Every description starts with
 the product's name and a colon. The parsing depends on the layout of the text
-in version 1.1.0, so check it again after an upgrade. The following tabs show
-the search:
+in version 1.1.0, so check it again after an upgrade. The match in the output
+above comes from the embeddings that `nomic-embed-text` makes, and another
+model, or another build of the same one, can rank the products differently.
+The following tabs show the search:
 
 === "Python"
 

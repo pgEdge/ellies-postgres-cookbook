@@ -128,9 +128,14 @@ static async Task SelectCheapProductsAsync(HttpClient client)
 
 // --8<-- [start:insert]
 // Tries to add a row. query_database runs every query in a read-only
-// transaction, so PostgreSQL itself refuses the INSERT, and the tool
-// returns the error with isError set to true. The function throws an
-// exception if the server accepts the write.
+// transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+// 25006, and the tool returns the error with isError set to true. The
+// INSERT leaves out id, which the table requires, so that even a server
+// that allows writes would refuse it rather than save a row. That is
+// why the function checks for the read-only error itself rather than
+// for any error, and fails if the write succeeds or fails for another
+// reason. It prints only the last line of the error, which holds
+// PostgreSQL's message, because some errors start with the query.
 static async Task TryInsertAsync(HttpClient client)
 {
     var (text, failed) = await CallToolAsync(client, "query_database", new JsonObject
@@ -140,11 +145,16 @@ static async Task TryInsertAsync(HttpClient client)
             + "VALUES ('Acme Test Widget', 'Testing', 1.00, true, "
             + "'A made-up product that is never saved')",
     });
+    var errorLine = text.Trim().Split('\n')[^1];
     if (!failed)
     {
         throw new McpException("The server accepted a write");
     }
-    Console.WriteLine($"INSERT rejected: {text}");
+    if (!text.Contains("SQLSTATE 25006"))
+    {
+        throw new McpException($"The INSERT failed for another reason: {errorLine}");
+    }
+    Console.WriteLine($"INSERT rejected: {errorLine}");
 }
 // --8<-- [end:insert]
 

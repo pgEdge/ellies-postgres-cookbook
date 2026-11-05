@@ -145,9 +145,11 @@ def main() -> int:
             describe_table(client)
             count_in_stock(client)
     # httpx.HTTPError is the base class for failures to reach the server,
-    # such as a refused connection or a timeout. KeyError, IndexError and
-    # TypeError cover a reply that lacks the members the program reads.
-    except (httpx.HTTPError, McpError, KeyError, IndexError, TypeError) as e:
+    # such as a refused connection or a timeout. KeyError, IndexError,
+    # TypeError, AttributeError and ValueError cover a reply that lacks the
+    # members the program reads, or holds one of the wrong type or form.
+    except (httpx.HTTPError, McpError, KeyError, IndexError, TypeError,
+            AttributeError, ValueError) as e:
         print(f"MCP Server error: {e}", file=sys.stderr)
         return 1
     return 0

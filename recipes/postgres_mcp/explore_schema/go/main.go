@@ -166,11 +166,11 @@ func listTables(client *http.Client) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("Tables in %s:\n", schema)
 	rows, err := parseTsv(text)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Tables in %s:\n", schema)
 	for _, row := range rows {
 		comment := row["table_desc"]
 		if comment == "" {

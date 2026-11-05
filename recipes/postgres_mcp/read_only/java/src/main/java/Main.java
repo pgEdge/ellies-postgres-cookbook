@@ -180,9 +180,14 @@ public class Main {
     // --8<-- [start:insert]
     /**
      * Tries to add a row. query_database runs every query in a read-only
-     * transaction, so PostgreSQL itself refuses the INSERT, and the tool
-     * returns the error with isError set to true. The method throws an
-     * exception if the server accepts the write.
+     * transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+     * 25006, and the tool returns the error with isError set to true. The
+     * INSERT leaves out id, which the table requires, so that even a server
+     * that allows writes would refuse it rather than save a row. That is
+     * why the method checks for the read-only error itself rather than
+     * for any error, and fails if the write succeeds or fails for another
+     * reason. It prints only the last line of the error, which holds
+     * PostgreSQL's message, because some errors start with the query.
      */
     static void tryInsert() throws IOException, InterruptedException, McpException {
         ToolResult result = callTool("query_database", Map.of(
@@ -190,10 +195,15 @@ public class Main {
                         + "(name, category, price, in_stock, description) "
                         + "VALUES ('Acme Test Widget', 'Testing', 1.00, true, "
                         + "'A made-up product that is never saved')"));
+        String[] lines = result.text().strip().split("\n");
+        String errorLine = lines[lines.length - 1];
         if (!result.failed()) {
             throw new McpException("The server accepted a write");
         }
-        System.out.println("INSERT rejected: " + result.text());
+        if (!result.text().contains("SQLSTATE 25006")) {
+            throw new McpException("The INSERT failed for another reason: " + errorLine);
+        }
+        System.out.println("INSERT rejected: " + errorLine);
     }
     // --8<-- [end:insert]
 

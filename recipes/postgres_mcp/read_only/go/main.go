@@ -146,9 +146,14 @@ func selectCheapProducts(client *http.Client) error {
 
 // --8<-- [start:insert]
 // tryInsert tries to add a row. query_database runs every query in a
-// read-only transaction, so PostgreSQL itself refuses the INSERT, and the
-// tool returns the error with isError set to true. The function returns an
-// error if the server accepts the write.
+// read-only transaction, so PostgreSQL itself refuses the INSERT with
+// SQLSTATE 25006, and the tool returns the error with isError set to true.
+// The INSERT leaves out id, which the table requires, so that even a server
+// that allows writes would refuse it rather than save a row. That is why
+// the function checks for the read-only error itself rather than for any
+// error, and fails if the write succeeds or fails for another reason. It
+// prints only the last line of the error, which holds PostgreSQL's
+// message, because some errors start with the query.
 func tryInsert(client *http.Client) error {
 	text, failed, err := callTool(client, "query_database", map[string]any{
 		"query": "INSERT INTO cookbook_mcp.products " +
@@ -159,10 +164,15 @@ func tryInsert(client *http.Client) error {
 	if err != nil {
 		return err
 	}
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	errorLine := lines[len(lines)-1]
 	if !failed {
 		return errors.New("the server accepted a write")
 	}
-	fmt.Printf("INSERT rejected: %s\n", text)
+	if !strings.Contains(text, "SQLSTATE 25006") {
+		return fmt.Errorf("the INSERT failed for another reason: %s", errorLine)
+	}
+	fmt.Printf("INSERT rejected: %s\n", errorLine)
 	return nil
 }
 

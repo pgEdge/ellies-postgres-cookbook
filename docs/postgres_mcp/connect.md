@@ -223,9 +223,9 @@ request to the server:
 ## Checking That the Server Is Running
 
 The `/health` endpoint takes a `GET` request without a token, and replies with
-a JSON object whose `status` is `ok` while the server runs. Each program stops
-if the server does not answer, because the other steps cannot succeed without
-it. The following tabs show the health check:
+a JSON object whose `status` is `ok` whilst the server runs. Each program
+stops if the server does not answer, because the other steps cannot succeed
+without it. The following tabs show the health check:
 
 === "Python"
 

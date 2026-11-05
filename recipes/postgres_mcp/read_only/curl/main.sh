@@ -102,11 +102,16 @@ select_cheap_products() {
 
 # --8<-- [start:insert]
 # Tries to add a row. query_database runs every query in a read-only
-# transaction, so PostgreSQL itself refuses the INSERT, and the tool
-# returns the error with isError set to true. The script fails if the
-# server accepts the write.
+# transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+# 25006, and the tool returns the error with isError set to true. The
+# INSERT leaves out id, which the table requires, so that even a server
+# that allows writes would refuse it rather than save a row. That is
+# why the script checks for the read-only error itself rather than
+# for any error, and fails if the write succeeds or fails for another
+# reason. It prints only the last line of the error, which holds
+# PostgreSQL's message, because some errors start with the query.
 try_insert() {
-    local query result
+    local query result text error_line
     query="INSERT INTO cookbook_mcp.products
                (name, category, price, in_stock, description)
            VALUES ('Acme Test Widget', 'Testing', 1.00, true,
@@ -117,7 +122,13 @@ try_insert() {
         echo "The server accepted a write" >&2
         return 1
     fi
-    echo "INSERT rejected: $(jq -r '.content[0].text' <<<"$result")"
+    text=$(jq -r '.content[0].text' <<<"$result")
+    error_line="${text##*$'\n'}"
+    if [[ "$text" != *"SQLSTATE 25006"* ]]; then
+        echo "The INSERT failed for another reason: $error_line" >&2
+        return 1
+    fi
+    echo "INSERT rejected: $error_line"
 }
 # --8<-- [end:insert]
 

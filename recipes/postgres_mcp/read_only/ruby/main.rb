@@ -93,9 +93,14 @@ end
 
 # --8<-- [start:insert]
 # Tries to add a row. query_database runs every query in a read-only
-# transaction, so PostgreSQL itself refuses the INSERT, and the tool
-# returns the error with isError set to true. The method raises an error
-# if the server accepts the write.
+# transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+# 25006, and the tool returns the error with isError set to true. The
+# INSERT leaves out id, which the table requires, so that even a server
+# that allows writes would refuse it rather than save a row. That is
+# why the method checks for the read-only error itself rather than
+# for any error, and fails if the write succeeds or fails for another
+# reason. It prints only the last line of the error, which holds
+# PostgreSQL's message, because some errors start with the query.
 def try_insert(http)
   text, failed = call_tool(http, "query_database", {
                              query: "INSERT INTO cookbook_mcp.products " \
@@ -103,9 +108,13 @@ def try_insert(http)
                                     "VALUES ('Acme Test Widget', 'Testing', 1.00, true, " \
                                     "'A made-up product that is never saved')"
                            })
+  error_line = text.strip.split("\n").last.to_s
   raise McpError, "The server accepted a write" unless failed
+  unless text.include?("SQLSTATE 25006")
+    raise McpError, "The INSERT failed for another reason: #{error_line}"
+  end
 
-  puts "INSERT rejected: #{text}"
+  puts "INSERT rejected: #{error_line}"
 end
 # --8<-- [end:insert]
 

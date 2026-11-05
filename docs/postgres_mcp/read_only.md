@@ -288,8 +288,13 @@ each program runs the query:
 
 The `INSERT` reaches PostgreSQL, which refuses it with SQLSTATE `25006` because
 the transaction is read-only, and the tool returns the error with `isError` set
-to `true`. Each program prints the error, and fails if the server accepts the
-write. The following tabs show the attempt:
+to `true`. The `INSERT` leaves out `id`, which the table requires, so that even
+a server that allows writes would refuse it rather than save a row. For that
+reason, each program checks for SQLSTATE `25006` itself rather than for any
+error, and fails if the write succeeds or fails for another reason. Some errors
+from the tool start with the query that failed, so each program prints only
+the last line of the error, which holds the message from PostgreSQL. The
+following tabs show the attempt:
 
 === "Python"
 

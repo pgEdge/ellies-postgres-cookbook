@@ -104,8 +104,8 @@ list_tables() {
     local text rows
     text=$(call_tool get_schema_info \
         "{\"schema_name\": \"$SCHEMA\", \"compact\": true}") || return 1
-    rows=$(parse_tsv <<<"$text") || return 1
     echo "Tables in $SCHEMA:"
+    rows=$(parse_tsv <<<"$text") || return 1
     jq -r '"- \(.table): \(if (.table_desc // "") == "" then "(no comment)"
                           else .table_desc end)"' <<<"$rows"
 }

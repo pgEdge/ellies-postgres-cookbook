@@ -97,9 +97,14 @@ async function selectCheapProducts(): Promise<void> {
 
 // --8<-- [start:insert]
 // Tries to add a row. query_database runs every query in a read-only
-// transaction, so PostgreSQL itself refuses the INSERT, and the tool
-// returns the error with isError set to true. The function throws an error
-// if the server accepts the write.
+// transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+// 25006, and the tool returns the error with isError set to true. The
+// INSERT leaves out id, which the table requires, so that even a server
+// that allows writes would refuse it rather than save a row. That is
+// why the function checks for the read-only error itself rather than
+// for any error, and fails if the write succeeds or fails for another
+// reason. It prints only the last line of the error, which holds
+// PostgreSQL's message, because some errors start with the query.
 async function tryInsert(): Promise<void> {
   const { text, failed } = await callTool("query_database", {
     query:
@@ -108,10 +113,14 @@ async function tryInsert(): Promise<void> {
       "VALUES ('Acme Test Widget', 'Testing', 1.00, true, " +
       "'A made-up product that is never saved')",
   });
+  const errorLine = text.trim().split("\n").pop() ?? "";
   if (!failed) {
     throw new Error("The server accepted a write");
   }
-  console.log(`INSERT rejected: ${text}`);
+  if (!text.includes("SQLSTATE 25006")) {
+    throw new Error(`The INSERT failed for another reason: ${errorLine}`);
+  }
+  console.log(`INSERT rejected: ${errorLine}`);
 }
 // --8<-- [end:insert]
 

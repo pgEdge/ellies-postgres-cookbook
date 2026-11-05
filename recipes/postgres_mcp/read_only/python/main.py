@@ -93,18 +93,26 @@ def select_cheap_products(client: httpx.Client) -> None:
 # --8<-- [start:insert]
 def try_insert(client: httpx.Client) -> None:
     """Tries to add a row. query_database runs every query in a read-only
-    transaction, so PostgreSQL itself refuses the INSERT, and the tool
-    returns the error with isError set to true. The function raises an
-    error if the server accepts the write."""
+    transaction, so PostgreSQL itself refuses the INSERT with SQLSTATE
+    25006, and the tool returns the error with isError set to true. The
+    INSERT leaves out id, which the table requires, so that even a server
+    that allows writes would refuse it rather than save a row. That is
+    why the function checks for the read-only error itself rather than
+    for any error, and fails if the write succeeds or fails for another
+    reason. It prints only the last line of the error, which holds
+    PostgreSQL's message, because some errors start with the query."""
     text, failed = call_tool(client, "query_database", {
         "query": "INSERT INTO cookbook_mcp.products "
                  "(name, category, price, in_stock, description) "
                  "VALUES ('Acme Test Widget', 'Testing', 1.00, true, "
                  "'A made-up product that is never saved')",
     })
+    error_line = text.strip().split("\n")[-1]
     if not failed:
         raise McpError("The server accepted a write")
-    print(f"INSERT rejected: {text}")
+    if "SQLSTATE 25006" not in text:
+        raise McpError(f"The INSERT failed for another reason: {error_line}")
+    print(f"INSERT rejected: {error_line}")
 # --8<-- [end:insert]
 
 
@@ -118,9 +126,11 @@ def main() -> int:
             select_cheap_products(client)
             try_insert(client)
     # httpx.HTTPError is the base class for failures to reach the server,
-    # such as a refused connection or a timeout. KeyError, IndexError and
-    # TypeError cover a reply that lacks the members the program reads.
-    except (httpx.HTTPError, McpError, KeyError, IndexError, TypeError) as e:
+    # such as a refused connection or a timeout. KeyError, IndexError,
+    # TypeError, AttributeError and ValueError cover a reply that lacks the
+    # members the program reads, or holds one of the wrong type or form.
+    except (httpx.HTTPError, McpError, KeyError, IndexError, TypeError,
+            AttributeError, ValueError) as e:
         print(f"MCP Server error: {e}", file=sys.stderr)
         return 1
     return 0
