@@ -889,16 +889,13 @@ jobs:
           cat "$RUNNER_TEMP/control-plane.env" >> "$GITHUB_ENV"
           rm -f "$RUNNER_TEMP/control-plane.env"
 
-      # test_recipes.sh fails when it finds no recipes, so pass when there
-      # are none yet.
+      # The create_database recipe puts its database on the port below,
+      # beside the cookbook database on the start script's default, 6432.
       - name: Test recipes
+        if: hashFiles('recipes/control_plane/**') != ''
+        env:
+          CONTROL_PLANE_RECIPE_PORT: '6433'
         run: |
-          if [[ ! -d recipes/control_plane ]] ||
-             [[ -z "$(find recipes/control_plane \( -name expected_output.txt \
-                      -o -name check_output \) -print -quit)" ]]; then
-            echo "::notice::There are no Control Plane recipes to test yet"
-            exit 0
-          fi
           scripts/test_recipes.sh --dir recipes/control_plane \
             python typescript java csharp go rust ruby curl
 
