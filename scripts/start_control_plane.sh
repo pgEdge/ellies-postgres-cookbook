@@ -50,7 +50,8 @@
 #   --pg-port PORT     host port for the cookbook database (default: 6432)
 #   --data-dir DIR     Control Plane data directory (default: /tmp/NAME);
 #                      it must not exist, be empty, or have been created
-#                      by this script
+#                      by this script; a relative path is taken from the
+#                      current directory
 #   --timeout SECONDS  how long to wait for the database (default: 600)
 #   --stop             remove what the script created (see below)
 #
@@ -70,6 +71,11 @@
 #     file that the script writes, and otherwise the script stops with an
 #     error rather than touch it;
 #   - the script leaves the swarm only if it created it.
+#
+# Only one Control Plane started by this script can exist at a time: they
+# share the host id, the database ids and the Etcd ports. The script
+# refuses to start while a container it started under another --name
+# exists, and --stop then removes no database services or networks.
 #
 # Recipes that create their own databases on this Control Plane should
 # give them ids starting cookbook-recipe-, so that --stop removes them.
@@ -122,7 +128,23 @@ while [[ $# -gt 0 ]]; do
         *)          echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+# The name becomes part of the default data directory, so allow only what
+# Docker allows in a container name.
+if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "--name must be a valid container name, not '$name'" >&2
+    exit 2
+fi
 data_dir="${data_dir:-/tmp/$name}"
+# docker run -v treats a source that is not an absolute path as the name
+# of a volume (and creates it), so make the data directory absolute before
+# anything is written or mounted. A colon would split the -v argument.
+if [[ "$data_dir" != /* ]]; then
+    data_dir="$PWD/$data_dir"
+fi
+if [[ "$data_dir" == *:* || "$data_dir" == / ]]; then
+    echo "--data-dir cannot be / or contain a colon: $data_dir" >&2
+    exit 2
+fi
 url="http://127.0.0.1:$port"
 # Written when the script creates the data directory; the script empties
 # only a directory that holds it.
@@ -173,20 +195,33 @@ our_server_running() {
     api -fsS "$url/v1/version" >/dev/null 2>&1
 }
 
+# The names of any other containers, running or not, that this script
+# started under another --name.
+other_instances() {
+    docker ps -a --filter "label=$container_label" --format '{{.Names}}' \
+        2>/dev/null | grep -vx -- "$name" | tr '\n' ' ' | sed 's/ $//' || true
+}
+
 # Delete a database through the API and wait until it has gone. The API
 # refuses (HTTP 409) to delete a database whilst a task is running on it,
 # for example one still being created when the script fails, so first
 # wait until it is available, degraded or failed. A delete usually takes
 # under 30 seconds, but one took over 240 on a GitHub runner, so each
-# wait is 600 seconds.
+# wait is 600 seconds. Only HTTP 404 counts as gone; an error or a time
+# out means try again.
 delete_database() {
-    local id="$1" state=""
-    for _ in $(seq 1 200); do
-        state="$(api -fsS "$url/v1/databases/$id" 2>/dev/null \
-            | jq -r '.state' 2>/dev/null || true)"
+    local id="$1" state="" response code deadline
+    deadline=$((SECONDS + 600))
+    while (( SECONDS < deadline )); do
+        response="$(api -s -w '\n%{http_code}' "$url/v1/databases/$id" || true)"
+        code="${response##*$'\n'}"
+        [[ "$code" == 404 ]] && return 0
+        state=""
+        if [[ "$code" == 200 ]]; then
+            state="$(jq -r '.state' <<<"${response%$'\n'*}" 2>/dev/null || true)"
+        fi
         case "$state" in
             available|degraded|failed|deleting) break ;;
-            "") return 0 ;;
         esac
         sleep 3
     done
@@ -194,9 +229,10 @@ delete_database() {
     if [[ "$state" != deleting ]]; then
         api -fsS -X DELETE "$url/v1/databases/$id" >/dev/null || return 1
     fi
-    for _ in $(seq 1 300); do
+    deadline=$((SECONDS + 600))
+    while (( SECONDS < deadline )); do
         if [[ "$(api -s -o /dev/null -w '%{http_code}' \
-            "$url/v1/databases/$id")" == 404 ]]; then
+            "$url/v1/databases/$id" || true)" == 404 ]]; then
             return 0
         fi
         sleep 2
@@ -241,11 +277,21 @@ stop_all() {
         docker rm -f "$name" >/dev/null 2>&1 || true
     fi
 
-    if [[ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" == active ]]; then
+    # Every instance of this script uses the same host id and database
+    # ids, so the services and networks of another instance (another
+    # --name) look the same as ours; leave them alone while one exists.
+    local others
+    others="$(other_instances)"
+    if [[ -n "$others" ]]; then
+        say "Not removing database services or networks, because another" \
+            "Control Plane started by this script exists: $others"
+        ids=""
+    elif [[ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" == active ]]; then
         for service in $(docker service ls -q \
-            --filter "label=pgedge.host.id=$host_id" 2>/dev/null); do
+            --filter "label=pgedge.host.id=$host_id" 2>/dev/null || true); do
             id="$(docker service inspect -f \
-                '{{index .Spec.Labels "pgedge.database.id"}}' "$service" 2>/dev/null)"
+                '{{index .Spec.Labels "pgedge.database.id"}}' "$service" \
+                2>/dev/null || true)"
             if ours_id "$id"; then
                 ids="$ids $id"
                 docker service rm "$service" >/dev/null 2>&1 || true
@@ -255,15 +301,21 @@ stop_all() {
 
     # The server names each database's overlay network <id>-database, and
     # does not label it. Docker refuses to remove a network still in use,
-    # and removing a service's tasks takes a few seconds, so try for a
-    # while.
+    # and removing a service's tasks takes a few seconds, so try for 30
+    # seconds.
+    local network deadline
     for id in $(printf '%s\n' $ids | sort -u); do
-        if docker network inspect "$id-database" >/dev/null 2>&1; then
-            for _ in $(seq 1 15); do
-                docker network rm "$id-database" >/dev/null 2>&1 && break
-                sleep 2
-            done
-        fi
+        network="$id-database"
+        docker network inspect "$network" >/dev/null 2>&1 || continue
+        deadline=$((SECONDS + 30))
+        until docker network rm "$network" >/dev/null 2>&1; do
+            if (( SECONDS >= deadline )); then
+                say "Could not remove the network $network; remove it with:" \
+                    "docker network rm $network"
+                break
+            fi
+            sleep 2
+        done
     done
 
     if [[ -d "$data_dir" ]]; then
@@ -288,6 +340,15 @@ if [[ -n "$stop" ]]; then
     say "Stopping the Control Plane $name"
     stop_all
     exit 0
+fi
+
+# Only one instance can run at a time (they share the host id, the
+# database ids and the Etcd ports), so refuse while another exists.
+others="$(other_instances)"
+if [[ -n "$others" ]]; then
+    echo "Another Control Plane started by this script exists ($others);" \
+        "stop it first with: $0 --stop --name <name> --port <port>" >&2
+    exit 1
 fi
 
 # Start from nothing, so that a second run never sees an old cluster.
@@ -335,7 +396,8 @@ docker run -d --name "$name" --network host \
     "$image" run >/dev/null
 
 ready=""
-for _ in $(seq 1 60); do
+deadline=$((SECONDS + 60))
+while (( SECONDS < deadline )); do
     if api -fsS "$url/v1/version" >/dev/null 2>&1; then
         ready=1
         break
