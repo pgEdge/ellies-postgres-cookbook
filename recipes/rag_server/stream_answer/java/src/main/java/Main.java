@@ -157,14 +157,25 @@ public class Main {
                 return thread;
             });
 
-    /**
-     * Reads a line, giving up if none arrives within TIMEOUT. The request's
-     * timeout stops applying once the headers arrive, so a server that
-     * stops sending part of the way through would otherwise leave the read
-     * waiting for ever. Closing the stream from another thread ends a read
-     * that is waiting for data.
-     */
+    /** A read from the response body, such as of a line or of some bytes. */
+    interface BodyRead<T> {
+        T read() throws IOException;
+    }
+
+    /** Reads a line, giving up if none arrives within TIMEOUT. */
     static String readLineWithin(BufferedReader reader, InputStream body)
+            throws IOException {
+        return readWithin(reader::readLine, body);
+    }
+
+    /**
+     * Runs a read of the body, giving up if it does not finish within
+     * TIMEOUT. The request's timeout stops applying once the headers
+     * arrive, so a server that stops sending part of the way through would
+     * otherwise leave the read waiting for ever. Closing the stream from
+     * another thread ends a read that is waiting for data.
+     */
+    static <T> T readWithin(BodyRead<T> read, InputStream body)
             throws IOException {
         // The flag is set before the stream is closed, so the read that
         // fails as a result can tell that it timed out.
@@ -177,14 +188,14 @@ public class Main {
                 // The stream is being abandoned, so there is nothing to do.
             }
         }, TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
-        String line;
+        T result;
         try {
-            line = reader.readLine();
+            result = read.read();
         } catch (IOException e) {
             if (!timedOut.get()) {
                 throw e;
             }
-            line = null;
+            result = null;
         } finally {
             timer.cancel(false);
         }
@@ -192,7 +203,7 @@ public class Main {
             throw new HttpTimeoutException("No data from the server for "
                     + TIMEOUT.toSeconds() + " seconds");
         }
-        return line;
+        return result;
     }
 
     /** Prints the answer as it arrives, and returns the number of chunks. */
@@ -221,8 +232,10 @@ public class Main {
             // Once streaming starts the status is always 200, so later
             // failures arrive as events instead.
             if (response.statusCode() != 200) {
-                String body = new String(
-                        response.body().readNBytes(4096), StandardCharsets.UTF_8);
+                // Bound this read as well, in case the server stalls.
+                byte[] bytes = readWithin(
+                        () -> response.body().readNBytes(4096), response.body());
+                String body = new String(bytes, StandardCharsets.UTF_8);
                 throw new RagException("HTTP " + response.statusCode() + ", "
                         + errorText(body));
             }

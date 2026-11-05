@@ -135,7 +135,19 @@ static async Task<int> StreamAnswerAsync(HttpClient client, string question)
     // as events instead.
     if (!response.IsSuccessStatusCode)
     {
-        var body = await response.Content.ReadAsStringAsync();
+        // Bound this read as well, in case the server stalls.
+        using var timeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(TimeoutSeconds));
+        string body;
+        try
+        {
+            body = await response.Content.ReadAsStringAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"No data from the server for {TimeoutSeconds} seconds");
+        }
         throw new RagException(
             $"HTTP {(int)response.StatusCode}, {ErrorText(body)}");
     }
