@@ -8,8 +8,7 @@ Linked tabs switch by label, so a misspelt label ("Javascript" for
 for readers. This check runs in CI alongside the docs build.
 
 Pages for a product's HTTP API (API_PRODUCTS in scripts/languages.py) use
-the API languages in place of the full set: every language except C, or
-only Python, TypeScript and Go for the products in THREE_LANGUAGE_PRODUCTS.
+the API languages in place of the full set: every language except C.
 Every other page uses the full set. In both cases a curl tab may follow the
 languages.
 

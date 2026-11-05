@@ -87,15 +87,12 @@ two rules apply:
   `docs/starfleet/`, `docs/postgres_mcp/`, and `docs/control_plane/`
   document HTTP API recipes, and use every language except C, in the
   order above. A `curl` tab may follow them, for a recipe with a
-  `curl/main.sh` script. A product whose recipes have only Python,
-  TypeScript, and Go programs so far goes in `THREE_LANGUAGE_PRODUCTS`
-  in `scripts/languages.py` until its Java, C#, Rust, and Ruby programs
-  are added; whilst it is listed there, its pages use those three
-  languages alone.
+  `curl/main.sh` script. The products are listed in `API_PRODUCTS` in
+  `scripts/languages.py`.
 - Pages under `docs/snowflake/`, `docs/vectorizer/`, and
-  `docs/semantic_cache/` document SQL extension recipes, and have no tab
-  groups at all; the section on SQL extension recipes below describes
-  them.
+  `docs/semantic_cache/` document SQL extension recipes (listed in
+  `EXTENSION_PRODUCTS`), and have no tab groups at all; the section on
+  SQL extension recipes below describes them.
 - Every other page uses all eight languages, in the order above.
 
 In both cases a recipe may omit a language by leaving out its directory;
@@ -336,13 +333,13 @@ API live under `recipes/<product>/<slug>/`, with their pages at
 `docs/<product>/<slug>.md`, where `<product>` is `rag_server`,
 `ai_dba_workbench`, `starfleet`, `postgres_mcp`, or `control_plane`. Each
 recipe has a program in every language except C, and a `curl/main.sh`
-script unless its steps cannot be written as HTTP calls. The Python programs use
-`httpx`, the TypeScript programs use the built-in `fetch` function, the Java
-programs use the `java.net.http` package with Jackson, the C# programs use
+script unless its steps cannot be written as HTTP calls. The Python programs
+use `httpx`, the TypeScript programs use the built-in `fetch` function, the
+Java programs use the `java.net.http` package with Jackson, the C# programs use
 `HttpClient` with `System.Text.Json`, the Go programs use the `net/http`
-package, the Rust programs use the blocking `reqwest` client with
-`serde_json`, the Ruby programs use `Net::HTTP` and `json` from the standard
-library, and the curl scripts use `jq` to read JSON.
+package, the Rust programs use the blocking `reqwest` client with `serde_json`,
+the Ruby programs use `Net::HTTP` and `json` from the standard library, and the
+curl scripts use `jq` to read JSON.
 
 Every page states the product version that its examples target, near the
 top of the page; the RAG Server recipes target RAG Server 2.0.0, the
@@ -367,6 +364,8 @@ unset:
 | `STARFLEET_CLIENT_ID`             | none                                                  | The Starfleet API client ID.                            |
 | `STARFLEET_CLIENT_SECRET`         | none                                                  | The Starfleet API client secret.                        |
 | `STARFLEET_API_URL`               | `https://api.pgedge.com`                              | The Starfleet API's base URL.                           |
+| `MCP_URL`                         | `http://localhost:8080`                               | The Postgres MCP Server's base URL.                     |
+| `MCP_TOKEN`                       | none                                                  | An API token that the MCP Server accepts.               |
 | `CONTROL_PLANE_URL`               | `http://localhost:3000`                               | The Control Plane's base URL.                           |
 | `CONTROL_PLANE_DATABASE_ID`       | `cookbook`                                            | The ID of an existing database.                         |
 | `CONTROL_PLANE_DATABASE_USER`     | `cookbook`                                            | The database user to connect as.                        |
@@ -440,6 +439,32 @@ scripts/test_recipes.sh --dir recipes/rag_server/row_level_security \
     python typescript java csharp go rust ruby curl
 ```
 
+The `scripts/start_postgres_mcp.sh` script starts the pgEdge Postgres MCP
+Server 1.1.0 in Docker. The server runs only read-only queries, so the
+script first creates a `cookbook_mcp` schema, which it drops and recreates
+each time, holding a `products` table of made-up products. It embeds each
+description with Ollama through the test server's vectorizer, so the
+PostgreSQL server must be the one that `scripts/start_test_server.sh`
+starts, and Ollama must have the `nomic-embed-text` model. The script then
+generates an API token, starts the server in HTTP mode with
+authentication, and waits until a `similarity_search` call with the token
+succeeds. It prints the `MCP_URL` and `MCP_TOKEN` lines to export, and
+accepts `--name`, `--port`, `--network`, `--pg-host`, `--pg-port`,
+`--pg-sslmode`, and `--ollama-url` options. The token reaches the container
+through its environment, and `docker inspect` still shows it, so use the
+script only for throwaway servers. If the script fails, it removes what it
+created; to stop the server afterwards, run `docker rm -f` with the
+container's name, `cookbook-postgres-mcp` by default. The following
+commands start the MCP Server and test the MCP Server recipes:
+
+```bash
+eval "$(scripts/start_postgres_mcp.sh)"
+export MCP_URL MCP_TOKEN
+scripts/test_recipes.sh --dir recipes/postgres_mcp \
+    python typescript java csharp go rust ruby curl
+docker rm -f cookbook-postgres-mcp
+```
+
 The `scripts/start_control_plane.sh` script starts the Control Plane
 v0.11.0 in Docker, initialising a Docker swarm first if Docker is not
 already in swarm mode, and creates a one-node database with the ID
@@ -496,7 +521,15 @@ recipes target pg_semantic_cache 0.1.0-beta4.
 The test script runs the program with
 `psql -X -q -v ON_ERROR_STOP=1 -f main.sql`, so the script reads its
 connection settings from the `PG*` variables, and stops with a non-zero
-status at the first error. The unreachable-server run sets `PGPORT=1`, as
+status at the first error. A script that creates objects, such as a
+table or a vectorizer queue entry, instead turns `ON_ERROR_STOP` off with
+`\set ON_ERROR_STOP off` in its settings section, so that a failed step
+does not skip the clean-up. It turns `ON_ERROR_STOP` on again at the start
+of its clean-up section, which drops what the script created, and ends by
+checking `:LAST_ERROR_SQLSTATE` and raising an error if any earlier step
+failed, so that the script still exits with a non-zero status. The
+`recipes/vectorizer/enable_vectorization/sql/main.sql` script shows the
+pattern. The unreachable-server run sets `PGPORT=1`, as
 for the other recipes. The program starts with `\pset format unaligned`
 and `\pset tuples_only on`, so that its output is plain lines that
 `expected_output.txt` can match, and a waiting loop, such as one that

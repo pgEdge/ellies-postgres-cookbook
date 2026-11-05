@@ -9,8 +9,7 @@ Usage:
 Each section produces one tab group with a tab for every language, in the
 canonical order. Recipes for a product's HTTP API (API_PRODUCTS in
 scripts/languages.py) use the API languages instead of the full set: every
-language except C, or only Python, TypeScript and Go for the products in
-THREE_LANGUAGE_PRODUCTS. They get a curl tab after them, in every group
+language except C. They get a curl tab after them, in every group
 except deps, when the recipe has a curl/main.sh file. Two section names are
 special:
 

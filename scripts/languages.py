@@ -52,12 +52,6 @@ LANGUAGES = [
 API_LANGUAGES = [language for language in LANGUAGES
                  if language.directory != "c"]
 
-# The first API recipes were written in Python, TypeScript and Go only.
-# A product stays on that set until its recipes gain the other languages,
-# and is then removed from this tuple.
-THREE_LANGUAGE_PRODUCTS = ()
-THREE_LANGUAGES = [language for language in LANGUAGES
-                   if language.directory in ("python", "typescript", "go")]
 API_PRODUCTS = ("rag_server", "ai_dba_workbench", "starfleet",
                 "postgres_mcp", "control_plane")
 
@@ -76,9 +70,8 @@ def product_languages(product: str) -> list:
     """
     if product in EXTENSION_PRODUCTS:
         return [SQL]
-    if product in THREE_LANGUAGE_PRODUCTS:
-        return list(THREE_LANGUAGES)
     return list(API_LANGUAGES if product in API_PRODUCTS else LANGUAGES)
+
 
 # HTTP API recipes may add a curl tab after their languages. Recipes that
 # talk to PostgreSQL directly do not use it.

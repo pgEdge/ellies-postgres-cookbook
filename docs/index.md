@@ -39,16 +39,17 @@ only needs to choose a language once.
 The code on each recipe page comes directly from complete, runnable programs
 in the
 [cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook).
-The continuous integration pipeline builds and runs every program against a
-real PostgreSQL server each time the repository changes. The pipeline checks
-that each program produces the expected output, and exits with an error
-when the server is unreachable. The extension recipes run against a pgEdge
+The continuous integration pipeline builds and runs the programs that a
+change touches against a real PostgreSQL server, and runs the Starfleet
+programs weekly or by hand. The pipeline checks that each program produces
+the expected output, and exits with an error when the server is
+unreachable. The extension recipes run against a pgEdge
 Postgres server with the extensions installed. The RAG Server, AI DBA
 Workbench, Postgres MCP Server, and Control Plane recipes run against those
-products in containers; the Starfleet recipes run weekly against the live
-service, except the two recipes that leave a backup behind. Each recipe links to the complete program in every
-language, so readers can copy a working project rather than assembling one
-from fragments.
+products in containers; the Starfleet recipes run against the live service,
+except the two recipes that leave a backup behind. Each recipe links to the
+complete program in every language, so readers can copy a working project
+rather than assembling one from fragments.
 
 ## Browsing the Recipes
 
@@ -115,12 +116,12 @@ The following table lists the recipes that the cookbook contains:
 | [Taking a Backup and Tracking Its Task](starfleet/backups.md) | Take an on-demand backup, poll it to completion, and list the database's tasks; the backup cannot be deleted. |
 | [Rotating a Role Password](starfleet/rotate_password.md) | Rotate the `app` role's password, wait for the database to be available, and connect with the new one. |
 | [Connecting to the MCP Server](postgres_mcp/connect.md) | Check the health of a Postgres MCP Server, send the `initialize` handshake, and see how it treats an unknown token. |
-| [Exploring a Schema with the MCP Server](postgres_mcp/explore_schema.md) | List tables and columns with `get_schema_info`, and count matching rows with `count_rows`. |
-| [Running Read-Only Queries with the MCP Server](postgres_mcp/read_only.md) | Run a `SELECT` with `query_database`, and see PostgreSQL reject an `INSERT` in the read-only transaction. |
-| [Searching by Meaning with the MCP Server](postgres_mcp/similarity_search.md) | Find the rows closest in meaning to a question with the `similarity_search` tool. |
-| [Reading MCP Server Resources and Prompts](postgres_mcp/resources_and_prompts.md) | List resources and prompts, read `pg://system_info`, and fetch the `explore-database` prompt. |
-| [Checking the Control Plane Cluster](control_plane/cluster_status.md) | Read the Control Plane version, the state of its cluster, and the state of each host. |
-| [Creating a Database with the Control Plane](control_plane/create_database.md) | Create a one-node database, follow its state until it is available, and delete it on every path. |
-| [Connecting to a Control Plane Database](control_plane/connect_database.md) | Read where a database's instances listen from the API, and connect with a PostgreSQL driver. |
-| [Following a Control Plane Task](control_plane/track_tasks.md) | Find the task that created a database, print its log entries as they appear, and report how it finished. |
-| [Changing a Database's Settings with the Control Plane](control_plane/update_database.md) | Change a Postgres setting through the database's specification, check it, and put the original back. |
+| [Exploring a Schema](postgres_mcp/explore_schema.md) | List tables and columns with `get_schema_info`, and count matching rows with `count_rows`. |
+| [Running Read-Only Queries](postgres_mcp/read_only.md) | Run a `SELECT` with `query_database`, and see PostgreSQL reject an `INSERT` in the read-only transaction. |
+| [Searching by Meaning](postgres_mcp/similarity_search.md) | Find the rows closest in meaning to a question with the `similarity_search` tool. |
+| [Reading Resources and Prompts](postgres_mcp/resources_and_prompts.md) | List resources and prompts, read `pg://system_info`, and fetch the `explore-database` prompt. |
+| [Checking the Cluster](control_plane/cluster_status.md) | Read the Control Plane version, the state of its cluster, and the state of each host. |
+| [Creating a Database](control_plane/create_database.md) | Create a one-node database, follow its state until it is available, and delete it on every path. |
+| [Connecting to a Database](control_plane/connect_database.md) | Read where a database's instances listen from the API, and connect with a PostgreSQL driver. |
+| [Following a Task](control_plane/track_tasks.md) | Find the task that created a database, print its log entries as they appear, and report how it finished. |
+| [Changing a Database's Settings](control_plane/update_database.md) | Change a Postgres setting through the database's specification, check it, and put the original back. |

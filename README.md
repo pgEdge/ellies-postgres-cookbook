@@ -18,9 +18,10 @@ The documentation includes the following pages:
 Ellie's Postgres Cookbook is a library of how-to recipes for PostgreSQL and
 pgEdge products. Each recipe explains how to accomplish a single task, step
 by step, with the code for every step shown in Python, TypeScript, Java,
-C#, Go, Rust, Ruby, and C. The published pages include their code directly
-from complete, runnable programs in this repository, and continuous
-integration tests every program against PostgreSQL on every change.
+C#, Go, Rust, Ruby, and C, and in SQL or curl for the recipes that use
+them. The published pages include their code directly from complete,
+runnable programs in this repository, and continuous integration tests the
+programs that each change touches.
 
 ## Installation
 
@@ -53,7 +54,14 @@ following command tests the Python and Go programs for every recipe:
 scripts/test_recipes.sh python go
 ```
 
-The test script tests every language when the command specifies none.
+The test script tests every language when the command specifies none. The
+SQL recipes for the extensions and the recipes for the pgEdge products need
+more than a plain PostgreSQL server: `scripts/start_test_server.sh` starts a
+server with the extensions installed, and the recipes that need a product
+or a service list what they need in their `requires.txt` files, which the
+test script uses to skip a recipe whose variables are not set. The
+[contributing guide](docs/contributing.md) describes how to run each set of
+recipes.
 
 ## Documentation
 

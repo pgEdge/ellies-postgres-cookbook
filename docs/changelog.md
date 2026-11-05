@@ -28,9 +28,6 @@ and this project adheres to
 - Five recipes for the pgEdge Control Plane v0.11.0 API: Checking the
   Cluster, Creating a Database, Connecting to a Database, Following a
   Task, and Changing a Database's Settings.
-- Java, C#, Rust, and Ruby programs for every RAG Server, AI DBA
-  Workbench, and Starfleet recipe, so that every HTTP API recipe is in
-  every language except C.
 - A test server image built from pgEdge Postgres with the extensions
   installed, scripts that start the Postgres MCP Server and the Control
   Plane in containers, and continuous integration jobs for the extension,
@@ -49,8 +46,9 @@ and this project adheres to
   for It, Connecting to a Starfleet Database, Creating a Branch for a Test
   Run, Taking a Backup and Tracking Its Task, and Rotating a Role
   Password.
-- A language set for HTTP API recipes (Python, TypeScript, and Go) with a
-  `curl` tab, `--dir` and `--exclude` options for the test runner, scripts
+- A language set for HTTP API recipes (Python, TypeScript, Java, C#, Go,
+  Rust, and Ruby, which is every language except C) with a `curl` tab,
+  `--dir` and `--exclude` options for the test runner, scripts
   that start the RAG Server and AI DBA Workbench in containers, and
   continuous integration jobs for each product, with the Starfleet job run
   weekly or by hand when its credentials are configured.
