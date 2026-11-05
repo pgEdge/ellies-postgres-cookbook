@@ -437,8 +437,8 @@ fn server_version(connection: &Config) -> Result<String> {
     // A database can refuse connections for a short while after the API
     // reports it as available, so try a few times before giving up. An
     // error that carries an SQLSTATE code came from the server itself,
-    // such as a failed login, and will not change on a second attempt. An attempt that runs out of
-    // time is repeated, as a failure to connect is.
+    // such as a failed login, and will not change on a second attempt. An
+    // attempt that runs out of time is repeated, as a failure to connect is.
     let mut attempt = 0;
     loop {
         let config = connection.clone();
