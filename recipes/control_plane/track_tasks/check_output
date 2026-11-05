@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Checks the shape of the track_tasks output: the creation task, at least
+# one log entry, and the final status, in that order. The number of log
+# entries, and the timings in their messages, vary from run to run.
+set -euo pipefail
+
+output="$(cat)"
+[[ -n "${output//[[:space:]]/}" ]] || { echo "empty output" >&2; exit 1; }
+
+position=0
+entries=0
+while IFS= read -r line; do
+    if [[ $position -eq 0 && "$line" == "Task: create" ]]; then
+        position=1
+    elif [[ $position -eq 1 && "$line" =~ ^Log:\ .+$ ]]; then
+        entries=$((entries + 1))
+    elif [[ $position -eq 1 && $entries -gt 0 && "$line" == "Status: completed" ]]; then
+        position=2
+    else
+        echo "unexpected line: $line" >&2
+        exit 1
+    fi
+done <<<"$output"
+
+[[ $position -eq 2 ]] || { echo "output ended early" >&2; exit 1; }
