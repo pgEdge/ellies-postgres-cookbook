@@ -1,0 +1,11520 @@
+# Creating a Branch for a Test Run
+
+This recipe shows how to create a copy-on-write branch of a pgEdge Starfleet
+database for a test run, wait for it, connect to the branch and run a query,
+and delete it. Because the recipe needs a database to branch, the program
+creates one with the code from the "Creating a Database and Waiting for It"
+recipe, and deletes the branch and then the database at the end. Starfleet
+bills for each of them whilst it exists, so the program removes both on every
+path out. Creating a branch also takes a backup of the source, which the
+program cannot delete.
+
+These examples are for the pgEdge Starfleet Managed API v1.
+
+The names of the resources, the number of status lines, and the version strings
+vary, so the output looks similar to the following:
+
+```text
+Region: us-east-2
+Size: small
+Created database cookbook-3f9a1c
+Database status: creating
+Database status: available
+Database is available
+Created branch cookbook-3f9a1c-branch
+Branch status: creating
+Branch status: available
+Branch is available
+Branch server version: PostgreSQL 18.1 on x86_64-pc-linux-gnu, 64-bit
+Deleted branch
+Deleted database
+```
+
+## Preparing the Ingredients
+
+You need a pgEdge Starfleet account and an API client with its client ID and
+secret. Never put the client secret in a file that you commit to version
+control, and never paste it into a command line, because other users of the
+machine can read the command lines of running processes. The programs in this
+recipe read the secret from the environment and, for the curl script, pass it
+to curl on standard input.
+
+The following warning describes what the example creates and what it does to
+clean up:
+
+!!! warning "These examples create billable resources"
+
+    Starfleet bills for a database, and for each of its branches, until
+    deletion is requested. The program deletes the branch and then the database
+    that it creates whether the example succeeds, fails, or is interrupted with
+    Ctrl-C, and waits until the API no longer lists them. If the reply to a
+    create request is lost, the program looks the resource up by its name
+    before it deletes it, and if that fails it tells you the name so that you
+    can delete it by hand. A program that is killed outright, with `kill -9`
+    for instance, cannot clean up, so check your account for databases whose
+    display names start with `cookbook-` if you stop a run that way.
+
+    Creating a branch also takes a backup of the source database, which the API
+    documents with the purpose `prebranch`. The API has no way to delete a
+    backup, and its specification does not document how long backups are kept
+    or whether they are billed, so every run of this recipe leaves a
+    backup behind. For that reason the scheduled test job for this repository
+    does not run this recipe.
+
+The programs use the same HTTP clients as the "Getting an Access Token" recipe,
+and connect to the database with the following drivers:
+
+| Language   | PostgreSQL driver                                               |
+|------------|-----------------------------------------------------------------|
+| Python     | [psycopg](https://www.psycopg.org/psycopg3/)                    |
+| TypeScript | [node-postgres](https://node-postgres.com/)                     |
+| Java       | [pgJDBC](https://jdbc.postgresql.org/)                          |
+| C#         | [Npgsql](https://www.npgsql.org/)                               |
+| Go         | [pgx](https://github.com/jackc/pgx)                             |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres), with [postgres-openssl](https://docs.rs/postgres-openssl) for TLS |
+| Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)                       |
+
+The Rust program also uses [signal-hook](https://docs.rs/signal-hook) to catch
+signals. The curl script needs `psql`, the PostgreSQL command line client, in
+addition to `curl` and `jq`. The following excerpts show the dependencies:
+
+=== "Python"
+
+    ```text
+    # httpx is an HTTP client with a clean, requests-like interface.
+    httpx>=0.28,<1
+    # psycopg 3, with the pre-built binary package that bundles libpq.
+    psycopg[binary]>=3.2,<4
+    ```
+
+=== "TypeScript"
+
+    ```json
+    {
+      "name": "starfleet-branches",
+      "private": true,
+      "type": "module",
+      "scripts": {
+        "build": "tsc",
+        "start": "node dist/main.js"
+      },
+      "dependencies": {
+        "pg": "^8.23.1"
+      },
+      "devDependencies": {
+        "@types/node": "^22.0.0",
+        "@types/pg": "^8.23.1",
+        "typescript": "^5.9.0"
+      }
+    }
+    
+    ```
+
+=== "Java"
+
+    ```xml
+    <dependencies>
+      <!-- Jackson, for JSON; the HTTP client is part of the JDK. -->
+      <dependency>
+        <groupId>tools.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>3.2.4</version>
+      </dependency>
+      <!-- The PostgreSQL JDBC driver (pgJDBC). -->
+      <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <version>42.7.14</version>
+      </dependency>
+    </dependencies>
+    ```
+
+=== "C#"
+
+    ```xml
+    <ItemGroup>
+      <!-- Npgsql, the ADO.NET data provider for PostgreSQL. -->
+      <PackageReference Include="Npgsql" Version="10.0.3" />
+    </ItemGroup>
+    ```
+
+=== "Go"
+
+    ```text
+    // pgx is a pure Go driver and toolkit for PostgreSQL. The program calls
+    // the Starfleet API with the standard library alone.
+    require github.com/jackc/pgx/v5 v5.12.0
+    
+    require (
+    	github.com/jackc/pgpassfile v1.0.0 // indirect
+    	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+    	golang.org/x/text v0.41.0 // indirect
+    )
+    
+    ```
+
+=== "Rust"
+
+    ```toml
+    [dependencies]
+    # The blocking client of reqwest, with rustls for TLS and JSON bodies.
+    reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+    serde_json = "1"
+    # The synchronous PostgreSQL client, with TLS through OpenSSL.
+    postgres = "0.19"
+    postgres-openssl = "0.5"
+    openssl = "0.10"
+    # The standard library cannot catch a signal, so this small crate does it.
+    signal-hook = "0.4"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    source "https://rubygems.org"
+    
+    # The program calls the API with Net::HTTP and JSON, which come with Ruby.
+    # The pg gem wraps libpq, so libpq and its headers must be installed.
+    gem "pg", "~> 1.6"
+    ```
+
+## Importing the Libraries
+
+The following code shows the imports and, for the curl script, the check for
+the tools that it needs:
+
+=== "Python"
+
+    ```python
+    import os
+    import secrets
+    import signal
+    import sys
+    import time
+    
+    import httpx
+    import psycopg
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    import { randomBytes } from "node:crypto";
+    import pg from "pg";
+    import process from "node:process";
+    import { setTimeout as sleep } from "node:timers/promises";
+    ```
+
+=== "Java"
+
+    ```java
+    import java.io.IOException;
+    import java.net.URI;
+    import java.net.http.HttpClient;
+    import java.net.http.HttpRequest;
+    import java.net.http.HttpResponse;
+    import java.net.http.HttpTimeoutException;
+    import java.security.SecureRandom;
+    import java.sql.Connection;
+    import java.sql.DriverManager;
+    import java.sql.ResultSet;
+    import java.sql.SQLException;
+    import java.sql.Statement;
+    import java.time.Duration;
+    import java.util.ArrayList;
+    import java.util.HexFormat;
+    import java.util.List;
+    import java.util.Map;
+    import java.util.Objects;
+    import java.util.Properties;
+    import java.util.Set;
+    import java.util.concurrent.CompletableFuture;
+    import java.util.concurrent.ExecutionException;
+    import java.util.concurrent.TimeUnit;
+    import java.util.concurrent.TimeoutException;
+    import org.postgresql.util.PSQLException;
+    import tools.jackson.core.JacksonException;
+    import tools.jackson.databind.JsonNode;
+    import tools.jackson.databind.ObjectMapper;
+    ```
+
+=== "C#"
+
+    ```csharp
+    using System.Globalization;
+    using System.Net;
+    using System.Net.Http.Headers;
+    using System.Runtime.InteropServices;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.Json.Nodes;
+    using Npgsql;
+    ```
+
+=== "Go"
+
+    ```go
+    import (
+    	"bytes"
+    	"context"
+    	"crypto/rand"
+    	"encoding/hex"
+    	"encoding/json"
+    	"errors"
+    	"fmt"
+    	"io"
+    	"net/http"
+    	"os"
+    	"os/signal"
+    	"strings"
+    	"syscall"
+    	"time"
+    
+    	"github.com/jackc/pgx/v5"
+    	"github.com/jackc/pgx/v5/pgconn"
+    )
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    use std::collections::hash_map::RandomState;
+    use std::env;
+    use std::error::Error;
+    use std::fmt;
+    use std::hash::{BuildHasher, Hasher};
+    use std::panic::{self, AssertUnwindSafe};
+    use std::process::ExitCode;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::LazyLock;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::thread;
+    use std::time::{Duration, Instant};
+    
+    use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+    use postgres::config::SslMode;
+    use postgres::Config;
+    use postgres_openssl::MakeTlsConnector;
+    use reqwest::blocking::Client;
+    use reqwest::Method;
+    use serde_json::{json, Value};
+    use signal_hook::consts::{SIGINT, SIGTERM};
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    require "json"
+    require "net/http"
+    require "pg"
+    require "securerandom"
+    ```
+
+=== "curl"
+
+    ```bash
+    # Stop at the first failed command or unset variable, and make a failure
+    # anywhere in a pipeline fail the whole pipeline.
+    set -euo pipefail
+    
+    # The script needs curl to call the API, jq to read the JSON replies and
+    # psql to connect to the database.
+    for tool in curl jq psql; do
+        command -v "$tool" >/dev/null || { echo "Error: $tool is required" >&2; exit 1; }
+    done
+    ```
+
+## Configuring the Program
+
+The program reads the same environment variables as the other Starfleet
+recipes, and treats an empty variable as unset:
+
+| Variable                  | Default                  | Description         |
+|---------------------------|--------------------------|---------------------|
+| `STARFLEET_CLIENT_ID`     | None                     | Your client ID.     |
+| `STARFLEET_CLIENT_SECRET` | None                     | Your client secret. |
+| `STARFLEET_API_URL`       | `https://api.pgedge.com` | The API base URL.   |
+
+The constants set how long to wait for each resource, which can take several
+minutes to provision, and how often to check. The following code reads the
+settings:
+
+=== "Python"
+
+    ```python
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    TIMEOUT_SECONDS = 900
+    POLL_SECONDS = 10
+    
+    # How many times to look for a database whose create reply was lost.
+    LOOKUP_ATTEMPTS = 3
+    
+    # How many times to try connecting to the database before giving up.
+    CONNECT_ATTEMPTS = 6
+    
+    
+    def settings() -> dict:
+        """Reads the API settings from the environment.
+    
+        The or operator treats an empty variable as unset. The client ID and
+        secret have no defaults, so a missing value becomes None, and the
+        token request reports it.
+        """
+        return {
+            "base_url": (
+                os.environ.get("STARFLEET_API_URL") or "https://api.pgedge.com"
+            ).rstrip("/"),
+            "client_id": os.environ.get("STARFLEET_CLIENT_ID") or None,
+            "client_secret": os.environ.get("STARFLEET_CLIENT_SECRET") or None,
+        }
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // How long to wait for a database to become available, or to disappear
+    // after a delete, and how often to check.
+    const TIMEOUT_MS = 900_000;
+    const POLL_MS = 10_000;
+    
+    // How many times to look for a database whose create reply was lost.
+    const LOOKUP_ATTEMPTS = 3;
+    
+    // How many times to try connecting to the database before giving up.
+    const CONNECT_ATTEMPTS = 6;
+    
+    // Read the API settings from the environment. The || operator, unlike ??,
+    // also treats an empty variable as unset.
+    const baseUrl = (
+      process.env.STARFLEET_API_URL || "https://api.pgedge.com"
+    ).replace(/\/+$/, "");
+    const clientId = process.env.STARFLEET_CLIENT_ID || "";
+    const clientSecret = process.env.STARFLEET_CLIENT_SECRET || "";
+    
+    // Ctrl-C and SIGTERM abort the signal below instead of ending the
+    // process, which lets the program delete its database before it exits.
+    // The handlers stay in place, so a further Ctrl-C does not end the process
+    // during the cleanup either.
+    const interrupt = new AbortController();
+    for (const signalName of ["SIGINT", "SIGTERM"] as const) {
+      process.on(signalName, () => interrupt.abort());
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /**
+     * How long to wait for a database to become available, or to disappear
+     * after a delete, and how often to check.
+     */
+    static final int TIMEOUT_SECONDS = 900;
+    static final int POLL_SECONDS = 10;
+    
+    /** How many times to look for a database whose create reply was lost. */
+    static final int LOOKUP_ATTEMPTS = 3;
+    
+    /** How many times to try connecting to the database before giving up. */
+    static final int CONNECT_ATTEMPTS = 6;
+    
+    /** The settings that the program reads from the environment. */
+    record Settings(String baseUrl, String clientId, String clientSecret) {}
+    
+    /**
+     * Returns the value of an environment variable, or the fallback if the
+     * variable is unset or empty, as an unset variable would be.
+     */
+    static String envOr(String name, String fallback) {
+        String value = System.getenv(name);
+        return (value != null && !value.isEmpty()) ? value : fallback;
+    }
+    
+    /**
+     * Reads the API settings from the environment. The client ID and secret
+     * have no defaults, so a missing value becomes null, and the token
+     * request reports it.
+     */
+    static Settings settings() {
+        return new Settings(
+                envOr("STARFLEET_API_URL", "https://api.pgedge.com")
+                        .replaceAll("/+$", ""),
+                envOr("STARFLEET_CLIENT_ID", null),
+                envOr("STARFLEET_CLIENT_SECRET", null));
+    }
+    
+    /**
+     * Returns a deadline the given number of seconds from now, on a clock
+     * that only moves forwards.
+     */
+    static long deadline(int seconds) {
+        return System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+    }
+    
+    /** Reports whether a deadline is still in the future. */
+    static boolean before(long deadline) {
+        return System.nanoTime() - deadline < 0;
+    }
+    
+    /**
+     * Guards the state that the clean-up uses, which the main thread and
+     * the shutdown hook share (see main).
+     */
+    static final Object LOCK = new Object();
+    
+    /** Set by the shutdown hook when SIGINT or SIGTERM arrives. */
+    static volatile boolean interrupted;
+    
+    /**
+     * Throws InterruptedException once a signal has arrived, so that the
+     * main thread stops making requests. A thread that holds the lock is
+     * either creating the database or cleaning up, and both of those must
+     * run to the end.
+     */
+    static void checkInterrupted() throws InterruptedException {
+        if (interrupted && !Thread.holdsLock(LOCK)) {
+            throw new InterruptedException("interrupted");
+        }
+    }
+    
+    /** Waits for the given number of seconds, watching for a signal. */
+    static void pause(int seconds) throws InterruptedException {
+        long end = deadline(seconds);
+        while (before(end)) {
+            checkInterrupted();
+            Thread.sleep(200);
+        }
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // How long to wait for a database to become available, or to disappear
+    // after a delete, and how often to check.
+    const int TimeoutSeconds = 900;
+    const int PollSeconds = 10;
+    
+    // How many times to look for a database whose create reply was lost.
+    const int LookupAttempts = 3;
+    
+    // How many times to try connecting to the database before giving up.
+    const int ConnectAttempts = 6;
+    
+    // Returns the value of an environment variable, or null if the variable
+    // is unset or empty, as an unset variable would be.
+    static string? EnvValue(string name) =>
+        Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
+            ? value
+            : null;
+    
+    // Reads the API settings from the environment. The client ID and secret
+    // have no defaults, so a missing value becomes null, and the token request
+    // reports it.
+    static (string BaseUrl, string? ClientId, string? ClientSecret) Settings() =>
+        ((EnvValue("STARFLEET_API_URL") ?? "https://api.pgedge.com").TrimEnd('/'),
+            EnvValue("STARFLEET_CLIENT_ID"),
+            EnvValue("STARFLEET_CLIENT_SECRET"));
+    
+    var cfg = Settings();
+    
+    // Returns a deadline the given number of seconds from now, and reports
+    // whether it is still in the future, on a clock that only moves forwards.
+    static long Deadline(int seconds) => Environment.TickCount64 + seconds * 1000L;
+    static bool Before(long deadline) => Environment.TickCount64 < deadline;
+    
+    // A token that SIGINT or SIGTERM cancels, which abandons the request or
+    // the wait in progress. The clean-up replaces it with CancellationToken.None,
+    // so that nothing can cut the clean-up short.
+    using var signalled = new CancellationTokenSource();
+    var cancel = signalled.Token;
+    
+    // Catches SIGINT and SIGTERM. Setting Cancel stops the default action,
+    // which would end the program before it could delete the database, and a
+    // second signal does nothing more.
+    void OnSignal(PosixSignalContext context)
+    {
+        context.Cancel = true;
+        signalled.Cancel();
+    }
+    using var onInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, OnSignal);
+    using var onTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, OnSignal);
+    
+    // Waits for the given number of seconds; a signal ends the wait early.
+    async Task Pause(int seconds) =>
+        await Task.Delay(TimeSpan.FromSeconds(seconds), cancel);
+    ```
+
+=== "Go"
+
+    ```go
+    const (
+    	// How long to wait for a database to become available, or to
+    	// disappear after a delete, and how often to check.
+    	timeout      = 15 * time.Minute
+    	pollInterval = 10 * time.Second
+    
+    	// How many times to look for a database whose create reply was lost.
+    	lookupAttempts = 3
+    
+    	// How many times to try connecting to the database before giving up.
+    	connectAttempts = 6
+    )
+    
+    // envOr returns the value of an environment variable, or a fallback if
+    // the variable is unset or empty.
+    func envOr(name, fallback string) string {
+    	if value := os.Getenv(name); value != "" {
+    		return value
+    	}
+    	return fallback
+    }
+    
+    // baseURL is the root of the Starfleet API, without a trailing slash.
+    func baseURL() string {
+    	return strings.TrimRight(envOr("STARFLEET_API_URL", "https://api.pgedge.com"), "/")
+    }
+    
+    // httpClient gives every request a timeout; the default client has none.
+    var httpClient = &http.Client{Timeout: 30 * time.Second}
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// How long to wait for a database to become available, or to disappear
+    /// after a delete, and how often to check.
+    const TIMEOUT: Duration = Duration::from_secs(900);
+    const POLL: Duration = Duration::from_secs(10);
+    
+    /// How many times to look for a database whose create reply was lost.
+    const LOOKUP_ATTEMPTS: u32 = 3;
+    
+    /// How many times to try connecting to the database before giving up.
+    const CONNECT_ATTEMPTS: u32 = 6;
+    
+    /// Any error, boxed, so that a function can return errors of several types
+    /// with the ? operator.
+    type Result<T> = std::result::Result<T, Box<dyn Error>>;
+    
+    /// The settings that the program reads from the environment.
+    struct Settings {
+        base_url: String,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+    }
+    
+    /// Returns the value of an environment variable, if it is set and not
+    /// empty; an empty variable counts as unset.
+    fn env_value(name: &str) -> Option<String> {
+        env::var(name).ok().filter(|value| !value.is_empty())
+    }
+    
+    /// Reads the API settings from the environment. The client ID and secret
+    /// have no defaults, so a missing value becomes None, and the token
+    /// request reports it.
+    fn settings() -> Settings {
+        Settings {
+            base_url: env_value("STARFLEET_API_URL")
+                .unwrap_or_else(|| "https://api.pgedge.com".to_string())
+                .trim_end_matches('/')
+                .to_string(),
+            client_id: env_value("STARFLEET_CLIENT_ID"),
+            client_secret: env_value("STARFLEET_CLIENT_SECRET"),
+        }
+    }
+    
+    /// Set when SIGINT or SIGTERM arrives.
+    static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+    
+    /// Set once the clean-up has started, which nothing may cut short.
+    static CLEANING: AtomicBool = AtomicBool::new(false);
+    
+    /// Catches SIGINT and SIGTERM. The handler sets INTERRUPTED and replaces
+    /// the default action, which would end the program before it could delete
+    /// the database, so a second signal does nothing more.
+    fn catch_signals() -> Result<()> {
+        for signal in [SIGINT, SIGTERM] {
+            signal_hook::flag::register(signal, &INTERRUPTED)?;
+        }
+        Ok(())
+    }
+    
+    /// The error that a request or a wait returns once a signal has arrived.
+    #[derive(Debug)]
+    struct Interrupted;
+    
+    impl fmt::Display for Interrupted {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("interrupted")
+        }
+    }
+    
+    impl Error for Interrupted {}
+    
+    /// Returns an error once a signal has arrived, so that the program stops
+    /// making requests, unless the clean-up has started.
+    fn check_interrupted() -> Result<()> {
+        if INTERRUPTED.load(Ordering::SeqCst) && !CLEANING.load(Ordering::SeqCst) {
+            return Err(Interrupted.into());
+        }
+        Ok(())
+    }
+    
+    /// Waits for the given time, watching for a signal.
+    fn pause(duration: Duration) -> Result<()> {
+        let end = Instant::now() + duration;
+        while Instant::now() < end {
+            check_interrupted()?;
+            thread::sleep(Duration::from_millis(200));
+        }
+        Ok(())
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    TIMEOUT_SECONDS = 900
+    POLL_SECONDS = 10
+    
+    # How many times to look for a database whose create reply was lost.
+    LOOKUP_ATTEMPTS = 3
+    
+    # How many times to try connecting to the database before giving up.
+    CONNECT_ATTEMPTS = 6
+    
+    # Returns the value of an environment variable, or a fallback if the
+    # variable is unset or empty, as an unset variable would be.
+    def env_or(name, fallback)
+      value = ENV[name]
+      value.nil? || value.empty? ? fallback : value
+    end
+    
+    # Reads the API settings from the environment. The client ID and secret
+    # have no defaults, so a missing value becomes nil, and the token request
+    # reports it.
+    def settings
+      {
+        base_url: env_or("STARFLEET_API_URL", "https://api.pgedge.com").sub(%r{/+\z}, ""),
+        client_id: env_or("STARFLEET_CLIENT_ID", nil),
+        client_secret: env_or("STARFLEET_CLIENT_SECRET", nil)
+      }
+    end
+    
+    # The current time from a clock that only moves forwards, for deadlines.
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    timeout_seconds=900
+    poll_seconds=10
+    
+    # The :- expansion treats an empty variable as unset.
+    base_url="${STARFLEET_API_URL:-https://api.pgedge.com}"
+    base_url="${base_url%/}"
+    client_id="${STARFLEET_CLIENT_ID:-}"
+    client_secret="${STARFLEET_CLIENT_SECRET:-}"
+    ```
+
+## Getting a Token
+
+The program gets a token in the same way as the "Getting an Access Token"
+recipe:
+
+=== "Python"
+
+    ```python
+    def get_token(config: dict) -> str:
+        """Exchanges the client ID and secret for an access token, which the
+        Managed API accepts as a bearer token until it expires."""
+        if not config["client_id"] or not config["client_secret"]:
+            raise RuntimeError(
+                "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"
+            )
+    
+        response = httpx.post(
+            f"{config['base_url']}/account/v1/oauth/token",
+            json={
+                "grant_type": "client_credentials",
+                "client_id": config["client_id"],
+                "client_secret": config["client_secret"],
+            },
+            timeout=30,
+        )
+        # Turn any 4xx or 5xx status into an httpx.HTTPStatusError.
+        response.raise_for_status()
+        return response.json()["access_token"]
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Exchanges the client ID and secret for an access token, which the
+    // Managed API accepts as a bearer token until it expires.
+    async function getToken(): Promise<string> {
+      if (!clientId || !clientSecret) {
+        throw new Error(
+          "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set",
+        );
+      }
+    
+      const response = await fetch(`${baseUrl}/account/v1/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    
+      // fetch only rejects on network failures, so check the status here.
+      if (!response.ok) {
+        throw new Error(
+          `token request failed: ${response.status} ${await response.text()}`,
+        );
+      }
+      const body = (await response.json()) as { access_token: string };
+      return body.access_token;
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /** One client serves every request; it is safe to share. */
+    static final HttpClient CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(30))
+            .build();
+    
+    /** Converts between JSON text and Java objects. */
+    static final ObjectMapper JSON = new ObjectMapper();
+    
+    /** An error reply from the API, with its HTTP status. */
+    static class ApiException extends IOException {
+        final int status;
+    
+        ApiException(int status, String message) {
+            super(message);
+            this.status = status;
+        }
+    }
+    
+    /**
+     * Sends a request and returns the response with its whole body. The
+     * request timeout stops applying once the headers arrive, so a server
+     * that stalls part of the way through the body would hang send(); this
+     * applies the same timeout to the whole exchange instead.
+     */
+    static HttpResponse<String> send(HttpRequest request)
+            throws IOException, InterruptedException {
+        Duration timeout = request.timeout().orElseThrow();
+        CompletableFuture<HttpResponse<String>> pending =
+                CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            return pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            pending.cancel(true);
+            throw new HttpTimeoutException("request timed out");
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException cause) {
+                throw cause;
+            }
+            throw new IOException(e.getCause());
+        }
+    }
+    
+    /**
+     * Sends a request with a JSON body, if there is one, and returns the
+     * decoded JSON reply, or null if the reply has no body. A 4xx or 5xx
+     * reply throws an ApiException.
+     */
+    static JsonNode request(String method, String url, String path,
+            String token, Object body) throws IOException, InterruptedException {
+        checkInterrupted();
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(30));
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        HttpRequest.BodyPublisher content = HttpRequest.BodyPublishers.noBody();
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+            content = HttpRequest.BodyPublishers.ofString(
+                    JSON.writeValueAsString(body));
+        }
+    
+        HttpResponse<String> response = send(request.method(method, content).build());
+        if (response.statusCode() >= 400) {
+            throw new ApiException(response.statusCode(), method + " " + path
+                    + " failed with status " + response.statusCode() + ": "
+                    + response.body().strip());
+        }
+        String text = response.body();
+        return text.isEmpty() ? null : JSON.readTree(text);
+    }
+    
+    /**
+     * Returns a field of a JSON object as text, and throws if the field is
+     * missing.
+     */
+    static String field(JsonNode node, String name) {
+        JsonNode value = (node == null) ? null : node.get(name);
+        if (value == null || value.isNull()) {
+            throw new IllegalStateException("the reply has no " + name);
+        }
+        return value.asString();
+    }
+    
+    /**
+     * Exchanges the client ID and secret for an access token, which the
+     * Managed API accepts as a bearer token until it expires.
+     */
+    static String getToken(Settings cfg) throws IOException, InterruptedException {
+        if (cfg.clientId() == null || cfg.clientSecret() == null) {
+            throw new IllegalStateException(
+                    "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set");
+        }
+        String path = "/account/v1/oauth/token";
+        JsonNode token = request("POST", cfg.baseUrl() + path, path, null, Map.of(
+                "grant_type", "client_credentials",
+                "client_id", cfg.clientId(),
+                "client_secret", cfg.clientSecret()));
+        return field(token, "access_token");
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // One client serves every request. Its timeout covers the whole exchange,
+    // the body of the reply included.
+    var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    
+    // Sends a request with a JSON body, if there is one, and returns the
+    // decoded JSON reply, or null if the reply has no body. A 4xx or 5xx reply
+    // throws an HttpRequestException that carries the status.
+    async Task<JsonNode?> Request(string method, string url, string path,
+        string? token, object? body, CancellationToken cancelRequest)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), url);
+        if (token is not null)
+        {
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+        }
+        if (body is not null)
+        {
+            // StringContent sends a Content-Length header; JsonContent would
+            // stream the body in chunks, which not every server accepts.
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+    
+        using var response = await http.SendAsync(request, cancelRequest);
+        var text = await response.Content.ReadAsStringAsync(cancelRequest);
+        if ((int)response.StatusCode >= 400)
+        {
+            throw new HttpRequestException(
+                $"{method} {path} failed with status {(int)response.StatusCode}: "
+                + text.Trim(), null, response.StatusCode);
+        }
+        return text.Length == 0 ? null : JsonNode.Parse(text);
+    }
+    
+    // Returns a field of a JSON object as text, and throws if the field is
+    // missing.
+    static string Field(JsonNode? node, string name) =>
+        node?[name] is JsonNode value
+            ? value.ToString()
+            : throw new InvalidOperationException($"the reply has no {name}");
+    
+    // Exchanges the client ID and secret for an access token, which the
+    // Managed API accepts as a bearer token until it expires.
+    async Task<string> GetToken()
+    {
+        if (cfg.ClientId is null || cfg.ClientSecret is null)
+        {
+            throw new InvalidOperationException(
+                "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set");
+        }
+        const string path = "/account/v1/oauth/token";
+        var token = await Request("POST", cfg.BaseUrl + path, path, null, new
+        {
+            grant_type = "client_credentials",
+            client_id = cfg.ClientId,
+            client_secret = cfg.ClientSecret,
+        }, cancel);
+        return Field(token, "access_token");
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // getToken exchanges the client ID and secret for an access token, which
+    // the Managed API accepts as a bearer token until it expires.
+    func getToken(ctx context.Context) (string, error) {
+    	clientID := os.Getenv("STARFLEET_CLIENT_ID")
+    	clientSecret := os.Getenv("STARFLEET_CLIENT_SECRET")
+    	if clientID == "" || clientSecret == "" {
+    		return "", errors.New("STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set")
+    	}
+    
+    	body, err := json.Marshal(map[string]string{
+    		"grant_type":    "client_credentials",
+    		"client_id":     clientID,
+    		"client_secret": clientSecret,
+    	})
+    	if err != nil {
+    		return "", err
+    	}
+    
+    	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+    		baseURL()+"/account/v1/oauth/token", bytes.NewReader(body))
+    	if err != nil {
+    		return "", err
+    	}
+    	req.Header.Set("Content-Type", "application/json")
+    
+    	resp, err := httpClient.Do(req)
+    	if err != nil {
+    		return "", fmt.Errorf("token request failed: %w", err)
+    	}
+    	defer resp.Body.Close()
+    
+    	// A non-2xx status is not a Go error, so check it explicitly.
+    	if resp.StatusCode != http.StatusOK {
+    		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+    		return "", fmt.Errorf("token request failed: %s %s", resp.Status, detail)
+    	}
+    
+    	var token struct {
+    		AccessToken string `json:"access_token"`
+    	}
+    	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
+    		return "", fmt.Errorf("decoding the token response: %w", err)
+    	}
+    	return token.AccessToken, nil
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// One client serves every request. Its timeout covers the whole exchange,
+    /// the body of the reply included.
+    static CLIENT: LazyLock<Client> = LazyLock::new(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("could not create the HTTP client")
+    });
+    
+    /// An error reply from the API, with its HTTP status.
+    #[derive(Debug)]
+    struct ApiError {
+        status: u16,
+        message: String,
+    }
+    
+    impl fmt::Display for ApiError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str(&self.message)
+        }
+    }
+    
+    impl Error for ApiError {}
+    
+    /// Sends a request with a JSON body, if there is one, and returns the
+    /// decoded JSON reply, or null if the reply has no body. A 4xx or 5xx
+    /// reply returns an ApiError.
+    fn request(
+        method: Method,
+        url: &str,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<Value> {
+        let mut request = CLIENT.request(method.clone(), url);
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+    
+        let response = request.send()?;
+        let status = response.status().as_u16();
+        let text = response.text()?;
+        if status >= 400 {
+            return Err(ApiError {
+                status,
+                message: format!("{method} {path} failed with status {status}: {}", text.trim()),
+            }
+            .into());
+        }
+        if text.is_empty() {
+            return Ok(Value::Null);
+        }
+        Ok(serde_json::from_str(&text)?)
+    }
+    
+    /// Returns a field of a JSON object as text, and an error if the field is
+    /// missing.
+    fn field(value: &Value, name: &str) -> Result<String> {
+        match value.get(name) {
+            Some(Value::String(text)) => Ok(text.clone()),
+            Some(Value::Null) | None => Err(format!("the reply has no {name}").into()),
+            Some(other) => Ok(other.to_string()),
+        }
+    }
+    
+    /// Exchanges the client ID and secret for an access token, which the
+    /// Managed API accepts as a bearer token until it expires.
+    fn get_token(cfg: &Settings) -> Result<String> {
+        let (Some(client_id), Some(client_secret)) = (&cfg.client_id, &cfg.client_secret) else {
+            return Err("STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set".into());
+        };
+        check_interrupted()?;
+        let path = "/account/v1/oauth/token";
+        let body = json!({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        });
+        let token = request(
+            Method::POST,
+            &format!("{}{path}", cfg.base_url),
+            path,
+            None,
+            Some(&body),
+        )?;
+        field(&token, "access_token")
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # An error reply from the API, with its HTTP status.
+    class ApiError < StandardError
+      attr_reader :status
+    
+      def initialize(status, message)
+        super(message)
+        @status = status
+      end
+    end
+    
+    # Sends a request with a JSON body, if there is one, and returns the
+    # response. Net::HTTP has no overall timeout, so this limits both the
+    # connection and each read.
+    def send_request(method, url, headers, body)
+      uri = URI(url)
+      headers = headers.merge("Content-Type" => "application/json") if body
+      Net::HTTP.start(uri.host, uri.port,
+                      use_ssl: uri.scheme == "https",
+                      open_timeout: 30, read_timeout: 30, write_timeout: 30) do |http|
+        http.send_request(method, uri.request_uri, body&.to_json, headers)
+      end
+    end
+    
+    # Raises an ApiError for a 4xx or 5xx reply.
+    def check_status(method, path, response)
+      return if response.code.to_i < 400
+    
+      raise ApiError.new(response.code.to_i,
+                         "#{method} #{path} failed with status #{response.code}: " \
+                         "#{response.body.to_s.strip}")
+    end
+    
+    # Exchanges the client ID and secret for an access token, which the
+    # Managed API accepts as a bearer token until it expires.
+    def get_token(config)
+      unless config[:client_id] && config[:client_secret]
+        raise "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"
+      end
+    
+      path = "/account/v1/oauth/token"
+      response = send_request("POST", "#{config[:base_url]}#{path}", {}, {
+                                grant_type: "client_credentials",
+                                client_id: config[:client_id],
+                                client_secret: config[:client_secret]
+                              })
+      check_status("POST", path, response)
+      JSON.parse(response.body).fetch("access_token")
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Exchanges the client ID and secret for an access token, which the
+    # Managed API accepts as a bearer token until it expires, and prints
+    # the token.
+    get_token() {
+        if [[ -z "$client_id" || -z "$client_secret" ]]; then
+            echo "Error: STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set" >&2
+            return 1
+        fi
+    
+        # jq builds the body from the environment, and curl reads it from
+        # standard input with --data @-, so the secret never appears in the
+        # process list. --fail-with-body makes curl exit non-zero on an HTTP
+        # error status whilst still printing the API's error message.
+        jq -n '{grant_type: "client_credentials",
+                client_id: env.STARFLEET_CLIENT_ID,
+                client_secret: env.STARFLEET_CLIENT_SECRET}' |
+            curl --silent --show-error --fail-with-body --max-time 30 \
+                --header "Content-Type: application/json" \
+                --data @- \
+                "$base_url/account/v1/oauth/token" |
+            jq -er '.access_token'
+    }
+    ```
+
+## Calling the Managed API
+
+The `api` function sends an authenticated request and returns the decoded
+reply. The program also reacts to particular error statuses, so the error that
+the function raises carries the HTTP status:
+
+=== "Python"
+
+    ```python
+    def api(config: dict, token: str, method: str, path: str, body=None):
+        """Sends an authenticated request to the Managed API and returns the
+        decoded JSON reply, or None if the reply has no body."""
+        response = httpx.request(
+            method,
+            f"{config['base_url']}/managed/v1{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json() if response.content else None
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // An error reply from the Managed API, with its HTTP status.
+    class ApiError extends Error {
+      constructor(
+        readonly status: number,
+        message: string,
+      ) {
+        super(message);
+      }
+    }
+    
+    // Sends an authenticated request to the Managed API and returns the
+    // decoded JSON reply, or undefined if the reply has no body. The request
+    // stops when the user presses Ctrl-C, unless the caller passes a
+    // different signal, as the cleanup does.
+    async function api<T>(
+      token: string,
+      method: string,
+      path: string,
+      body?: unknown,
+      signal: AbortSignal = interrupt.signal,
+    ): Promise<T | undefined> {
+      const response = await fetch(`${baseUrl}/managed/v1${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+      });
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          `${method} ${path} failed: ${response.status} ${await response.text()}`,
+        );
+      }
+      const text = await response.text();
+      return text ? (JSON.parse(text) as T) : undefined;
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /**
+     * Sends an authenticated request to the Managed API and returns the
+     * decoded JSON reply, or null if the reply has no body.
+     */
+    static JsonNode api(Settings cfg, String token, String method, String path,
+            Object body) throws IOException, InterruptedException {
+        return request(method, cfg.baseUrl() + "/managed/v1" + path, path,
+                token, body);
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Sends an authenticated request to the Managed API and returns the
+    // decoded JSON reply, or null if the reply has no body. The create call
+    // passes interruptible: false, so that a signal cannot abandon a request
+    // whose result the program must not lose.
+    async Task<JsonNode?> Api(string token, string method, string path,
+        object? body = null, bool interruptible = true) =>
+        await Request(method, $"{cfg.BaseUrl}/managed/v1{path}", path, token,
+            body, interruptible ? cancel : CancellationToken.None);
+    ```
+
+=== "Go"
+
+    ```go
+    // APIError is an error reply from the Managed API, with its HTTP status.
+    type APIError struct {
+    	Status  int
+    	Message string
+    }
+    
+    func (e *APIError) Error() string { return e.Message }
+    
+    // api sends an authenticated request to the Managed API. It encodes body
+    // as JSON if it is not nil, and decodes the reply into result if that is
+    // not nil and the reply has content.
+    func api(ctx context.Context, token, method, path string, body, result any) error {
+    	var reader io.Reader
+    	if body != nil {
+    		encoded, err := json.Marshal(body)
+    		if err != nil {
+    			return err
+    		}
+    		reader = bytes.NewReader(encoded)
+    	}
+    
+    	req, err := http.NewRequestWithContext(ctx, method, baseURL()+"/managed/v1"+path, reader)
+    	if err != nil {
+    		return err
+    	}
+    	req.Header.Set("Authorization", "Bearer "+token)
+    	if body != nil {
+    		req.Header.Set("Content-Type", "application/json")
+    	}
+    
+    	resp, err := httpClient.Do(req)
+    	if err != nil {
+    		return fmt.Errorf("%s %s failed: %w", method, path, err)
+    	}
+    	defer resp.Body.Close()
+    
+    	data, err := io.ReadAll(resp.Body)
+    	if err != nil {
+    		return err
+    	}
+    	if resp.StatusCode >= 300 {
+    		return &APIError{
+    			Status:  resp.StatusCode,
+    			Message: fmt.Sprintf("%s %s failed: %s %s", method, path, resp.Status, data),
+    		}
+    	}
+    	if result == nil || len(data) == 0 {
+    		return nil
+    	}
+    	return json.Unmarshal(data, result)
+    }
+    
+    // sleep waits for the interval, or until the context ends.
+    func sleep(ctx context.Context) error {
+    	select {
+    	case <-time.After(pollInterval):
+    		return nil
+    	case <-ctx.Done():
+    		return ctx.Err()
+    	}
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Sends an authenticated request to the Managed API and returns the
+    /// decoded JSON reply, or null if the reply has no body. After a signal,
+    /// it returns an error without sending anything.
+    fn api(cfg: &Settings, token: &str, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
+        check_interrupted()?;
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        request(method, &url, path, Some(token), body)
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Sends an authenticated request to the Managed API and returns the
+    # decoded JSON reply, or nil if the reply has no body.
+    def api(config, token, method, path, body = nil)
+      response = send_request(method, "#{config[:base_url]}/managed/v1#{path}",
+                              { "Authorization" => "Bearer #{token}" }, body)
+      check_status(method, path, response)
+      text = response.body.to_s
+      text.empty? ? nil : JSON.parse(text)
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Sends an authenticated request to the Managed API and prints the JSON
+    # reply. The first argument is the method, the second is the path, and any
+    # others go to curl, such as --data @- to send standard input as the body.
+    # The --config option reads the Authorization header from a file that
+    # bash creates from the printf command, so the token never appears in the
+    # process list; that leaves standard input free for the body.
+    api() {
+        local method="$1" path="$2"
+        shift 2
+        curl --silent --show-error --fail-with-body --max-time 30 \
+            --request "$method" \
+            --config <(printf 'header = "Authorization: Bearer %s"\n' "$token") \
+            "$@" "$base_url/managed/v1$path"
+    }
+    
+    # Sends a request and prints only the HTTP status, for the calls that
+    # react to a particular status. A status of 000 means no reply arrived.
+    api_status() {
+        curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 \
+            --request "$1" \
+            --config <(printf 'header = "Authorization: Bearer %s"\n' "$token") \
+            "$base_url/managed/v1$2" || true
+    }
+    ```
+
+## Choosing a Region and Size
+
+The program creates its own database, with the code from the "Creating a
+Database and Waiting for It" recipe. It chooses the first region and the
+smallest size, and the following code makes the choice:
+
+=== "Python"
+
+    ```python
+    def choose_placement(config: dict, token: str) -> tuple[str, str]:
+        """Returns the region and size for the new database.
+    
+        The API lists sizes smallest first, so the first one is the cheapest.
+        The API does not price regions, so the example takes the first one.
+        """
+        regions = api(config, token, "GET", "/regions")
+        sizes = api(config, token, "GET", "/sizes")
+        if not regions or not sizes:
+            raise RuntimeError("the API offers no region or size")
+        return regions[0]["region"], sizes[0]["name"]
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Returns the region and size for the new database. The API lists sizes
+    // smallest first, so the first one is the cheapest. The API does not
+    // price regions, so the example takes the first one.
+    async function choosePlacement(
+      token: string,
+    ): Promise<{ region: string; size: string }> {
+      const regions = await api<{ region: string }[]>(token, "GET", "/regions");
+      const sizes = await api<{ name: string }[]>(token, "GET", "/sizes");
+      if (!regions?.length || !sizes?.length) {
+        throw new Error("the API offers no region or size");
+      }
+      return { region: regions[0].region, size: sizes[0].name };
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /** The region and size of a new database. */
+    record Placement(String region, String size) {}
+    
+    /**
+     * Returns the region and size for the new database. The API lists sizes
+     * smallest first, so the first one is the cheapest. The API does not
+     * price regions, so the example takes the first one.
+     */
+    static Placement choosePlacement(Settings cfg, String token)
+            throws IOException, InterruptedException {
+        JsonNode regions = api(cfg, token, "GET", "/regions", null);
+        JsonNode sizes = api(cfg, token, "GET", "/sizes", null);
+        if (regions == null || sizes == null || regions.size() == 0
+                || sizes.size() == 0) {
+            throw new IllegalStateException("the API offers no region or size");
+        }
+        return new Placement(field(regions.get(0), "region"),
+                field(sizes.get(0), "name"));
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Returns the region and size for the new database. The API lists sizes
+    // smallest first, so the first one is the cheapest. The API does not price
+    // regions, so the example takes the first one.
+    async Task<(string Region, string Size)> ChoosePlacement(string token)
+    {
+        var regions = await Api(token, "GET", "/regions") as JsonArray;
+        var sizes = await Api(token, "GET", "/sizes") as JsonArray;
+        if (regions is not { Count: > 0 } || sizes is not { Count: > 0 })
+        {
+            throw new InvalidOperationException("the API offers no region or size");
+        }
+        return (Field(regions[0], "region"), Field(sizes[0], "name"));
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // choosePlacement returns the region and size for the new database. The
+    // API lists sizes smallest first, so the first one is the cheapest. The
+    // API does not price regions, so the example takes the first one.
+    func choosePlacement(ctx context.Context, token string) (region, size string, err error) {
+    	var regions []struct {
+    		Region string `json:"region"`
+    	}
+    	var sizes []struct {
+    		Name string `json:"name"`
+    	}
+    	if err = api(ctx, token, http.MethodGet, "/regions", nil, &regions); err != nil {
+    		return
+    	}
+    	if err = api(ctx, token, http.MethodGet, "/sizes", nil, &sizes); err != nil {
+    		return
+    	}
+    	if len(regions) == 0 || len(sizes) == 0 {
+    		err = errors.New("the API offers no region or size")
+    		return
+    	}
+    	return regions[0].Region, sizes[0].Name, nil
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Returns the region and size for the new database. The API lists sizes
+    /// smallest first, so the first one is the cheapest. The API does not
+    /// price regions, so the example takes the first one.
+    fn choose_placement(cfg: &Settings, token: &str) -> Result<(String, String)> {
+        let regions = api(cfg, token, Method::GET, "/regions", None)?;
+        let sizes = api(cfg, token, Method::GET, "/sizes", None)?;
+        match (regions.get(0), sizes.get(0)) {
+            (Some(region), Some(size)) => Ok((field(region, "region")?, field(size, "name")?)),
+            _ => Err("the API offers no region or size".into()),
+        }
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Returns the region and size for the new database. The API lists sizes
+    # smallest first, so the first one is the cheapest. The API does not price
+    # regions, so the example takes the first one.
+    def choose_placement(config, token)
+      regions = api(config, token, "GET", "/regions")
+      sizes = api(config, token, "GET", "/sizes")
+      raise "the API offers no region or size" if regions.to_a.empty? || sizes.to_a.empty?
+    
+      [regions[0].fetch("region"), sizes[0].fetch("name")]
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Prints the region and size for the new database, separated by a space.
+    # The API lists sizes smallest first, so the first one is the cheapest.
+    # The API does not price regions, so the example takes the first one.
+    choose_placement() {
+        local region size
+        region="$(api GET /regions | jq -er '.[0].region')"
+        size="$(api GET /sizes | jq -er '.[0].name')"
+        echo "$region $size"
+    }
+    ```
+
+## Creating the Database
+
+The following code creates the database, which only your machine can reach, and
+names it with the `cookbook-` prefix:
+
+=== "Python"
+
+    ```python
+    def client_ip(config: dict, token: str) -> str:
+        """Returns the address that the API sees requests come from."""
+        # A new database is closed to everyone until an allowlist rule admits
+        # an address. The API reports the address it sees this request come
+        # from, which is the one to admit; a bare address means a single host.
+        return api(config, token, "GET", "/client-ip")["ip_address"]
+    
+    
+    def create_database(
+        config: dict, token: str, name: str, display_name: str, region: str,
+        size: str, ip: str,
+    ) -> dict:
+        """Creates a database that only this machine can reach, and returns
+        the API's description of it, which includes its ID."""
+        return api(config, token, "POST", "/databases", {
+            # The name becomes the Postgres database name, so it holds only
+            # letters and digits, and the readable cookbook- prefix goes in
+            # the display name. The program also uses the name to find the
+            # database again if the reply to this request is lost.
+            "name": name,
+            "display_name": display_name,
+            "region": region,
+            "size": size,
+            "ip_allowlist": {"rules": [{"cidr": ip, "label": "cookbook"}]},
+        })
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    interface Database {
+      id: string;
+      display_name: string;
+      status: string;
+    }
+    
+    // Returns this machine's public IP address as the API sees it.
+    async function clientIp(token: string): Promise<string> {
+      // A new database is closed to everyone until an allowlist rule admits
+      // an address. The API reports the address it sees this request come
+      // from, which is the one to admit; a bare address means a single host.
+      const reply = await api<{ ip_address: string }>(token, "GET", "/client-ip");
+      return reply!.ip_address;
+    }
+    
+    // Creates a database that only this machine can reach, and returns the
+    // API's description of it, which includes its ID.
+    async function createDatabase(
+      token: string,
+      name: string,
+      displayName: string,
+      region: string,
+      size: string,
+      ip: string,
+    ): Promise<Database> {
+      const database = await api<Database>(token, "POST", "/databases", {
+        // The name becomes the Postgres database name, so it holds only
+        // letters and digits, and the readable cookbook- prefix goes in the
+        // display name. The program also uses the name to find the database
+        // again if the reply to this request is lost.
+        name,
+        display_name: displayName,
+        region,
+        size,
+        ip_allowlist: { rules: [{ cidr: ip, label: "cookbook" }] },
+      });
+      return database!;
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /** Returns the address that the API sees requests come from. */
+    static String clientIp(Settings cfg, String token)
+            throws IOException, InterruptedException {
+        // A new database is closed to everyone until an allowlist rule
+        // admits an address. The API reports the address it sees this
+        // request come from, which is the one to admit; a bare address
+        // means a single host.
+        return field(api(cfg, token, "GET", "/client-ip", null), "ip_address");
+    }
+    
+    /**
+     * Creates a database that only this machine can reach, and returns the
+     * API's description of it, which includes its ID.
+     */
+    static JsonNode createDatabase(Settings cfg, String token, String name,
+            String displayName, Placement placement, String ip)
+            throws IOException, InterruptedException {
+        return api(cfg, token, "POST", "/databases", Map.of(
+                // The name becomes the Postgres database name, so it holds
+                // only letters and digits, and the readable cookbook- prefix
+                // goes in the display name. The program also uses the name
+                // to find the database again if the reply to this request
+                // is lost.
+                "name", name,
+                "display_name", displayName,
+                "region", placement.region(),
+                "size", placement.size(),
+                "ip_allowlist", Map.of("rules", List.of(
+                        Map.of("cidr", ip, "label", "cookbook")))));
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Returns the address that the API sees requests come from.
+    async Task<string> ClientIp(string token)
+    {
+        // A new database is closed to everyone until an allowlist rule admits
+        // an address. The API reports the address it sees this request come
+        // from, which is the one to admit; a bare address means a single host.
+        return Field(await Api(token, "GET", "/client-ip"), "ip_address");
+    }
+    
+    // Creates a database that only this machine can reach, and returns the
+    // API's description of it, which includes its ID.
+    async Task<JsonNode?> CreateDatabase(string token, string name,
+        string displayName, string region, string size, string ip) =>
+        await Api(token, "POST", "/databases", new
+        {
+            // The name becomes the Postgres database name, so it holds only
+            // letters and digits, and the readable cookbook- prefix goes in the
+            // display name. The program also uses the name to find the
+            // database again if the reply to this request is lost.
+            name,
+            display_name = displayName,
+            region,
+            size,
+            ip_allowlist = new
+            {
+                rules = new[] { new { cidr = ip, label = "cookbook" } },
+            },
+        }, interruptible: false);
+    ```
+
+=== "Go"
+
+    ```go
+    // Database is the part of the API's description of a database that the
+    // example uses.
+    type Database struct {
+    	ID          string `json:"id"`
+    	DisplayName string `json:"display_name"`
+    	Status      string `json:"status"`
+    }
+    
+    // randomSuffix returns six random hexadecimal digits.
+    func randomSuffix() (string, error) {
+    	raw := make([]byte, 3)
+    	if _, err := rand.Read(raw); err != nil {
+    		return "", err
+    	}
+    	return hex.EncodeToString(raw), nil
+    }
+    
+    // clientIP returns this machine's public IP address as the API sees it.
+    func clientIP(ctx context.Context, token string) (string, error) {
+    	// A new database is closed to everyone until an allowlist rule admits
+    	// an address. The API reports the address it sees this request come
+    	// from, which is the one to admit; a bare address means a single host.
+    	var ip struct {
+    		IPAddress string `json:"ip_address"`
+    	}
+    	if err := api(ctx, token, http.MethodGet, "/client-ip", nil, &ip); err != nil {
+    		return "", err
+    	}
+    	return ip.IPAddress, nil
+    }
+    
+    // createDatabase creates a database that only this machine can reach,
+    // and returns the API's description of it, which includes its ID.
+    func createDatabase(ctx context.Context, token, name, displayName, region, size, ip string) (*Database, error) {
+    	var database Database
+    	err := api(ctx, token, http.MethodPost, "/databases", map[string]any{
+    		// The name becomes the Postgres database name, so it holds only
+    		// letters and digits, and the readable cookbook- prefix goes in
+    		// the display name. The program also uses the name to find the
+    		// database again if the reply to this request is lost.
+    		"name":         name,
+    		"display_name": displayName,
+    		"region":       region,
+    		"size":         size,
+    		"ip_allowlist": map[string]any{
+    			"rules": []map[string]string{{"cidr": ip, "label": "cookbook"}},
+    		},
+    	}, &database)
+    	if err != nil {
+    		return nil, err
+    	}
+    	return &database, nil
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Returns the address that the API sees requests come from.
+    fn client_ip(cfg: &Settings, token: &str) -> Result<String> {
+        // A new database is closed to everyone until an allowlist rule admits
+        // an address. The API reports the address it sees this request come
+        // from, which is the one to admit; a bare address means a single host.
+        field(&api(cfg, token, Method::GET, "/client-ip", None)?, "ip_address")
+    }
+    
+    /// Creates a database that only this machine can reach, and returns the
+    /// API's description of it, which includes its ID.
+    fn create_database(
+        cfg: &Settings,
+        token: &str,
+        name: &str,
+        display_name: &str,
+        placement: &(String, String),
+        ip: &str,
+    ) -> Result<Value> {
+        let body = json!({
+            // The name becomes the Postgres database name, so it holds only
+            // letters and digits, and the readable cookbook- prefix goes in the
+            // display name. The program also uses the name to find the
+            // database again if the reply to this request is lost.
+            "name": name,
+            "display_name": display_name,
+            "region": placement.0,
+            "size": placement.1,
+            "ip_allowlist": {"rules": [{"cidr": ip, "label": "cookbook"}]},
+        });
+        // This calls request rather than api, so that a signal cannot stop a
+        // request whose result the program must not lose.
+        let path = "/databases";
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        request(Method::POST, &url, path, Some(token), Some(&body))
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Returns the address that the API sees requests come from.
+    def client_ip(config, token)
+      # A new database is closed to everyone until an allowlist rule admits an
+      # address. The API reports the address it sees this request come from,
+      # which is the one to admit; a bare address means a single host.
+      api(config, token, "GET", "/client-ip").fetch("ip_address")
+    end
+    
+    # Creates a database that only this machine can reach, and returns the
+    # API's description of it, which includes its ID.
+    def create_database(config, token, name, display_name, region, size, ip)
+      api(config, token, "POST", "/databases", {
+            # The name becomes the Postgres database name, so it holds only
+            # letters and digits, and the readable cookbook- prefix goes in the
+            # display name. The program also uses the name to find the database
+            # again if the reply to this request is lost.
+            name: name,
+            display_name: display_name,
+            region: region,
+            size: size,
+            ip_allowlist: { rules: [{ cidr: ip, label: "cookbook" }] }
+          })
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Prints the address that the API sees requests come from. A new database
+    # is closed to everyone until an allowlist rule admits an address, and this
+    # is the one to admit; a bare address means a single host.
+    client_ip() {
+        api GET /client-ip | jq -er '.ip_address'
+    }
+    
+    # Creates a database that only this machine can reach, and prints the
+    # API's description of it, which includes its ID.
+    create_database() {
+        local name="$1" display_name="$2" region="$3" size="$4" ip="$5"
+        # The name becomes the Postgres database name, so it holds only letters
+        # and digits, and the readable cookbook- prefix goes in the display
+        # name. The script also uses the name to find the database again if the
+        # reply to this request is lost.
+        jq -n --arg name "$name" --arg display_name "$display_name" \
+            --arg region "$region" --arg size "$size" --arg ip "$ip" \
+            '{name: $name, display_name: $display_name,
+              region: $region, size: $size,
+              ip_allowlist: {rules: [{cidr: $ip, label: "cookbook"}]}}' |
+            api POST /databases --header "Content-Type: application/json" \
+                --data @- --write-out '\n%{http_code}'
+    }
+    ```
+
+## Waiting for the Database
+
+The following code polls the database until its status is `available`, and
+stops at once if the status is `degraded` or `failed`:
+
+=== "Python"
+
+    ```python
+    # The API does not document its status values; the example treats these
+    # two as failures, which end the wait at once instead of leaving it to run
+    # until the time limit.
+    FAILED_STATUSES = {"degraded", "failed"}
+    
+    
+    def wait_until_available(config: dict, token: str, database_id: str) -> None:
+        """Polls the database until its status is available."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        last = None
+        while time.monotonic() < deadline:
+            status = api(config, token, "GET", f"/databases/{database_id}")["status"]
+            if status != last:
+                print(f"Database status: {status}")
+                last = status
+            if status == "available":
+                return
+            if status in FAILED_STATUSES:
+                raise RuntimeError(f"the database has the status {status}")
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the database was not available after {TIMEOUT_SECONDS} seconds")
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Polls the database until its status is available.
+    async function waitUntilAvailable(
+      token: string,
+      databaseId: string,
+    ): Promise<void> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      let last = "";
+      while (Date.now() < deadline) {
+        const database = await api<Database>(token, "GET", `/databases/${databaseId}`);
+        if (database!.status !== last) {
+          console.log(`Database status: ${database!.status}`);
+          last = database!.status;
+        }
+        if (database!.status === "available") {
+          return;
+        }
+        // The API does not document its status values; the example treats
+        // these two as failures, which end the wait at once instead of leaving
+        // it to run until the time limit.
+        if (database!.status === "degraded" || database!.status === "failed") {
+          throw new Error(`the database has the status ${database!.status}`);
+        }
+        await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+      }
+      throw new Error(`the database was not available after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /**
+     * The API does not document its status values; the example treats
+     * these two as failures, which end the wait at once instead of leaving
+     * it to run until the time limit.
+     */
+    static final Set<String> FAILED_STATUSES = Set.of("degraded", "failed");
+    
+    /** Polls the database until its status is available. */
+    static void waitUntilAvailable(Settings cfg, String token, String databaseId)
+            throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        String last = null;
+        while (before(deadline)) {
+            String status = field(
+                    api(cfg, token, "GET", "/databases/" + databaseId, null),
+                    "status");
+            if (!status.equals(last)) {
+                System.out.println("Database status: " + status);
+                last = status;
+            }
+            if (status.equals("available")) {
+                return;
+            }
+            if (FAILED_STATUSES.contains(status)) {
+                throw new IllegalStateException(
+                        "the database has the status " + status);
+            }
+            pause(POLL_SECONDS);
+        }
+        throw new IllegalStateException("the database was not available after "
+                + TIMEOUT_SECONDS + " seconds");
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // The API does not document its status values; the example treats these
+    // two as failures, which end the wait at once instead of leaving it to run
+    // until the time limit.
+    string[] failedStatuses = ["degraded", "failed"];
+    
+    // Polls the database until its status is available.
+    async Task WaitUntilAvailable(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        string? last = null;
+        while (Before(deadline))
+        {
+            var status = Field(
+                await Api(token, "GET", $"/databases/{databaseId}"), "status");
+            if (status != last)
+            {
+                Console.WriteLine($"Database status: {status}");
+                last = status;
+            }
+            if (status == "available")
+            {
+                return;
+            }
+            if (failedStatuses.Contains(status))
+            {
+                throw new InvalidOperationException(
+                    $"the database has the status {status}");
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the database was not available after {TimeoutSeconds} seconds");
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // waitUntilAvailable polls the database until its status is available.
+    func waitUntilAvailable(ctx context.Context, token, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	last := ""
+    	for time.Now().Before(deadline) {
+    		var database Database
+    		if err := api(ctx, token, http.MethodGet, "/databases/"+id, nil, &database); err != nil {
+    			return err
+    		}
+    		if database.Status != last {
+    			fmt.Printf("Database status: %s\n", database.Status)
+    			last = database.Status
+    		}
+    		if database.Status == "available" {
+    			return nil
+    		}
+    		// The API does not document its status values; the example
+    		// treats these two as failures, which end the wait at once
+    		// instead of leaving it to run until the time limit.
+    		if database.Status == "degraded" || database.Status == "failed" {
+    			return fmt.Errorf("the database has the status %s", database.Status)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the database was not available after %s", timeout)
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// The API does not document its status values; the example treats these
+    /// two as failures, which end the wait at once instead of leaving it to
+    /// run until the time limit.
+    const FAILED_STATUSES: [&str; 2] = ["degraded", "failed"];
+    
+    /// Polls the database until its status is available.
+    fn wait_until_available(cfg: &Settings, token: &str, database_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut last = String::new();
+        while Instant::now() < deadline {
+            let path = format!("/databases/{database_id}");
+            let status = field(&api(cfg, token, Method::GET, &path, None)?, "status")?;
+            if status != last {
+                println!("Database status: {status}");
+                last = status.clone();
+            }
+            if status == "available" {
+                return Ok(());
+            }
+            if FAILED_STATUSES.contains(&status.as_str()) {
+                return Err(format!("the database has the status {status}").into());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the database was not available after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # The API does not document its status values; the example treats these
+    # two as failures, which end the wait at once instead of leaving it to run
+    # until the time limit.
+    FAILED_STATUSES = %w[degraded failed].freeze
+    
+    # Polls the database until its status is available.
+    def wait_until_available(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      last = nil
+      while now < deadline
+        status = api(config, token, "GET", "/databases/#{database_id}").fetch("status")
+        if status != last
+          puts "Database status: #{status}"
+          last = status
+        end
+        return if status == "available"
+        raise "the database has the status #{status}" if FAILED_STATUSES.include?(status)
+    
+        sleep POLL_SECONDS
+      end
+      raise "the database was not available after #{TIMEOUT_SECONDS} seconds"
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Polls the database until its status is available.
+    wait_until_available() {
+        local id="$1" deadline=$((SECONDS + timeout_seconds)) status last=""
+        while ((SECONDS < deadline)); do
+            status="$(api GET "/databases/$id" | jq -er '.status')"
+            if [[ "$status" != "$last" ]]; then
+                echo "Database status: $status"
+                last="$status"
+            fi
+            [[ "$status" == "available" ]] && return 0
+            # The API does not document its status values; the example treats
+            # these two as failures, which end the wait at once instead of
+            # leaving it to run until the time limit.
+            if [[ "$status" == "degraded" || "$status" == "failed" ]]; then
+                echo "Error: the database has the status $status" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        echo "Error: the database was not available after $timeout_seconds seconds" >&2
+        return 1
+    }
+    ```
+
+## Creating the Branch
+
+The API creates a branch from the `POST` request to the branches of a database,
+and documents that the new branch copies the source's size, Postgres version,
+options, and service configuration at creation, with its own name, host name,
+and credentials. The request here sets only a display name, which the program
+chooses before the request so that it can find the branch again if the reply is
+lost. It sends no IP allowlist, so the branch copies the rules of the database,
+which admit your machine. The API documents that the request is refused while
+the source is not available, when the database is at its branch limit, and
+while the subscription has a failed payment. The following code creates the
+branch and polls it until its status is `available`, and stops at once if the
+status is `degraded` or `failed`:
+
+=== "Python"
+
+    ```python
+    def create_branch(
+        config: dict, token: str, database_id: str, display_name: str
+    ) -> dict:
+        """Creates a copy-on-write branch of the database, and returns the
+        API's description of it, which includes its ID."""
+        # The API assigns the name of a branch, so the program gives the branch
+        # a display name and uses that to find it again if the reply to this
+        # request is lost. The request sets no allowlist, so the branch copies
+        # the rules of the database, which admit this machine. The branch also
+        # copies the size, the region, and the Postgres version.
+        return api(
+            config, token, "POST", f"/databases/{database_id}/branches",
+            {"display_name": display_name},
+        )
+    
+    
+    def wait_until_branch_available(
+        config: dict, token: str, branch_path: str
+    ) -> None:
+        """Polls the branch until its status is available."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        last = None
+        while time.monotonic() < deadline:
+            status = api(config, token, "GET", branch_path)["status"]
+            if status != last:
+                print(f"Branch status: {status}")
+                last = status
+            if status == "available":
+                return
+            if status in FAILED_STATUSES:
+                raise RuntimeError(f"the branch has the status {status}")
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the branch was not available after {TIMEOUT_SECONDS} seconds")
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    interface Branch {
+      id: string;
+      display_name?: string;
+      status: string;
+    }
+    
+    // Creates a copy-on-write branch of the database, and returns the API's
+    // description of it, which includes its ID.
+    async function createBranch(
+      token: string,
+      databaseId: string,
+      displayName: string,
+    ): Promise<Branch> {
+      // The API assigns the name of a branch, so the program gives the branch
+      // a display name and uses that to find it again if the reply to this
+      // request is lost. The request sets no allowlist, so the branch copies
+      // the rules of the database, which admit this machine. The branch also
+      // copies the size, the region, and the Postgres version.
+      const branch = await api<Branch>(
+        token,
+        "POST",
+        `/databases/${databaseId}/branches`,
+        { display_name: displayName },
+      );
+      return branch!;
+    }
+    
+    // Polls the branch until its status is available.
+    async function waitUntilBranchAvailable(
+      token: string,
+      branchPath: string,
+    ): Promise<void> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      let last = "";
+      while (Date.now() < deadline) {
+        const branch = await api<Branch>(token, "GET", branchPath);
+        if (branch!.status !== last) {
+          console.log(`Branch status: ${branch!.status}`);
+          last = branch!.status;
+        }
+        if (branch!.status === "available") {
+          return;
+        }
+        if (branch!.status === "degraded" || branch!.status === "failed") {
+          throw new Error(`the branch has the status ${branch!.status}`);
+        }
+        await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+      }
+      throw new Error(`the branch was not available after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /**
+     * Creates a copy-on-write branch of the database, and returns the API's
+     * description of it, which includes its ID.
+     */
+    static JsonNode createBranch(Settings cfg, String token, String databaseId,
+            String displayName) throws IOException, InterruptedException {
+        // The API assigns the name of a branch, so the program gives the
+        // branch a display name and uses that to find it again if the reply
+        // to this request is lost. The request sets no allowlist, so the
+        // branch copies the rules of the database, which admit this
+        // machine. The branch also copies the size, the region, and the
+        // Postgres version.
+        return api(cfg, token, "POST", "/databases/" + databaseId + "/branches",
+                Map.of("display_name", displayName));
+    }
+    
+    /** Polls the branch until its status is available. */
+    static void waitUntilBranchAvailable(Settings cfg, String token,
+            String branchPath) throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        String last = null;
+        while (before(deadline)) {
+            String status = field(api(cfg, token, "GET", branchPath, null),
+                    "status");
+            if (!status.equals(last)) {
+                System.out.println("Branch status: " + status);
+                last = status;
+            }
+            if (status.equals("available")) {
+                return;
+            }
+            if (FAILED_STATUSES.contains(status)) {
+                throw new IllegalStateException(
+                        "the branch has the status " + status);
+            }
+            pause(POLL_SECONDS);
+        }
+        throw new IllegalStateException("the branch was not available after "
+                + TIMEOUT_SECONDS + " seconds");
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Creates a copy-on-write branch of the database, and returns the API's
+    // description of it, which includes its ID.
+    async Task<JsonNode?> CreateBranch(string token, string databaseId,
+        string displayName)
+    {
+        // The API assigns the name of a branch, so the program gives the branch
+        // a display name and uses that to find it again if the reply to this
+        // request is lost. The request sets no allowlist, so the branch copies
+        // the rules of the database, which admit this machine. The branch also
+        // copies the size, the region, and the Postgres version.
+        return await Api(token, "POST", $"/databases/{databaseId}/branches",
+            new { display_name = displayName }, interruptible: false);
+    }
+    
+    // Polls the branch until its status is available.
+    async Task WaitUntilBranchAvailable(string token, string branchPath)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        string? last = null;
+        while (Before(deadline))
+        {
+            var status = Field(await Api(token, "GET", branchPath), "status");
+            if (status != last)
+            {
+                Console.WriteLine($"Branch status: {status}");
+                last = status;
+            }
+            if (status == "available")
+            {
+                return;
+            }
+            if (failedStatuses.Contains(status))
+            {
+                throw new InvalidOperationException(
+                    $"the branch has the status {status}");
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the branch was not available after {TimeoutSeconds} seconds");
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // Branch is the part of the API's description of a branch that the example
+    // uses.
+    type Branch struct {
+    	ID          string `json:"id"`
+    	DisplayName string `json:"display_name"`
+    	Status      string `json:"status"`
+    }
+    
+    // createBranch creates a copy-on-write branch of the database, and returns
+    // the API's description of it, which includes its ID.
+    func createBranch(ctx context.Context, token, databaseID, displayName string) (*Branch, error) {
+    	// The API assigns the name of a branch, so the program gives the
+    	// branch a display name and uses that to find it again if the reply to
+    	// this request is lost. The request sets no allowlist, so the branch
+    	// copies the rules of the database, which admit this machine. The
+    	// branch also copies the size, the region, and the Postgres version.
+    	var branch Branch
+    	err := api(ctx, token, http.MethodPost, "/databases/"+databaseID+"/branches",
+    		map[string]string{"display_name": displayName}, &branch)
+    	if err != nil {
+    		return nil, err
+    	}
+    	return &branch, nil
+    }
+    
+    // waitUntilBranchAvailable polls the branch until its status is available.
+    func waitUntilBranchAvailable(ctx context.Context, token, branchPath string) error {
+    	deadline := time.Now().Add(timeout)
+    	last := ""
+    	for time.Now().Before(deadline) {
+    		var branch Branch
+    		if err := api(ctx, token, http.MethodGet, branchPath, nil, &branch); err != nil {
+    			return err
+    		}
+    		if branch.Status != last {
+    			fmt.Printf("Branch status: %s\n", branch.Status)
+    			last = branch.Status
+    		}
+    		if branch.Status == "available" {
+    			return nil
+    		}
+    		if branch.Status == "degraded" || branch.Status == "failed" {
+    			return fmt.Errorf("the branch has the status %s", branch.Status)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the branch was not available after %s", timeout)
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Creates a copy-on-write branch of the database, and returns the API's
+    /// description of it, which includes its ID.
+    fn create_branch(cfg: &Settings, token: &str, database_id: &str, display_name: &str) -> Result<Value> {
+        // The API assigns the name of a branch, so the program gives the
+        // branch a display name and uses that to find it again if the reply to
+        // this request is lost. The request sets no allowlist, so the branch
+        // copies the rules of the database, which admit this machine. The
+        // branch also copies the size, the region, and the Postgres version.
+        // This calls request rather than api, so that a signal cannot stop a
+        // request whose result the program must not lose.
+        let path = format!("/databases/{database_id}/branches");
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        let body = json!({"display_name": display_name});
+        request(Method::POST, &url, &path, Some(token), Some(&body))
+    }
+    
+    /// Polls the branch until its status is available.
+    fn wait_until_branch_available(cfg: &Settings, token: &str, branch_path: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut last = String::new();
+        while Instant::now() < deadline {
+            let status = field(&api(cfg, token, Method::GET, branch_path, None)?, "status")?;
+            if status != last {
+                println!("Branch status: {status}");
+                last = status.clone();
+            }
+            if status == "available" {
+                return Ok(());
+            }
+            if FAILED_STATUSES.contains(&status.as_str()) {
+                return Err(format!("the branch has the status {status}").into());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the branch was not available after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Creates a copy-on-write branch of the database, and returns the API's
+    # description of it, which includes its ID.
+    def create_branch(config, token, database_id, display_name)
+      # The API assigns the name of a branch, so the program gives the branch a
+      # display name and uses that to find it again if the reply to this
+      # request is lost. The request sets no allowlist, so the branch copies
+      # the rules of the database, which admit this machine. The branch also
+      # copies the size, the region, and the Postgres version.
+      api(config, token, "POST", "/databases/#{database_id}/branches",
+          { display_name: display_name })
+    end
+    
+    # Polls the branch until its status is available.
+    def wait_until_branch_available(config, token, branch_path)
+      deadline = now + TIMEOUT_SECONDS
+      last = nil
+      while now < deadline
+        status = api(config, token, "GET", branch_path).fetch("status")
+        if status != last
+          puts "Branch status: #{status}"
+          last = status
+        end
+        return if status == "available"
+        raise "the branch has the status #{status}" if FAILED_STATUSES.include?(status)
+    
+        sleep POLL_SECONDS
+      end
+      raise "the branch was not available after #{TIMEOUT_SECONDS} seconds"
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Creates a copy-on-write branch of the database, and prints the API's
+    # description of it, which includes its ID, followed by the HTTP status on a
+    # line of its own (000 if no reply arrived). The API assigns the name of a
+    # branch, so the script gives the branch a display name and uses that to
+    # find it again if the reply is lost. The request sets no allowlist, so the
+    # branch copies the rules of the database, which admit this machine. The
+    # branch also copies the size, the region, and the Postgres version.
+    create_branch() {
+        jq -n --arg display_name "$2" '{display_name: $display_name}' |
+            api POST "/databases/$1/branches" \
+                --header "Content-Type: application/json" \
+                --data @- --write-out '\n%{http_code}'
+    }
+    
+    # Polls the branch until its status is available. The argument is the path
+    # of the branch.
+    wait_until_branch_available() {
+        local deadline=$((SECONDS + timeout_seconds)) status last=""
+        while ((SECONDS < deadline)); do
+            status="$(api GET "$1" | jq -er '.status')" || return 1
+            if [[ "$status" != "$last" ]]; then
+                echo "Branch status: $status"
+                last="$status"
+            fi
+            [[ "$status" == "available" ]] && return 0
+            if [[ "$status" == "degraded" || "$status" == "failed" ]]; then
+                echo "Error: the branch has the status $status" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        echo "Error: the branch was not available after $timeout_seconds seconds" >&2
+        return 1
+    }
+    ```
+
+## Reading the Connection Details
+
+The description of an available branch includes a `connection` object with the
+host name, the port, the database name, the user name, and the password. The
+API documents that the database name is the source's Postgres database name and
+that the credentials are the branch's own, and that the connection is present
+only while the branch is available. The API requires the user name, the
+password, the port, and the database name but not the host, so the code checks
+that they are all present, and falls back to the external IP address if the
+host is missing. The password never goes in a connection string that the
+program writes, or on a command line: Python, TypeScript, and Ruby pass it to
+the driver as a separate setting, Java puts it in the connection properties
+rather than the URL, C# sets it on an `NpgsqlConnectionStringBuilder`, Go and
+Rust set it on the configuration object, and the curl script writes it to a
+temporary password file that only its owner can read, and removes the file at
+the end:
+
+=== "Python"
+
+    ```python
+    def connection_settings(config: dict, token: str, branch_path: str) -> dict:
+        """Reads the connection details of an available branch, and returns
+        them as keyword arguments for psycopg."""
+        # The connection details, including the password of the branch's own
+        # application user, come with the description of the branch. They are
+        # present only while the branch is available. The API does not require
+        # the host, so fall back to the external IP address if it is missing.
+        connection = api(config, token, "GET", branch_path)["connection"]
+        host = connection.get("host") or connection.get("external_ip_address")
+        details = {
+            "host": host,
+            "port": connection.get("port"),
+            "dbname": connection.get("database"),
+            "user": connection.get("username"),
+            "password": connection.get("password"),
+        }
+        if not all(details.values()):
+            raise RuntimeError("the database description has incomplete connection details")
+        return {
+            **details,
+            # Encrypt the connection. The certificate of a Starfleet database
+            # is not signed by a public authority, so the example does not
+            # verify it.
+            "sslmode": "require",
+            "connect_timeout": 15,
+        }
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Reads the connection details of an available branch, and returns them
+    // as a node-postgres configuration.
+    async function connectionConfig(
+      token: string,
+      branchPath: string,
+    ): Promise<pg.ClientConfig> {
+      // The connection details, including the password of the branch's own
+      // application user, come with the description of the branch. They are
+      // present only while the branch is available. The API does not require
+      // the host, so fall back to the external IP address if it is missing.
+      const database = await api<{
+        connection?: {
+          host?: string;
+          external_ip_address?: string;
+          port?: number;
+          database?: string;
+          username?: string;
+          password?: string;
+        };
+      }>(token, "GET", branchPath);
+      const connection = database?.connection;
+      const host = connection?.host || connection?.external_ip_address;
+      if (
+        !host ||
+        !connection?.port ||
+        !connection.database ||
+        !connection.username ||
+        !connection.password
+      ) {
+        throw new Error("the database description has incomplete connection details");
+      }
+    
+      return {
+        host,
+        port: connection.port,
+        database: connection.database,
+        user: connection.username,
+        password: connection.password,
+        // Encrypt the connection. The certificate of a Starfleet database is
+        // not signed by a public authority, so the example does not verify it.
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 15_000,
+      };
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /** The address and settings of a database, for pgJDBC. */
+    record ConnectionSettings(String url, Properties properties) {}
+    
+    /** Returns a field of a JSON object as text, or null if it is missing. */
+    static String optional(JsonNode node, String name) {
+        JsonNode value = node.get(name);
+        return (value == null || value.isNull() || value.asString().isEmpty())
+                ? null : value.asString();
+    }
+    
+    /**
+     * Reads the connection details of an available branch, and returns them
+     * as a JDBC URL and properties.
+     */
+    static ConnectionSettings connectionSettings(Settings cfg, String token,
+            String branchPath) throws IOException, InterruptedException {
+        // The connection details, including the password of the branch's own
+        // application user, come with the description of the branch. They
+        // are present only while the branch is available. The API does not
+        // require the host, so fall back to the external IP address if it
+        // is missing.
+        JsonNode connection = api(cfg, token, "GET", branchPath, null)
+                .path("connection");
+        String host = Objects.requireNonNullElse(optional(connection, "host"),
+                Objects.requireNonNullElse(
+                        optional(connection, "external_ip_address"), ""));
+        String port = Objects.requireNonNullElse(optional(connection, "port"), "");
+        String database = Objects.requireNonNullElse(
+                optional(connection, "database"), "");
+        String user = optional(connection, "username");
+        String password = optional(connection, "password");
+        if (host.isEmpty() || port.isEmpty() || database.isEmpty()
+                || user == null || password == null) {
+            throw new IllegalStateException(
+                    "the database description has incomplete connection details");
+        }
+    
+        // The password goes in the properties rather than the URL, so that
+        // it cannot appear in an error message that quotes the URL.
+        Properties properties = new Properties();
+        properties.setProperty("user", user);
+        properties.setProperty("password", password);
+        // Encrypt the connection. The certificate of a Starfleet database is
+        // not signed by a public authority, so the example does not verify
+        // it; pgJDBC checks no certificate in require mode.
+        properties.setProperty("sslmode", "require");
+        // connectTimeout limits only the TCP connect, and loginTimeout the
+        // whole set-up, the TLS handshake and the login included.
+        properties.setProperty("connectTimeout", "15");
+        properties.setProperty("loginTimeout", "15");
+        return new ConnectionSettings(
+                "jdbc:postgresql://" + host + ":" + port + "/" + database,
+                properties);
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Reads the connection details of an available branch, and returns them
+    // as Npgsql connection settings.
+    async Task<NpgsqlConnectionStringBuilder> ConnectionSettings(string token,
+        string branchPath)
+    {
+        // The connection details, including the password of the branch's own
+        // application user, come with the description of the branch. They are
+        // present only while the branch is available. The API does not require
+        // the host, so fall back to the external IP address if it is missing.
+        var connection = (await Api(token, "GET", branchPath))?["connection"];
+        string? Value(string key) =>
+            connection?[key]?.ToString() is { Length: > 0 } value ? value : null;
+        var host = Value("host") ?? Value("external_ip_address");
+        var port = Value("port");
+        var database = Value("database");
+        var user = Value("username");
+        var password = Value("password");
+        if (host is null || port is null || database is null || user is null
+            || password is null)
+        {
+            throw new InvalidOperationException(
+                "the database description has incomplete connection details");
+        }
+        return new NpgsqlConnectionStringBuilder
+        {
+            Host = host,
+            Port = int.Parse(port, CultureInfo.InvariantCulture),
+            Database = database,
+            Username = user,
+            Password = password,
+            // Encrypt the connection. The certificate of a Starfleet database
+            // is not signed by a public authority, so the example does not
+            // verify it; Npgsql checks no certificate in Require mode.
+            SslMode = SslMode.Require,
+            // The connection timeout, in seconds.
+            Timeout = 15,
+        };
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // connectionConfig reads the connection details of an available branch,
+    // and returns them as a pgx configuration.
+    func connectionConfig(ctx context.Context, token, branchPath string) (*pgx.ConnConfig, error) {
+    	// The connection details, including the password of the branch's own
+    	// application user, come with the description of the branch. They are
+    	// present only while the branch is available. The API does not require
+    	// the host, so fall back to the external IP address if it is missing.
+    	var database struct {
+    		Connection struct {
+    			Host       string `json:"host"`
+    			ExternalIP string `json:"external_ip_address"`
+    			Port       uint16 `json:"port"`
+    			Database   string `json:"database"`
+    			Username   string `json:"username"`
+    			Password   string `json:"password"`
+    		} `json:"connection"`
+    	}
+    	if err := api(ctx, token, http.MethodGet, branchPath, nil, &database); err != nil {
+    		return nil, err
+    	}
+    	c := database.Connection
+    	if c.Host == "" {
+    		c.Host = c.ExternalIP
+    	}
+    	if c.Host == "" || c.Port == 0 || c.Database == "" || c.Username == "" || c.Password == "" {
+    		return nil, errors.New("the database description has incomplete connection details")
+    	}
+    
+    	// Parse a key/value connection string that holds everything except the
+    	// password, and then set the password on the configuration, so that it
+    	// never appears in a connection string or in an error message that
+    	// quotes one. The host has to be in the string, because pgx takes the
+    	// server name for the TLS handshake from it. The require mode encrypts
+    	// the connection without verifying the server certificate, which a
+    	// public authority has not signed.
+    	config, err := pgx.ParseConfig(fmt.Sprintf(
+    		"host=%s port=%d dbname=%s user=%s sslmode=require connect_timeout=15",
+    		quote(c.Host), c.Port, quote(c.Database), quote(c.Username)))
+    	if err != nil {
+    		return nil, err
+    	}
+    	config.Password = c.Password
+    	return config, nil
+    }
+    
+    // quote wraps a value for a key/value connection string in single quotes,
+    // escaping any backslash or single quote inside it.
+    func quote(value string) string {
+    	value = strings.ReplaceAll(value, `\`, `\\`)
+    	value = strings.ReplaceAll(value, `'`, `\'`)
+    	return "'" + value + "'"
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Reads the connection details of an available branch, and returns them
+    /// as a postgres connection configuration.
+    fn connection_settings(cfg: &Settings, token: &str, branch_path: &str) -> Result<Config> {
+        // The connection details, including the password of the branch's own
+        // application user, come with the description of the branch. They are
+        // present only while the branch is available. The API does not
+        // require the host, so fall back to the external IP address if it is
+        // missing.
+        let branch = api(cfg, token, Method::GET, branch_path, None)?;
+        let connection = &branch["connection"];
+        let value = |key: &str| field(connection, key).ok().filter(|value| !value.is_empty());
+        let (Some(host), Some(port), Some(dbname), Some(user), Some(password)) = (
+            value("host").or_else(|| value("external_ip_address")),
+            value("port"),
+            value("database"),
+            value("username"),
+            value("password"),
+        ) else {
+            return Err("the database description has incomplete connection details".into());
+        };
+    
+        let mut config = Config::new();
+        config
+            .host(&host)
+            .port(port.parse()?)
+            .dbname(&dbname)
+            .user(&user)
+            .password(&password)
+            // Encrypt the connection. The crate's default, Prefer, would fall
+            // back to a plain connection, so Require is set explicitly.
+            .ssl_mode(SslMode::Require)
+            // This limits only the TCP connect; server_version limits the rest.
+            .connect_timeout(Duration::from_secs(15));
+        Ok(config)
+    }
+    
+    /// Builds the TLS connector for the connection. The certificate of a
+    /// Starfleet database is not signed by a public authority, so the example
+    /// does not verify it.
+    fn tls_connector() -> Result<MakeTlsConnector> {
+        let mut builder = SslConnector::builder(SslMethod::tls())?;
+        builder.set_verify(SslVerifyMode::NONE);
+        Ok(MakeTlsConnector::new(builder.build()))
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Reads the connection details of an available branch, and returns them as
+    # connection parameters for the pg gem.
+    def connection_settings(config, token, branch_path)
+      # The connection details, including the password of the branch's own
+      # application user, come with the description of the branch. They are
+      # present only while the branch is available. The API does not require
+      # the host, so fall back to the external IP address if it is missing.
+      connection = api(config, token, "GET", branch_path)["connection"] || {}
+      host = connection["host"].to_s.empty? ? connection["external_ip_address"] : connection["host"]
+      details = {
+        host: host,
+        port: connection["port"],
+        dbname: connection["database"],
+        user: connection["username"],
+        password: connection["password"]
+      }
+      if details.values.any? { |v| v.nil? || v.to_s.empty? }
+        raise "the database description has incomplete connection details"
+      end
+    
+      details.merge(
+        # Encrypt the connection. The certificate of a Starfleet database is
+        # not signed by a public authority, so the example does not verify it.
+        sslmode: "require",
+        connect_timeout: 15
+      )
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Reads the connection details of an available branch from its description
+    # (the argument is the path of the branch), and writes a password file for
+    # psql in the format that it reads. The details, including the password of
+    # the branch's own application user, come with the description of the
+    # branch, and are present only while the branch is available. The API does not require the host, so fall back
+    # to the external IP address if it is missing. Each jq call fails if its
+    # field is missing, and the script reads the fields one by one instead of
+    # passing the output to eval, so that a failure cannot print the password
+    # or the environment.
+    write_passfile() {
+        local description host port database username
+        description="$(api GET "$1")" || return 1
+        host="$(jq -er '.connection.host // .connection.external_ip_address | strings' <<<"$description")" || return 1
+        port="$(jq -er '.connection.port | numbers' <<<"$description")" || return 1
+        database="$(jq -er '.connection.database | strings' <<<"$description")" || return 1
+        username="$(jq -er '.connection.username | strings' <<<"$description")" || return 1
+        jq -e '.connection.password | strings' <<<"$description" >/dev/null || return 1
+    
+        # Only the owner may read the file, and the password goes into it
+        # without passing through the process list. In a password file a colon
+        # or backslash in a field needs a backslash before it.
+        umask 077
+        passfile="$(mktemp)" || return 1
+        jq -er '.connection | [.host // .external_ip_address, (.port | tostring),
+                .database, .username, .password]
+                | map(strings | gsub("\\\\"; "\\\\") | gsub(":"; "\\:"))
+                | join(":")' <<<"$description" >"$passfile" || return 1
+    
+        export PGPASSFILE="$passfile" PGHOST="$host" PGPORT="$port" \
+            PGDATABASE="$database" PGUSER="$username" PGCONNECT_TIMEOUT=15
+        # The sslmode=require setting encrypts the connection but does not
+        # check the server certificate, which a public authority has not
+        # signed. Anyone who can intercept the traffic could therefore
+        # impersonate the server, so treat this as suitable for an example
+        # only.
+        export PGSSLMODE=require
+    }
+    ```
+
+## Running the Query
+
+If the `PGSSLROOTCERT` environment variable is set, as it is after you start
+the test server for the TLS recipe, unset it before you run the Python, Go, and
+Ruby programs or the curl script. The libpq library (and so psycopg, ruby-pg,
+and `psql`) and pgx then treat `sslmode=require` as `verify-ca`, and reject the
+certificate of a Starfleet database. The Java, C#, and Rust programs are not
+affected.
+
+The program connects to the branch with the driver for the language (psycopg
+for Python, node-postgres for TypeScript, pgJDBC for Java, Npgsql for C#, pgx
+for Go, rust-postgres for Rust, ruby-pg for Ruby, and `psql` for the curl
+script) and runs `SELECT version()`. The connection is encrypted. The
+certificate of a Starfleet database is not signed by a public authority, so the
+example does not verify it. That leaves the connection open to a
+man-in-the-middle attack, because anyone who can intercept the traffic could
+pose as the server, so do not use this approach for data that matters. A server
+can refuse connections for a short while after the API reports it as available,
+so the code makes up to six attempts, ten seconds apart. The TypeScript, Java,
+C#, Go, and Rust code retries only failures to connect, and not errors that the
+server reports, such as a failed login. psycopg and ruby-pg both use libpq,
+which gives no SQLSTATE code for any failure to connect, so the Python and Ruby
+code cannot tell a failed login from a refused connection, and repeats them
+all, as the curl script does, because `psql` gives the same exit status for
+every failure to connect. The following code runs the query:
+
+=== "Python"
+
+    ```python
+    def server_version(connection: dict) -> str:
+        """Connects to the database and returns the server's version string."""
+        # A database can refuse connections for a short while after the API
+        # reports it as available, so try a few times before giving up. An
+        # error that carries an SQLSTATE code came from the server itself,
+        # such as a failed login, and will not change on a second attempt.
+        for attempt in range(CONNECT_ATTEMPTS):
+            try:
+                # The with block closes the connection when it exits, whether
+                # or not an error occurred.
+                with psycopg.connect(**connection) as conn:
+                    return conn.execute("SELECT version()").fetchone()[0]
+            except psycopg.OperationalError as e:
+                if e.sqlstate is not None or attempt == CONNECT_ATTEMPTS - 1:
+                    raise
+                time.sleep(POLL_SECONDS)
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Connects to the database and returns the server's version string.
+    async function serverVersion(config: pg.ClientConfig): Promise<string> {
+      // A database can refuse connections for a short while after the API
+      // reports it as available, so try a few times before giving up. An
+      // error from the server itself, such as a failed login, will not change
+      // on a second attempt. A failed client cannot be reused, so each attempt
+      // makes a new one.
+      let client = new pg.Client(config);
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await client.connect();
+          break;
+        } catch (err) {
+          if (err instanceof pg.DatabaseError || attempt === CONNECT_ATTEMPTS) {
+            throw err;
+          }
+          await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+          client = new pg.Client(config);
+        }
+      }
+      try {
+        const result = await client.query<{ version: string }>("SELECT version()");
+        return result.rows[0].version;
+      } finally {
+        // The finally block closes the connection whether or not the query
+        // failed.
+        await client.end();
+      }
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /** Connects to the database and returns the server's version string. */
+    static String serverVersion(ConnectionSettings connection)
+            throws SQLException, InterruptedException {
+        // A database can refuse connections for a short while after the API
+        // reports it as available, so try a few times before giving up. An
+        // error that carries a message from the server, such as a failed
+        // login, will not change on a second attempt; pgJDBC gives one only
+        // for errors that came from the server itself.
+        for (int attempt = 0; ; attempt++) {
+            checkInterrupted();
+            // The try-with-resources block closes the connection when it
+            // exits, whether or not an error occurred.
+            try (Connection conn = DriverManager.getConnection(
+                            connection.url(), connection.properties());
+                    Statement statement = conn.createStatement();
+                    ResultSet rows = statement.executeQuery("SELECT version()")) {
+                rows.next();
+                return rows.getString(1);
+            } catch (SQLException e) {
+                boolean fromServer = e instanceof PSQLException psql
+                        && psql.getServerErrorMessage() != null;
+                if (fromServer || attempt == CONNECT_ATTEMPTS - 1) {
+                    throw e;
+                }
+                pause(POLL_SECONDS);
+            }
+        }
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Connects to the database and returns the result of a query that returns
+    // one text value.
+    async Task<string> QueryOne(NpgsqlConnectionStringBuilder settings, string sql)
+    {
+        // A database can refuse connections for a short while after the API
+        // reports it as available, so try a few times before giving up. A
+        // PostgresException carries an SQLSTATE code: it came from the server
+        // itself, such as a failed login, and will not change on a second
+        // attempt.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                // The using declarations close the connection when the block
+                // exits, whether or not an error occurred.
+                await using var conn = new NpgsqlConnection(settings.ConnectionString);
+                await conn.OpenAsync(cancel);
+                await using var command = new NpgsqlCommand(sql, conn);
+                return (string)(await command.ExecuteScalarAsync(cancel))!;
+            }
+            catch (NpgsqlException e) when (e is not PostgresException
+                && attempt < ConnectAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // serverVersion connects to the database and returns the server's version
+    // string.
+    func serverVersion(ctx context.Context, config *pgx.ConnConfig) (string, error) {
+    	// A database can refuse connections for a short while after the API
+    	// reports it as available, so try a few times before giving up. An
+    	// error from the server itself, such as a failed login, will not
+    	// change on a second attempt, so it ends the loop at once.
+    	var conn *pgx.Conn
+    	var err error
+    	for attempt := 1; attempt <= connectAttempts; attempt++ {
+    		conn, err = pgx.ConnectConfig(ctx, config)
+    		if err == nil {
+    			break
+    		}
+    		var serverErr *pgconn.PgError
+    		if attempt == connectAttempts || errors.As(err, &serverErr) {
+    			return "", fmt.Errorf("connection failed: %w", err)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    	// The deferred call closes the connection when the function returns,
+    	// whether or not the query failed.
+    	defer conn.Close(ctx)
+    
+    	var version string
+    	if err := conn.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
+    		return "", fmt.Errorf("query failed: %w", err)
+    	}
+    	return version, nil
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// How long one connection attempt and its query may take. The
+    /// connect_timeout setting limits only the TCP connect in rust-postgres, so
+    /// the TLS handshake, the login, and the query get as long again.
+    const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+    
+    /// Runs one connection attempt on a thread of its own, and waits for it
+    /// for at most ATTEMPT_TIMEOUT whilst watching for a signal, which the
+    /// blocking driver cannot do. Returns None if the attempt runs out of
+    /// time; its thread is then left to end on its own.
+    fn within_time_limit<T: Send + 'static>(
+        work: impl FnOnce() -> std::result::Result<T, postgres::Error> + Send + 'static,
+    ) -> Result<Option<std::result::Result<T, postgres::Error>>> {
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            // The send fails only if the attempt has already run out of time.
+            let _ = sender.send(work());
+        });
+        let end = Instant::now() + ATTEMPT_TIMEOUT;
+        loop {
+            check_interrupted()?;
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(None);
+            }
+            match receiver.recv_timeout(left.min(Duration::from_millis(200))) {
+                Ok(result) => return Ok(Some(result)),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("the connection attempt ended without a result".into());
+                }
+            }
+        }
+    }
+    
+    /// Connects to the database and returns the server's version string.
+    fn server_version(connection: &Config) -> Result<String> {
+        // A database can refuse connections for a short while after the API
+        // reports it as available, so try a few times before giving up. An
+        // error that carries an SQLSTATE code came from the server itself,
+        // such as a failed login, and will not change on a second attempt. An
+        // attempt that runs out of time is repeated, as a failure to connect is.
+        let mut attempt = 0;
+        loop {
+            let config = connection.clone();
+            let tls = tls_connector()?;
+            let outcome = within_time_limit(move || {
+                let mut client = config.connect(tls)?;
+                let version: String = client.query_one("SELECT version()", &[])?.get(0);
+                // Dropping the client also closes the connection, but close()
+                // reports any error that occurs whilst doing so.
+                client.close()?;
+                Ok(version)
+            })?;
+            let error: Box<dyn Error> = match outcome {
+                Some(Ok(version)) => return Ok(version),
+                Some(Err(e)) if e.code().is_none() => e.into(),
+                Some(Err(e)) => return Err(e.into()),
+                None => "the connection attempt timed out".into(),
+            };
+            if attempt == CONNECT_ATTEMPTS - 1 {
+                return Err(error);
+            }
+            pause(POLL)?;
+            attempt += 1;
+        }
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Connects to the database and returns the server's version string.
+    def server_version(connection)
+      # A database can refuse connections for a short while after the API
+      # reports it as available, so try a few times before giving up. The
+      # TypeScript, Java, C#, Go, and Rust programs repeat only errors that
+      # carry no SQLSTATE code, but libpq gives none for any failure to
+      # connect, a failed login included, so the pg gem cannot tell them
+      # apart and the example repeats every PG::ConnectionBad.
+      attempt = 0
+      begin
+        conn = PG.connect(connection)
+        begin
+          conn.exec("SELECT version()").getvalue(0, 0)
+        ensure
+          conn.close
+        end
+      rescue PG::ConnectionBad
+        attempt += 1
+        raise if attempt == CONNECT_ATTEMPTS
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Connects to the database with psql, using the PG variables that
+    # write_passfile exported, and prints the server's version
+    # string.
+    server_version() {
+        # A database can refuse connections for a short while after the API
+        # reports it as available, so try a few times. psql exits with 2 for
+        # every failure to connect, including a failed login, so the script
+        # cannot tell a temporary failure from a permanent one and repeats
+        # them all.
+        local attempt
+        for ((attempt = 1; attempt <= 6; attempt++)); do
+            psql --no-psqlrc --tuples-only --no-align \
+                --command 'SELECT version()' && return 0
+            ((attempt < 6)) && sleep "$poll_seconds"
+        done
+        return 1
+    }
+    ```
+
+## Deleting the Resources
+
+The program deletes the branch first and then the database. The API documents
+that a delete is refused while the database has branches, unless the `force`
+parameter is set, in which case it deletes every branch first, so the database
+delete passes `force=true` as a safety net for a branch that the program could
+not find. After a delete request the program polls until the API no longer
+lists the branch, and until it answers 404 for the database. A delete of a
+branch that is still being created is refused until it settles, and in testing
+the API answered 409 to a database delete whilst the database was still being
+created, so both deletes repeat the request after a 409, a 429 or 5xx status,
+or a failure to get any reply, until the time limit passes. A 404 means that
+the resource has gone already. The API assigns the name of a branch, so if the
+outcome of the branch request is unknown (no reply arrived, the service
+answered with a 5xx status, the reply could not be read, or you interrupted the
+program during the request), the program lists the branches of the database and
+picks the one with the display name that it chose before the request, trying up
+to three times, ten seconds apart. It does not look after a 4xx reply, because
+that is a definite refusal. The list request passes `limit=100` and
+`descending=true`, which the API documents as sorting by creation time, newest
+first. (The database list has no such documentation, so the program cannot be
+sure that a new database is on the first page of an account with more than 100
+databases.) If a delete of the branch fails, the forced delete of the database
+that follows removes it. If the database delete or a lookup fails, the program
+prints the name or ID and tells you to delete the resource by hand. The
+following code deletes the branch and the database:
+
+=== "Python"
+
+    ```python
+    def is_transient(error: Exception) -> bool:
+        """Reports whether a failed request is worth repeating: no reply
+        arrived, the service is overloaded or failing, or it answered 409,
+        which the API does whilst a database is still being created."""
+        if isinstance(error, httpx.TransportError):
+            return True
+        if isinstance(error, httpx.HTTPStatusError):
+            status = error.response.status_code
+            return status in (409, 429) or status >= 500
+        return False
+    
+    
+    def is_gone(error: Exception) -> bool:
+        """Reports whether an error is a 404 reply, which means that the
+        database does not exist."""
+        return (
+            isinstance(error, httpx.HTTPStatusError)
+            and error.response.status_code == 404
+        )
+    
+    
+    def find_database(config: dict, token: str, name: str):
+        """Returns the ID of the database with the given name, or None. The
+        program uses this when it cannot tell whether a create request worked.
+        It repeats the request, as the delete does, because the fault that
+        lost the reply to the create request may still be there. The request
+        asks for the newest databases first, but the API does not say which
+        property it sorts on."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                databases = api(
+                    config, token, "GET", "/databases?limit=100&descending=true"
+                )
+                break
+            except httpx.HTTPError as e:
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+        for database in databases or []:
+            if database["name"] == name:
+                return database["id"]
+        return None
+    
+    
+    def find_created_database(config: dict, token: str, name: str):
+        """Looks for the database a few times, because the service may not
+        have recorded a request whose reply was lost until a little later.
+        Returns None if the database never appears."""
+        for attempt in range(LOOKUP_ATTEMPTS):
+            database_id = find_database(config, token, name)
+            if database_id is not None:
+                return database_id
+            if attempt < LOOKUP_ATTEMPTS - 1:
+                time.sleep(POLL_SECONDS)
+        return None
+    
+    
+    def outcome_unknown(error: Exception) -> bool:
+        """Reports whether a failed create request might still have created
+        the database: no reply arrived, or the service failed with a 5xx
+        status. A 4xx reply is a definite refusal."""
+        if isinstance(error, httpx.HTTPStatusError):
+            return error.response.status_code >= 500
+        return True
+    
+    
+    def list_branches(config: dict, token: str, database_id: str) -> list:
+        """Returns the branches of the database that have not been deleted,
+        newest first. The request repeats, as the deletes do, and a 404 means
+        that the database has gone, and so have its branches."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                return api(
+                    config, token, "GET",
+                    f"/databases/{database_id}/branches?limit=100&descending=true",
+                ) or []
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return []
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+    
+    def find_created_branch(config: dict, token: str, database_id: str, display_name: str):
+        """Looks for the branch with the given display name a few times, because
+        the service may not have recorded a request whose reply was lost until
+        a little later. Returns None if the branch never appears."""
+        for attempt in range(LOOKUP_ATTEMPTS):
+            for branch in list_branches(config, token, database_id):
+                if branch.get("display_name") == display_name:
+                    return branch["id"]
+            if attempt < LOOKUP_ATTEMPTS - 1:
+                time.sleep(POLL_SECONDS)
+        return None
+    
+    
+    def delete_branch(config: dict, token: str, database_id: str, branch_id: str) -> None:
+        """Deletes the branch and waits until the API no longer lists it."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                api(
+                    config, token, "DELETE",
+                    f"/databases/{database_id}/branches/{branch_id}",
+                )
+                break
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+        # The API takes a branch out of the list as soon as it accepts the
+        # delete, even though the teardown carries on afterwards.
+        while time.monotonic() < deadline:
+            branches = list_branches(config, token, database_id)
+            if all(branch["id"] != branch_id for branch in branches):
+                return
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the branch was still listed after {TIMEOUT_SECONDS} seconds")
+    
+    
+    def delete_database(config: dict, token: str, database_id: str) -> None:
+        """Deletes the database and waits until the API no longer lists it."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                # The API refuses to delete a database that has branches, with a
+                # 409 reply, unless force=true, which deletes every branch first.
+                # The program has deleted its branch by now, so this is a safety
+                # net for a branch that the program could not find.
+                api(config, token, "DELETE", f"/databases/{database_id}?force=true")
+                break
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+        # The delete starts the teardown; a 404 shows that it has finished.
+        while time.monotonic() < deadline:
+            try:
+                api(config, token, "GET", f"/databases/{database_id}")
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e):
+                    raise
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the database was still present after {TIMEOUT_SECONDS} seconds")
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Reports whether a failed request is worth repeating: no reply arrived
+    // (fetch rejects, and the error is not an ApiError), the service is
+    // overloaded or failing, or it answered 409, which the API does whilst a
+    // database is still being created.
+    function isTransient(err: unknown): boolean {
+      if (!(err instanceof ApiError)) {
+        return true;
+      }
+      return err.status === 409 || err.status === 429 || err.status >= 500;
+    }
+    
+    // Looks for the database a few times, because the service may not have
+    // recorded a request whose reply was lost until a little later. Returns
+    // undefined if the database never appears.
+    async function findCreatedDatabase(
+      token: string,
+      name: string,
+      signal: AbortSignal,
+    ): Promise<string | undefined> {
+      for (let attempt = 1; ; attempt++) {
+        const id = await findDatabase(token, name, signal);
+        if (id || attempt === LOOKUP_ATTEMPTS) {
+          return id;
+        }
+        await sleep(POLL_MS);
+      }
+    }
+    
+    // Reports whether a failed create request might still have created the
+    // database: no reply arrived, the reply could not be decoded, or the
+    // service failed with a 5xx status. A 4xx reply is a definite refusal.
+    function outcomeUnknown(err: unknown): boolean {
+      return !(err instanceof ApiError) || err.status >= 500;
+    }
+    
+    // Returns the ID of the database with the given name, or undefined. The
+    // program uses this when it cannot tell whether a create request worked.
+    // It repeats the request, as the delete does, because the fault that lost
+    // the reply to the create request may still be there. The request asks for
+    // the newest databases first, but the API does not say which property it
+    // sorts on.
+    async function findDatabase(
+      token: string,
+      name: string,
+      signal: AbortSignal,
+    ): Promise<string | undefined> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      for (;;) {
+        try {
+          const databases = await api<{ id: string; name: string }[]>(
+            token,
+            "GET",
+            "/databases?limit=100&descending=true",
+            undefined,
+            signal,
+          );
+          return databases?.find((database) => database.name === name)?.id;
+        } catch (err) {
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    }
+    
+    // Returns the branches of the database that have not been deleted, newest
+    // first. The request repeats, as the deletes do, and a 404 means that the
+    // database has gone, and so have its branches.
+    async function listBranches(token: string, databaseId: string): Promise<Branch[]> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+      for (;;) {
+        try {
+          const branches = await api<Branch[]>(
+            token,
+            "GET",
+            `/databases/${databaseId}/branches?limit=100&descending=true`,
+            undefined,
+            never,
+          );
+          return branches ?? [];
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return [];
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    }
+    
+    // Looks for the branch with the given display name a few times, because
+    // the service may not have recorded a request whose reply was lost until a
+    // little later. Returns undefined if the branch never appears.
+    async function findCreatedBranch(
+      token: string,
+      databaseId: string,
+      displayName: string,
+    ): Promise<string | undefined> {
+      for (let attempt = 1; ; attempt++) {
+        const branches = await listBranches(token, databaseId);
+        const id = branches.find((branch) => branch.display_name === displayName)?.id;
+        if (id || attempt === LOOKUP_ATTEMPTS) {
+          return id;
+        }
+        await sleep(POLL_MS);
+      }
+    }
+    
+    // Deletes the branch and waits until the API no longer lists it. The
+    // requests ignore Ctrl-C, so that a second interrupt cannot leave the
+    // branch behind.
+    async function deleteBranch(
+      token: string,
+      databaseId: string,
+      branchId: string,
+    ): Promise<void> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+    
+      for (;;) {
+        try {
+          await api(
+            token,
+            "DELETE",
+            `/databases/${databaseId}/branches/${branchId}`,
+            undefined,
+            never,
+          );
+          break;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    
+      // The API takes a branch out of the list as soon as it accepts the
+      // delete, even though the teardown carries on afterwards.
+      while (Date.now() < deadline) {
+        const branches = await listBranches(token, databaseId);
+        if (branches.every((branch) => branch.id !== branchId)) {
+          return;
+        }
+        await sleep(POLL_MS);
+      }
+      throw new Error(`the branch was still listed after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    
+    // Deletes the database and waits until the API no longer lists it. The
+    // requests ignore Ctrl-C, so that a second interrupt cannot leave the
+    // database behind.
+    async function deleteDatabase(token: string, databaseId: string): Promise<void> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+    
+      for (;;) {
+        try {
+          // The API refuses to delete a database that has branches, with a 409
+          // reply, unless force=true, which deletes every branch first. The
+          // program has deleted its branch by now, so this is a safety net for
+          // a branch that the program could not find.
+          await api(
+            token,
+            "DELETE",
+            `/databases/${databaseId}?force=true`,
+            undefined,
+            never,
+          );
+          break;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    
+      // The delete starts the teardown; a 404 shows that it has finished.
+      while (Date.now() < deadline) {
+        try {
+          await api(token, "GET", `/databases/${databaseId}`, undefined, never);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err)) {
+            throw err;
+          }
+        }
+        await sleep(POLL_MS);
+      }
+      throw new Error(`the database was still present after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    ```
+
+=== "Java"
+
+    ```java
+    /**
+     * Reports whether a failed request is worth repeating: no reply arrived,
+     * the service is overloaded or failing, or it answered 409, which the
+     * API does whilst a database is still being created. Any IOException
+     * other than an ApiException means that no reply arrived, such as a
+     * refused connection or a timeout.
+     */
+    static boolean isTransient(Exception e) {
+        if (e instanceof ApiException api) {
+            return api.status == 409 || api.status == 429 || api.status >= 500;
+        }
+        return e instanceof IOException;
+    }
+    
+    /**
+     * Reports whether an error is a 404 reply, which means that the database
+     * does not exist.
+     */
+    static boolean isGone(Exception e) {
+        return e instanceof ApiException api && api.status == 404;
+    }
+    
+    /**
+     * Returns the ID of the database with the given name, or null. The
+     * program uses this when it cannot tell whether a create request worked.
+     * It repeats the request, as the delete does, because the fault that
+     * lost the reply to the create request may still be there. The request
+     * asks for the newest databases first, but the API does not say which
+     * property it sorts on.
+     */
+    static String findDatabase(Settings cfg, String token, String name)
+            throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        JsonNode databases;
+        while (true) {
+            try {
+                databases = api(cfg, token, "GET",
+                        "/databases?limit=100&descending=true", null);
+                break;
+            } catch (IOException e) {
+                if (!isTransient(e) || !before(deadline)) {
+                    throw e;
+                }
+                pause(POLL_SECONDS);
+            }
+        }
+        if (databases != null) {
+            for (JsonNode database : databases) {
+                if (name.equals(database.path("name").asString())) {
+                    return field(database, "id");
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Looks for the database a few times, because the service may not have
+     * recorded a request whose reply was lost until a little later. Returns
+     * null if the database never appears.
+     */
+    static String findCreatedDatabase(Settings cfg, String token, String name)
+            throws IOException, InterruptedException {
+        for (int attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+            String databaseId = findDatabase(cfg, token, name);
+            if (databaseId != null) {
+                return databaseId;
+            }
+            if (attempt < LOOKUP_ATTEMPTS - 1) {
+                pause(POLL_SECONDS);
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Reports whether a failed create request might still have created the
+     * database: no reply arrived, the reply could not be read, or the
+     * service failed with a 5xx status. A 4xx reply is a definite refusal.
+     */
+    static boolean outcomeUnknown(Exception e) {
+        if (e instanceof ApiException api) {
+            return api.status >= 500;
+        }
+        return true;
+    }
+    
+    /**
+     * Returns the branches of the database that have not been deleted,
+     * newest first. The request repeats, as the deletes do, and a 404 means
+     * that the database has gone, and so have its branches.
+     */
+    static List<JsonNode> listBranches(Settings cfg, String token,
+            String databaseId) throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        while (true) {
+            try {
+                JsonNode branches = api(cfg, token, "GET", "/databases/"
+                        + databaseId + "/branches?limit=100&descending=true", null);
+                List<JsonNode> list = new ArrayList<>();
+                if (branches != null) {
+                    branches.forEach(list::add);
+                }
+                return list;
+            } catch (IOException e) {
+                if (isGone(e)) {
+                    return List.of();
+                }
+                if (!isTransient(e) || !before(deadline)) {
+                    throw e;
+                }
+                pause(POLL_SECONDS);
+            }
+        }
+    }
+    
+    /**
+     * Looks for the branch with the given display name a few times, because
+     * the service may not have recorded a request whose reply was lost until
+     * a little later. Returns null if the branch never appears.
+     */
+    static String findCreatedBranch(Settings cfg, String token,
+            String databaseId, String displayName)
+            throws IOException, InterruptedException {
+        for (int attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+            for (JsonNode branch : listBranches(cfg, token, databaseId)) {
+                if (displayName.equals(branch.path("display_name").asString())) {
+                    return field(branch, "id");
+                }
+            }
+            if (attempt < LOOKUP_ATTEMPTS - 1) {
+                pause(POLL_SECONDS);
+            }
+        }
+        return null;
+    }
+    
+    /** Deletes the branch and waits until the API no longer lists it. */
+    static void deleteBranch(Settings cfg, String token, String databaseId,
+            String branchId) throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        while (true) {
+            try {
+                api(cfg, token, "DELETE", "/databases/" + databaseId
+                        + "/branches/" + branchId, null);
+                break;
+            } catch (IOException e) {
+                if (isGone(e)) {
+                    return;
+                }
+                if (!isTransient(e) || !before(deadline)) {
+                    throw e;
+                }
+                pause(POLL_SECONDS);
+            }
+        }
+    
+        // The API takes a branch out of the list as soon as it accepts the
+        // delete, even though the teardown carries on afterwards.
+        while (before(deadline)) {
+            boolean listed = false;
+            for (JsonNode branch : listBranches(cfg, token, databaseId)) {
+                if (branchId.equals(field(branch, "id"))) {
+                    listed = true;
+                }
+            }
+            if (!listed) {
+                return;
+            }
+            pause(POLL_SECONDS);
+        }
+        throw new IllegalStateException("the branch was still listed after "
+                + TIMEOUT_SECONDS + " seconds");
+    }
+    
+    /** Deletes the database and waits until the API no longer lists it. */
+    static void deleteDatabase(Settings cfg, String token, String databaseId)
+            throws IOException, InterruptedException {
+        long deadline = deadline(TIMEOUT_SECONDS);
+        while (true) {
+            try {
+                // The API refuses to delete a database that has branches,
+                // with a 409 reply, unless force=true, which deletes every
+                // branch first. The program has deleted its branch by now,
+                // so this is a safety net for a branch that the program
+                // could not find.
+                api(cfg, token, "DELETE", "/databases/" + databaseId
+                        + "?force=true", null);
+                break;
+            } catch (IOException e) {
+                if (isGone(e)) {
+                    return;
+                }
+                if (!isTransient(e) || !before(deadline)) {
+                    throw e;
+                }
+                pause(POLL_SECONDS);
+            }
+        }
+    
+        // The delete starts the teardown; a 404 shows that it has finished.
+        while (before(deadline)) {
+            try {
+                api(cfg, token, "GET", "/databases/" + databaseId, null);
+            } catch (IOException e) {
+                if (isGone(e)) {
+                    return;
+                }
+                if (!isTransient(e)) {
+                    throw e;
+                }
+            }
+            pause(POLL_SECONDS);
+        }
+        throw new IllegalStateException("the database was still present after "
+                + TIMEOUT_SECONDS + " seconds");
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Reports whether a failed request is worth repeating: no reply arrived,
+    // such as a refused connection or a timeout, the service is overloaded or
+    // failing, or it answered 409, which the API does whilst a database is
+    // still being created.
+    static bool IsTransient(Exception e) => e switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode code } =>
+            (int)code is 409 or 429 or >= 500,
+        HttpRequestException or TaskCanceledException => true,
+        _ => false,
+    };
+    
+    // Reports whether an error is a 404 reply, which means that the database
+    // does not exist.
+    static bool IsGone(Exception e) =>
+        e is HttpRequestException { StatusCode: HttpStatusCode.NotFound };
+    
+    // Returns the ID of the database with the given name, or null. The program
+    // uses this when it cannot tell whether a create request worked. It
+    // repeats the request, as the delete does, because the fault that lost the
+    // reply to the create request may still be there. The request asks for
+    // the newest databases first, but the API does not say which property it
+    // sorts on.
+    async Task<string?> FindDatabase(string token, string name)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        JsonNode? databases;
+        while (true)
+        {
+            try
+            {
+                databases = await Api(
+                    token, "GET", "/databases?limit=100&descending=true");
+                break;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        foreach (var database in databases as JsonArray ?? [])
+        {
+            if (database?["name"]?.ToString() == name)
+            {
+                return Field(database, "id");
+            }
+        }
+        return null;
+    }
+    
+    // Looks for the database a few times, because the service may not have
+    // recorded a request whose reply was lost until a little later. Returns
+    // null if the database never appears.
+    async Task<string?> FindCreatedDatabase(string token, string name)
+    {
+        for (var attempt = 0; attempt < LookupAttempts; attempt++)
+        {
+            if (await FindDatabase(token, name) is string databaseId)
+            {
+                return databaseId;
+            }
+            if (attempt < LookupAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        return null;
+    }
+    
+    // Reports whether a failed create request might still have created the
+    // database: no reply arrived, the reply could not be read, or the service
+    // failed with a 5xx status. A 4xx reply is a definite refusal.
+    static bool OutcomeUnknown(Exception e) =>
+        e is not HttpRequestException { StatusCode: HttpStatusCode code }
+            || (int)code >= 500;
+    
+    // Returns the branches of the database that have not been deleted, newest
+    // first. The request repeats, as the deletes do, and a 404 means that the
+    // database has gone, and so have its branches.
+    async Task<JsonArray> ListBranches(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                return await Api(token, "GET",
+                    $"/databases/{databaseId}/branches?limit=100&descending=true")
+                    as JsonArray ?? [];
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return [];
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    }
+    
+    // Looks for the branch with the given display name a few times, because the
+    // service may not have recorded a request whose reply was lost until a
+    // little later. Returns null if the branch never appears.
+    async Task<string?> FindCreatedBranch(string token, string databaseId,
+        string displayName)
+    {
+        for (var attempt = 0; attempt < LookupAttempts; attempt++)
+        {
+            foreach (var branch in await ListBranches(token, databaseId))
+            {
+                if (branch?["display_name"]?.ToString() == displayName)
+                {
+                    return Field(branch, "id");
+                }
+            }
+            if (attempt < LookupAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        return null;
+    }
+    
+    // Deletes the branch and waits until the API no longer lists it.
+    async Task DeleteBranch(string token, string databaseId, string branchId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                await Api(token, "DELETE",
+                    $"/databases/{databaseId}/branches/{branchId}");
+                break;
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    
+        // The API takes a branch out of the list as soon as it accepts the
+        // delete, even though the teardown carries on afterwards.
+        while (Before(deadline))
+        {
+            var branches = await ListBranches(token, databaseId);
+            if (branches.All(branch => Field(branch, "id") != branchId))
+            {
+                return;
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the branch was still listed after {TimeoutSeconds} seconds");
+    }
+    
+    // Deletes the database and waits until the API no longer lists it.
+    async Task DeleteDatabase(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                // The API refuses to delete a database that has branches,
+                // with a 409 reply, unless force=true, which deletes every
+                // branch first. The program has deleted its branch by now, so
+                // this is a safety net for a branch that the program could not
+                // find.
+                await Api(token, "DELETE", $"/databases/{databaseId}?force=true");
+                break;
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    
+        // The delete starts the teardown; a 404 shows that it has finished.
+        while (Before(deadline))
+        {
+            try
+            {
+                await Api(token, "GET", $"/databases/{databaseId}");
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e))
+            {
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the database was still present after {TimeoutSeconds} seconds");
+    }
+    ```
+
+=== "Go"
+
+    ```go
+    // isStatus reports whether err is an API error with the given status.
+    func isStatus(err error, status int) bool {
+    	var apiErr *APIError
+    	return errors.As(err, &apiErr) && apiErr.Status == status
+    }
+    
+    // isTransient reports whether a failed request is worth repeating: no
+    // reply arrived, the service is overloaded or failing, or it answered 409,
+    // which the API does whilst a database is still being created.
+    func isTransient(err error) bool {
+    	var apiErr *APIError
+    	if !errors.As(err, &apiErr) {
+    		return true
+    	}
+    	return apiErr.Status == http.StatusConflict ||
+    		apiErr.Status == http.StatusTooManyRequests ||
+    		apiErr.Status >= 500
+    }
+    
+    // findCreatedDatabase looks for the database a few times, because the
+    // service may not have recorded a request whose reply was lost until a
+    // little later. It returns an empty string if the database never appears.
+    func findCreatedDatabase(ctx context.Context, token, name string) (string, error) {
+    	for attempt := 1; ; attempt++ {
+    		id, err := findDatabase(ctx, token, name)
+    		if err != nil || id != "" || attempt == lookupAttempts {
+    			return id, err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    }
+    
+    // outcomeUnknown reports whether a failed create request might still have
+    // created the database: no reply arrived, the reply could not be decoded,
+    // or the service failed with a 5xx status. A 4xx reply is a definite
+    // refusal.
+    func outcomeUnknown(err error) bool {
+    	var apiErr *APIError
+    	if !errors.As(err, &apiErr) {
+    		return true
+    	}
+    	return apiErr.Status >= 500
+    }
+    
+    // findDatabase returns the ID of the database with the given name, or an
+    // empty string. The program uses it when it cannot tell whether a create
+    // request worked. It repeats the request, as the delete does, because the
+    // fault that lost the reply to the create request may still be there. The
+    // request asks for the newest databases first, but the API does not say
+    // which property it sorts on.
+    func findDatabase(ctx context.Context, token, name string) (string, error) {
+    	var databases []struct {
+    		ID   string `json:"id"`
+    		Name string `json:"name"`
+    	}
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		err := api(ctx, token, http.MethodGet, "/databases?limit=100&descending=true", nil, &databases)
+    		if err == nil {
+    			break
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return "", err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    	for _, database := range databases {
+    		if database.Name == name {
+    			return database.ID, nil
+    		}
+    	}
+    	return "", nil
+    }
+    
+    // listBranches returns the branches of the database that have not been
+    // deleted, newest first. The request repeats, as the deletes do, and a 404
+    // means that the database has gone, and so have its branches.
+    func listBranches(ctx context.Context, token, databaseID string) ([]Branch, error) {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		var branches []Branch
+    		err := api(ctx, token, http.MethodGet,
+    			"/databases/"+databaseID+"/branches?limit=100&descending=true", nil, &branches)
+    		if err == nil {
+    			return branches, nil
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil, nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return nil, err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return nil, err
+    		}
+    	}
+    }
+    
+    // findCreatedBranch looks for the branch with the given display name a few
+    // times, because the service may not have recorded a request whose reply
+    // was lost until a little later. It returns an empty string if the branch
+    // never appears.
+    func findCreatedBranch(ctx context.Context, token, databaseID, displayName string) (string, error) {
+    	for attempt := 1; ; attempt++ {
+    		branches, err := listBranches(ctx, token, databaseID)
+    		if err != nil {
+    			return "", err
+    		}
+    		for _, branch := range branches {
+    			if branch.DisplayName == displayName {
+    				return branch.ID, nil
+    			}
+    		}
+    		if attempt == lookupAttempts {
+    			return "", nil
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    }
+    
+    // deleteBranch deletes the branch and waits until the API no longer lists
+    // it.
+    func deleteBranch(ctx context.Context, token, databaseID, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		err := api(ctx, token, http.MethodDelete,
+    			"/databases/"+databaseID+"/branches/"+id, nil, nil)
+    		if err == nil {
+    			break
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    
+    	// The API takes a branch out of the list as soon as it accepts the
+    	// delete, even though the teardown carries on afterwards.
+    	for time.Now().Before(deadline) {
+    		branches, err := listBranches(ctx, token, databaseID)
+    		if err != nil {
+    			return err
+    		}
+    		listed := false
+    		for _, branch := range branches {
+    			listed = listed || branch.ID == id
+    		}
+    		if !listed {
+    			return nil
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the branch was still listed after %s", timeout)
+    }
+    
+    // deleteDatabase deletes the database and waits until the API no longer
+    // lists it.
+    func deleteDatabase(ctx context.Context, token, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		// The API refuses to delete a database that has branches, with a
+    		// 409 reply, unless force=true, which deletes every branch first.
+    		// The program has deleted its branch by now, so this is a safety
+    		// net for a branch that the program could not find.
+    		err := api(ctx, token, http.MethodDelete, "/databases/"+id+"?force=true", nil, nil)
+    		if err == nil {
+    			break
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    
+    	// The delete starts the teardown; a 404 shows that it has finished.
+    	for time.Now().Before(deadline) {
+    		err := api(ctx, token, http.MethodGet, "/databases/"+id, nil, nil)
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if err != nil && !isTransient(err) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the database was still present after %s", timeout)
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// Reports whether a failed request is worth repeating: no reply arrived,
+    /// such as a refused connection or a timeout, the service is overloaded or
+    /// failing, or it answered 409, which the API does whilst a database is
+    /// still being created.
+    fn is_transient(e: &(dyn Error + 'static)) -> bool {
+        if let Some(api) = e.downcast_ref::<ApiError>() {
+            return matches!(api.status, 409 | 429 | 500..);
+        }
+        e.is::<reqwest::Error>()
+    }
+    
+    /// Reports whether an error is a 404 reply, which means that the database
+    /// does not exist.
+    fn is_gone(e: &(dyn Error + 'static)) -> bool {
+        matches!(e.downcast_ref::<ApiError>(), Some(api) if api.status == 404)
+    }
+    
+    /// Returns the ID of the database with the given name, if there is one.
+    /// The program uses this when it cannot tell whether a create request
+    /// worked. It repeats the request, as the delete does, because the fault
+    /// that lost the reply to the create request may still be there. The
+    /// request asks for the newest databases first, but the API does not say
+    /// which property it sorts on.
+    fn find_database(cfg: &Settings, token: &str, name: &str) -> Result<Option<String>> {
+        let deadline = Instant::now() + TIMEOUT;
+        let databases = loop {
+            match api(cfg, token, Method::GET, "/databases?limit=100&descending=true", None) {
+                Ok(databases) => break databases,
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        };
+        for database in databases.as_array().into_iter().flatten() {
+            if database["name"].as_str() == Some(name) {
+                return Ok(Some(field(database, "id")?));
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Looks for the database a few times, because the service may not have
+    /// recorded a request whose reply was lost until a little later. Returns
+    /// None if the database never appears.
+    fn find_created_database(cfg: &Settings, token: &str, name: &str) -> Result<Option<String>> {
+        for attempt in 0..LOOKUP_ATTEMPTS {
+            if let Some(database_id) = find_database(cfg, token, name)? {
+                return Ok(Some(database_id));
+            }
+            if attempt < LOOKUP_ATTEMPTS - 1 {
+                pause(POLL)?;
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Reports whether a failed create request might still have created the
+    /// database: no reply arrived, the reply could not be read, or the service
+    /// failed with a 5xx status. A 4xx reply is a definite refusal.
+    fn outcome_unknown(e: &(dyn Error + 'static)) -> bool {
+        match e.downcast_ref::<ApiError>() {
+            Some(api) => api.status >= 500,
+            None => true,
+        }
+    }
+    
+    /// Returns the branches of the database that have not been deleted,
+    /// newest first. The request repeats, as the deletes do, and a 404 means
+    /// that the database has gone, and so have its branches.
+    fn list_branches(cfg: &Settings, token: &str, database_id: &str) -> Result<Vec<Value>> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}/branches?limit=100&descending=true");
+        loop {
+            match api(cfg, token, Method::GET, &path, None) {
+                Ok(Value::Array(branches)) => return Ok(branches),
+                Ok(_) => return Ok(Vec::new()),
+                Err(e) if is_gone(e.as_ref()) => return Ok(Vec::new()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    
+    /// Looks for the branch with the given display name a few times, because
+    /// the service may not have recorded a request whose reply was lost until
+    /// a little later. Returns None if the branch never appears.
+    fn find_created_branch(
+        cfg: &Settings,
+        token: &str,
+        database_id: &str,
+        display_name: &str,
+    ) -> Result<Option<String>> {
+        for attempt in 0..LOOKUP_ATTEMPTS {
+            for branch in list_branches(cfg, token, database_id)? {
+                if branch["display_name"].as_str() == Some(display_name) {
+                    return Ok(Some(field(&branch, "id")?));
+                }
+            }
+            if attempt < LOOKUP_ATTEMPTS - 1 {
+                pause(POLL)?;
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Deletes the branch and waits until the API no longer lists it.
+    fn delete_branch(cfg: &Settings, token: &str, database_id: &str, branch_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}/branches/{branch_id}");
+        loop {
+            match api(cfg, token, Method::DELETE, &path, None) {
+                Ok(_) => break,
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    
+        // The API takes a branch out of the list as soon as it accepts the
+        // delete, even though the teardown carries on afterwards.
+        while Instant::now() < deadline {
+            let branches = list_branches(cfg, token, database_id)?;
+            if branches.iter().all(|branch| branch["id"].as_str() != Some(branch_id)) {
+                return Ok(());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the branch was still listed after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    
+    /// Deletes the database and waits until the API no longer lists it.
+    fn delete_database(cfg: &Settings, token: &str, database_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}");
+        // The API refuses to delete a database that has branches, with a 409
+        // reply, unless force=true, which deletes every branch first. The
+        // program has deleted its branch by now, so this is a safety net for a
+        // branch that the program could not find.
+        let delete_path = format!("{path}?force=true");
+        loop {
+            match api(cfg, token, Method::DELETE, &delete_path, None) {
+                Ok(_) => break,
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    
+        // The delete starts the teardown; a 404 shows that it has finished.
+        while Instant::now() < deadline {
+            match api(cfg, token, Method::GET, &path, None) {
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if !is_transient(e.as_ref()) => return Err(e),
+                _ => {}
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the database was still present after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # The errors that mean that no reply arrived: a refused or reset
+    # connection, a failed name lookup, a TLS failure, or a timeout.
+    TRANSPORT_ERRORS = [SystemCallError, IOError, SocketError, Timeout::Error,
+                        OpenSSL::SSL::SSLError].freeze
+    
+    # Reports whether a failed request is worth repeating: no reply arrived,
+    # the service is overloaded or failing, or it answered 409, which the API
+    # does whilst a database is still being created.
+    def transient?(error)
+      return true if TRANSPORT_ERRORS.any? { |type| error.is_a?(type) }
+      return false unless error.is_a?(ApiError)
+    
+      [409, 429].include?(error.status) || error.status >= 500
+    end
+    
+    # Reports whether an error is a 404 reply, which means that the database
+    # does not exist.
+    def gone?(error)
+      error.is_a?(ApiError) && error.status == 404
+    end
+    
+    # Returns the ID of the database with the given name, or nil. The program
+    # uses this when it cannot tell whether a create request worked. It repeats
+    # the request, as the delete does, because the fault that lost the reply to
+    # the create request may still be there. The request asks for the newest
+    # databases first, but the API does not say which property it sorts on.
+    def find_database(config, token, name)
+      deadline = now + TIMEOUT_SECONDS
+      databases = begin
+        api(config, token, "GET", "/databases?limit=100&descending=true")
+      rescue StandardError => e
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+      database = databases.to_a.find { |d| d["name"] == name }
+      database&.fetch("id")
+    end
+    
+    # Looks for the database a few times, because the service may not have
+    # recorded a request whose reply was lost until a little later. Returns nil
+    # if the database never appears.
+    def find_created_database(config, token, name)
+      LOOKUP_ATTEMPTS.times do |attempt|
+        database_id = find_database(config, token, name)
+        return database_id if database_id
+    
+        sleep POLL_SECONDS if attempt < LOOKUP_ATTEMPTS - 1
+      end
+      nil
+    end
+    
+    # Reports whether a failed create request might still have created the
+    # database: no reply arrived, the reply could not be read, or the service
+    # failed with a 5xx status. A 4xx reply is a definite refusal.
+    def outcome_unknown?(error)
+      return error.status >= 500 if error.is_a?(ApiError)
+    
+      true
+    end
+    
+    # Returns the branches of the database that have not been deleted, newest
+    # first. The request repeats, as the deletes do, and a 404 means that the
+    # database has gone, and so have its branches.
+    def list_branches(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        api(config, token, "GET",
+            "/databases/#{database_id}/branches?limit=100&descending=true").to_a
+      rescue StandardError => e
+        return [] if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    end
+    
+    # Looks for the branch with the given display name a few times, because
+    # the service may not have recorded a request whose reply was lost until a
+    # little later. Returns nil if the branch never appears.
+    def find_created_branch(config, token, database_id, display_name)
+      LOOKUP_ATTEMPTS.times do |attempt|
+        branch = list_branches(config, token, database_id)
+                 .find { |b| b["display_name"] == display_name }
+        return branch.fetch("id") if branch
+    
+        sleep POLL_SECONDS if attempt < LOOKUP_ATTEMPTS - 1
+      end
+      nil
+    end
+    
+    # Deletes the branch and waits until the API no longer lists it.
+    def delete_branch(config, token, database_id, branch_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        api(config, token, "DELETE", "/databases/#{database_id}/branches/#{branch_id}")
+      rescue StandardError => e
+        return if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    
+      # The API takes a branch out of the list as soon as it accepts the
+      # delete, even though the teardown carries on afterwards.
+      while now < deadline
+        branches = list_branches(config, token, database_id)
+        return if branches.none? { |b| b.fetch("id") == branch_id }
+    
+        sleep POLL_SECONDS
+      end
+      raise "the branch was still listed after #{TIMEOUT_SECONDS} seconds"
+    end
+    
+    # Deletes the database and waits until the API no longer lists it.
+    def delete_database(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        # The API refuses to delete a database that has branches, with a 409
+        # reply, unless force=true, which deletes every branch first. The
+        # program has deleted its branch by now, so this is a safety net for a
+        # branch that the program could not find.
+        api(config, token, "DELETE", "/databases/#{database_id}?force=true")
+      rescue StandardError => e
+        return if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    
+      # The delete starts the teardown; a 404 shows that it has finished.
+      while now < deadline
+        begin
+          api(config, token, "GET", "/databases/#{database_id}")
+        rescue StandardError => e
+          return if gone?(e)
+          raise unless transient?(e)
+        end
+        sleep POLL_SECONDS
+      end
+      raise "the database was still present after #{TIMEOUT_SECONDS} seconds"
+    end
+    ```
+
+=== "curl"
+
+    ```bash
+    # Prints the ID of the database with the given name, or nothing. The script
+    # uses this when it cannot tell whether the create request worked. It
+    # repeats the request, as the delete does, because the fault that lost the
+    # reply to the create request may still be there.
+    find_database() {
+        local deadline=$((SECONDS + timeout_seconds)) reply status
+        while true; do
+            # The --write-out option adds the HTTP status on a last line, and
+            # prints 000 if no reply arrived. The request asks for the newest
+            # databases first, but the API does not say which property it
+            # sorts on.
+            reply="$(api GET "/databases?limit=100&descending=true" \
+                --write-out '\n%{http_code}')" || true
+            status="${reply##*$'\n'}"
+            case "$status" in
+                200) break ;;
+                000|409|429|5??) ;;
+                *) echo "Error: listing the databases returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the list was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        jq -r --arg name "$1" 'first(.[] | select(.name == $name) | .id) // empty' \
+            <<<"${reply%$'\n'*}"
+    }
+    
+    # Prints the ID of the database with the given name, looking up to three
+    # times because the service may not have recorded a request whose reply was
+    # lost until a little later. Prints nothing if the database never appears,
+    # and fails if a lookup fails.
+    find_created_database() {
+        local attempt id
+        for ((attempt = 1; attempt <= 3; attempt++)); do
+            id="$(find_database "$1")" || return 1
+            if [[ -n "$id" ]]; then
+                echo "$id"
+                return 0
+            fi
+            ((attempt < 3)) && sleep "$poll_seconds"
+        done
+        return 0
+    }
+    
+    # Prints the IDs and display names of the branches of the database that
+    # have not been deleted, newest first, one per line with a tab between them.
+    # The request repeats, as the deletes do, and a 404 means that the database
+    # has gone, and so have its branches.
+    list_branches() {
+        local deadline=$((SECONDS + timeout_seconds)) reply status
+        while true; do
+            reply="$(api GET "/databases/$1/branches?limit=100&descending=true" \
+                --write-out '\n%{http_code}')" || true
+            status="${reply##*$'\n'}"
+            case "$status" in
+                200) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: listing the branches returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the list was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        jq -r '.[] | [.id, .display_name] | @tsv' <<<"${reply%$'\n'*}"
+    }
+    
+    # Prints the ID of the branch with the given display name, looking up to
+    # three times because the service may not have recorded a request whose
+    # reply was lost until a little later. Prints nothing if the branch never
+    # appears, and fails if a lookup fails.
+    find_created_branch() {
+        local attempt listing id name
+        for ((attempt = 1; attempt <= 3; attempt++)); do
+            listing="$(list_branches "$1")" || return 1
+            while IFS=$'\t' read -r id name; do
+                if [[ "$name" == "$2" ]]; then
+                    echo "$id"
+                    return 0
+                fi
+            done <<<"$listing"
+            ((attempt < 3)) && sleep "$poll_seconds"
+        done
+        return 0
+    }
+    
+    # Deletes the branch and waits until the API no longer lists it. The
+    # arguments are the database ID and the branch ID.
+    delete_branch() {
+        local deadline=$((SECONDS + timeout_seconds)) status listing id name listed
+        while true; do
+            status="$(api_status DELETE "/databases/$1/branches/$2")"
+            case "$status" in
+                2??) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: deleting the branch returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the delete was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    
+        # The API takes a branch out of the list as soon as it accepts the
+        # delete, even though the teardown carries on afterwards.
+        while ((SECONDS < deadline)); do
+            listing="$(list_branches "$1")" || return 1
+            listed=0
+            while IFS=$'\t' read -r id name; do
+                [[ "$id" == "$2" ]] && listed=1
+            done <<<"$listing"
+            ((listed == 0)) && return 0
+            sleep "$poll_seconds"
+        done
+        echo "Error: the branch was still listed after $timeout_seconds seconds" >&2
+        return 1
+    }
+    
+    # Deletes the database and waits until the API no longer lists it. A status
+    # of 000 means that no reply arrived; that, 409 (which the API gives whilst a
+    # database is still being created), 429, and the 5xx statuses are worth
+    # repeating until the time limit.
+    delete_database() {
+        local id="$1" deadline=$((SECONDS + timeout_seconds)) status
+    
+        while true; do
+            # The API refuses to delete a database that has branches, with a
+            # 409 reply, unless force=true, which deletes every branch first.
+            # The script has deleted its branch by now, so this is a safety net
+            # for a branch that the script could not find.
+            status="$(api_status DELETE "/databases/$id?force=true")"
+            case "$status" in
+                204) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: deleting the database returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the delete was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    
+        # The delete starts the teardown; a 404 shows that it has finished.
+        while true; do
+            status="$(api_status GET "/databases/$id")"
+            case "$status" in
+                404) return 0 ;;
+                200|000|429|5??) ;;
+                *) echo "Error: checking the database returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the database was still present after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    }
+    ```
+
+## Running the Program
+
+The `main` function runs the steps in order, and deletes the branch and the
+database on every path: in a `finally` block in Python, TypeScript, Java, and
+C#, in an `ensure` block in Ruby, after `run` returns in Rust, with a `defer`
+in Go, and with a trap on `EXIT` in the curl script. The deletion therefore
+happens when a step fails or when you press Ctrl-C, and the Rust program
+catches a panic with `catch_unwind` so that one cannot skip the deletion
+either. Each program also handles the SIGTERM signal as it does Ctrl-C
+(SIGINT), so that `kill` cleans up as well. The C# program registers
+`PosixSignalRegistration` handlers that cancel the request in progress, the
+Rust program sets a flag with signal-hook that stops it before its next
+request, and the Ruby program receives each signal as an exception. Java's
+supported API cannot catch a signal, so the Java program registers a shutdown
+hook, which the JVM runs when SIGINT or SIGTERM ends the program; the hook
+deletes the branch and the database, or waits for the main thread to finish
+doing so, and then ends the program. The program chooses the database name and
+the branch display name before it sends each create request, so the cleanup can
+find the resource by name if the reply never arrives. The cleanup ignores
+further interrupts, because a second Ctrl-C must not leave a billable resource
+behind. The following code shows the function:
+
+=== "Python"
+
+    ```python
+    def stop(*_) -> None:
+        """Handles SIGTERM like Ctrl-C, by raising KeyboardInterrupt."""
+        raise KeyboardInterrupt
+    
+    
+    def main() -> int:
+        # Turn SIGTERM into a KeyboardInterrupt, so that the finally block
+        # runs, as it does for Ctrl-C.
+        signal.signal(signal.SIGTERM, stop)
+    
+        config = settings()
+        exit_code = 0
+        token = None
+        name = None
+        database_id = None
+        branch_id = None
+        branch_name = None
+        branch_lookup = False
+        lookup = False
+        try:
+            token = get_token(config)
+    
+            region, size = choose_placement(config, token)
+            print(f"Region: {region}")
+            print(f"Size: {size}")
+    
+            # Choose the name before the request, so that the program can find
+            # the database even if the reply to the request never arrives.
+            suffix = secrets.token_hex(3)
+            name, display_name = f"cookbook{suffix}", f"cookbook-{suffix}"
+            # Look the database up by name afterwards only if the outcome of
+            # the request is unknown, so that a refusal cannot lead the
+            # cleanup to delete another database that has the same name.
+            ip = client_ip(config, token)
+            lookup = True
+            try:
+                database = create_database(
+                    config, token, name, display_name, region, size, ip
+                )
+            except (httpx.HTTPError, ValueError) as e:
+                lookup = outcome_unknown(e)
+                raise
+            database_id = database["id"]
+            print(f"Created database {database['display_name']}")
+    
+            wait_until_available(config, token, database_id)
+            print("Database is available")
+    
+            # The program names the branch before the request, as it does the
+            # database, and looks it up afterwards only if the outcome is
+            # unknown.
+            branch_name = f"cookbook-{suffix}-branch"
+            branch_lookup = True
+            try:
+                branch = create_branch(config, token, database_id, branch_name)
+            except (httpx.HTTPError, ValueError) as e:
+                branch_lookup = outcome_unknown(e)
+                raise
+            branch_id = branch["id"]
+            print(f"Created branch {branch['display_name']}")
+    
+            branch_path = f"/databases/{database_id}/branches/{branch_id}"
+            wait_until_branch_available(config, token, branch_path)
+            print("Branch is available")
+    
+            connection = connection_settings(config, token, branch_path)
+            print(f"Branch server version: {server_version(connection)}")
+        # httpx.HTTPError covers connection failures and, through
+        # raise_for_status(), error responses from the API; psycopg.Error is
+        # the base class for every error the driver raises.
+        except (
+            httpx.HTTPError,
+            psycopg.Error,
+            KeyError,
+            ValueError,
+            RuntimeError,
+            TimeoutError,
+        ) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            exit_code = 1
+        except KeyboardInterrupt:
+            print("Interrupted", file=sys.stderr)
+            exit_code = 130
+        finally:
+            # Delete the database whether the example succeeded, failed, or
+            # was interrupted, because the service bills for it until then.
+            # Ignore further interrupts, so that they cannot cut it short.
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            if token is not None and name is not None:
+                try:
+                    if database_id is None and lookup:
+                        database_id = find_created_database(config, token, name)
+                        if database_id is None:
+                            print(
+                                f"Error: the database {name} was not found; "
+                                "check your account for it by hand",
+                                file=sys.stderr,
+                            )
+                            exit_code = 1
+                    if database_id is not None:
+                        # Delete the branch before the database. A failure here
+                        # must not stop the database delete, which uses
+                        # force=true as a safety net.
+                        try:
+                            if branch_id is None and branch_lookup:
+                                branch_id = find_created_branch(
+                                    config, token, database_id, branch_name
+                                )
+                                if branch_id is None:
+                                    print(
+                                        f"Error: the branch {branch_name} was not found; "
+                                        "check your account for it by hand",
+                                        file=sys.stderr,
+                                    )
+                                    exit_code = 1
+                            if branch_id is not None:
+                                delete_branch(config, token, database_id, branch_id)
+                                print("Deleted branch")
+                        except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
+                            print(f"Error: {e}", file=sys.stderr)
+                            print(
+                                "The forced delete of the database that follows "
+                                "also deletes the branch",
+                                file=sys.stderr,
+                            )
+                            exit_code = 1
+                        delete_database(config, token, database_id)
+                        print("Deleted database")
+                except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
+                    print(f"Error: {e}", file=sys.stderr)
+                    print(
+                        f"Delete the database {database_id or name} and any branches by hand, "
+                        "because it may still be billing",
+                        file=sys.stderr,
+                    )
+                    exit_code = 1
+    
+        return exit_code
+    
+    
+    if __name__ == "__main__":
+        sys.exit(main())
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    // Returns a readable description of an error. A failure to connect
+    // arrives as a TypeError whose cause holds the details, and Node reports
+    // a failure to reach several addresses as an AggregateError.
+    function describe(err: unknown): string {
+      if (err instanceof AggregateError) {
+        return err.errors.map(describe).join("; ");
+      }
+      if (err instanceof Error && err.cause) {
+        return `${err.message}: ${describe(err.cause)}`;
+      }
+      return err instanceof Error ? err.message : String(err);
+    }
+    
+    async function main(): Promise<number> {
+      let exitCode = 0;
+      let token: string | undefined;
+      let name: string | undefined;
+      let databaseId: string | undefined;
+      let branchId: string | undefined;
+      let branchName: string | undefined;
+      let branchLookup = false;
+      let lookup = false;
+      try {
+        token = await getToken();
+    
+        const { region, size } = await choosePlacement(token);
+        console.log(`Region: ${region}`);
+        console.log(`Size: ${size}`);
+    
+        // Choose the name before the request, so that the program can find
+        // the database even if the reply to the request never arrives.
+        const suffix = randomBytes(3).toString("hex");
+        name = `cookbook${suffix}`;
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the cleanup to
+        // delete another database that has the same name.
+        const ip = await clientIp(token);
+        lookup = true;
+        let database;
+        try {
+          database = await createDatabase(
+            token,
+            name,
+            `cookbook-${suffix}`,
+            region,
+            size,
+            ip,
+          );
+        } catch (err) {
+          lookup = outcomeUnknown(err);
+          throw err;
+        }
+        databaseId = database.id;
+        console.log(`Created database ${database.display_name}`);
+    
+        await waitUntilAvailable(token, databaseId);
+        console.log("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        branchName = `cookbook-${suffix}-branch`;
+        branchLookup = true;
+        let branch;
+        try {
+          branch = await createBranch(token, databaseId, branchName);
+        } catch (err) {
+          branchLookup = outcomeUnknown(err);
+          throw err;
+        }
+        branchId = branch.id;
+        console.log(`Created branch ${branch.display_name}`);
+    
+        const branchPath = `/databases/${databaseId}/branches/${branchId}`;
+        await waitUntilBranchAvailable(token, branchPath);
+        console.log("Branch is available");
+    
+        const config = await connectionConfig(token, branchPath);
+        console.log(`Branch server version: ${await serverVersion(config)}`);
+      } catch (err) {
+        if (interrupt.signal.aborted) {
+          console.error("Interrupted");
+          exitCode = 130;
+        } else {
+          console.error(`Error: ${describe(err)}`);
+          exitCode = 1;
+        }
+      } finally {
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then.
+        if (token && name) {
+          try {
+            if (!databaseId && lookup) {
+              databaseId = await findCreatedDatabase(
+                token,
+                name,
+                new AbortController().signal,
+              );
+              if (!databaseId) {
+                console.error(
+                  `Error: the database ${name} was not found; check your account for it by hand`,
+                );
+                exitCode = 1;
+              }
+            }
+            if (databaseId) {
+              // Delete the branch before the database. A failure here must not
+              // stop the database delete, which uses force=true as a safety
+              // net.
+              try {
+                if (!branchId && branchLookup && branchName) {
+                  branchId = await findCreatedBranch(token, databaseId, branchName);
+                  if (!branchId) {
+                    console.error(
+                      `Error: the branch ${branchName} was not found; check your account for it by hand`,
+                    );
+                    exitCode = 1;
+                  }
+                }
+                if (branchId) {
+                  await deleteBranch(token, databaseId, branchId);
+                  console.log("Deleted branch");
+                }
+              } catch (err) {
+                console.error(`Error: ${describe(err)}`);
+                console.error(
+                  "The forced delete of the database that follows also deletes the branch",
+                );
+                exitCode = 1;
+              }
+              await deleteDatabase(token, databaseId);
+              console.log("Deleted database");
+            }
+          } catch (err) {
+            console.error(`Error: ${describe(err)}`);
+            console.error(
+              `Delete the database ${databaseId ?? name} and any branches by hand, because they may still be billing`,
+            );
+            exitCode = 1;
+          }
+        }
+      }
+      return exitCode;
+    }
+    
+    process.exitCode = await main();
+    ```
+
+=== "Java"
+
+    ```java
+    // What the clean-up needs to know, guarded by LOCK.
+    static Settings cfg;
+    static String token;
+    static String name;
+    static String databaseId;
+    static boolean lookup;
+    static String branchId;
+    static String branchName;
+    static boolean branchLookup;
+    /** The exit status, once the clean-up has run. */
+    static Integer result;
+    /** Set once the clean-up has started. */
+    static volatile boolean cleaning;
+    /** Set once the main thread has finished, clean-up included. */
+    static volatile boolean exiting;
+    
+    /**
+     * Returns the message of an error. Some errors, such as a refused
+     * connection, have no message, so their type stands in for one.
+     */
+    static String describe(Exception e) {
+        return Objects.requireNonNullElse(e.getMessage(), e.toString());
+    }
+    
+    /**
+     * Deletes the database, if the program created one, and returns the
+     * exit status. The main thread and the shutdown hook both call this,
+     * and whichever comes first does the work; the other waits for it and
+     * gets the same status.
+     */
+    static int cleanUp(int status) {
+        synchronized (LOCK) {
+            if (result != null) {
+                return result;
+            }
+            cleaning = true;
+            if (token != null && name != null) {
+                try {
+                    if (databaseId == null && lookup) {
+                        databaseId = findCreatedDatabase(cfg, token, name);
+                        if (databaseId == null) {
+                            System.err.println("Error: the database " + name
+                                    + " was not found; check your account for"
+                                    + " it by hand");
+                            status = 1;
+                        }
+                    }
+                    if (databaseId != null) {
+                        // Delete the branch before the database. A failure
+                        // here must not stop the database delete, which uses
+                        // force=true as a safety net.
+                        try {
+                            if (branchId == null && branchLookup) {
+                                branchId = findCreatedBranch(cfg, token,
+                                        databaseId, branchName);
+                                if (branchId == null) {
+                                    System.err.println("Error: the branch "
+                                            + branchName + " was not found;"
+                                            + " check your account for it by"
+                                            + " hand");
+                                    status = 1;
+                                }
+                            }
+                            if (branchId != null) {
+                                deleteBranch(cfg, token, databaseId, branchId);
+                                System.out.println("Deleted branch");
+                            }
+                        } catch (IOException | JacksonException
+                                | IllegalStateException e) {
+                            System.err.println("Error: " + describe(e));
+                            System.err.println("The forced delete of the"
+                                    + " database that follows also deletes"
+                                    + " the branch");
+                            status = 1;
+                        }
+                        deleteDatabase(cfg, token, databaseId);
+                        System.out.println("Deleted database");
+                    }
+                } catch (IOException | InterruptedException | JacksonException
+                        | IllegalStateException e) {
+                    System.err.println("Error: " + describe(e));
+                    System.err.println("Delete the database "
+                            + (databaseId != null ? databaseId : name)
+                            + " and any branches by hand, because it may"
+                            + " still be billing");
+                    status = 1;
+                }
+            }
+            result = status;
+            return status;
+        }
+    }
+    
+    public static void main(String[] args) {
+        // Java cannot catch a signal with its supported API, but SIGINT and
+        // SIGTERM start an orderly shutdown that runs this hook. The hook
+        // stops the main thread's requests, deletes the database (or waits
+        // for the main thread to finish doing so), and ends the program
+        // with the status of the clean-up. A normal exit runs the hook too,
+        // after the main thread has cleaned up.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (!exiting) {
+                interrupted = true;
+                if (!cleaning) {
+                    System.err.println("Interrupted");
+                }
+            }
+            int status = cleanUp(130);
+            System.out.flush();
+            Runtime.getRuntime().halt(status);
+        }));
+    
+        // The status stays 1 unless every step succeeds, so that an
+        // unexpected error, which the catch does not handle, still ends
+        // the program with a failure.
+        int status = 1;
+        try {
+            cfg = settings();
+            String bearer = getToken(cfg);
+            synchronized (LOCK) {
+                token = bearer;
+            }
+    
+            Placement placement = choosePlacement(cfg, bearer);
+            System.out.println("Region: " + placement.region());
+            System.out.println("Size: " + placement.size());
+    
+            // Choose the name before the request, so that the program can
+            // find the database even if the reply to the request never
+            // arrives.
+            byte[] random = new byte[3];
+            new SecureRandom().nextBytes(random);
+            String suffix = HexFormat.of().formatHex(random);
+            String displayName = "cookbook-" + suffix;
+            String ip = clientIp(cfg, bearer);
+            JsonNode database;
+            // Hold the lock until the ID is recorded, so that a signal
+            // during the create call cannot leave the database behind.
+            synchronized (LOCK) {
+                name = "cookbook" + suffix;
+                // Look the database up by name afterwards only if the
+                // outcome of the request is unknown, so that a refusal
+                // cannot lead the clean-up to delete another database that
+                // has the same name.
+                lookup = true;
+                try {
+                    database = createDatabase(cfg, bearer, name, displayName,
+                            placement, ip);
+                } catch (IOException | JacksonException e) {
+                    lookup = outcomeUnknown(e);
+                    throw e;
+                }
+                databaseId = field(database, "id");
+            }
+            System.out.println("Created database " + field(database, "display_name"));
+    
+            waitUntilAvailable(cfg, bearer, databaseId);
+            System.out.println("Database is available");
+    
+            // The program names the branch before the request, as it does
+            // the database, and looks it up afterwards only if the outcome
+            // is unknown. The lock covers the request for the same reason.
+            JsonNode branch;
+            synchronized (LOCK) {
+                branchName = "cookbook-" + suffix + "-branch";
+                branchLookup = true;
+                try {
+                    branch = createBranch(cfg, bearer, databaseId, branchName);
+                } catch (IOException | JacksonException e) {
+                    branchLookup = outcomeUnknown(e);
+                    throw e;
+                }
+                branchId = field(branch, "id");
+            }
+            System.out.println("Created branch " + field(branch, "display_name"));
+    
+            String branchPath = "/databases/" + databaseId + "/branches/" + branchId;
+            waitUntilBranchAvailable(cfg, bearer, branchPath);
+            System.out.println("Branch is available");
+    
+            ConnectionSettings connection = connectionSettings(cfg, bearer,
+                    branchPath);
+            System.out.println("Branch server version: "
+                    + serverVersion(connection));
+            status = 0;
+        // IOException covers failures to connect and error replies from the
+        // API; SQLException covers every error from pgJDBC;
+        // InterruptedException means that a signal arrived, which the
+        // shutdown hook reports; Jackson throws JacksonException for a
+        // reply that is not JSON; and IllegalStateException covers replies
+        // that the program cannot use.
+        } catch (IOException | SQLException | InterruptedException
+                | JacksonException | IllegalStateException e) {
+            if (!interrupted) {
+                System.err.println("Error: " + describe(e));
+            }
+        } finally {
+            // Delete the database whether the example succeeded, failed, or
+            // was interrupted, because the service bills for it until then.
+            // The finally block also runs for an error that the catch does
+            // not handle.
+            status = cleanUp(interrupted ? 130 : status);
+        }
+        exiting = true;
+        System.exit(status);
+    }
+    ```
+
+=== "C#"
+
+    ```csharp
+    // Reports whether an error is one that the program expects: a failure to
+    // connect, an error reply from the API, a request that timed out, a reply
+    // that is not JSON, a reply that the program cannot use, or any error from
+    // Npgsql, whose PostgresException carries an error from the server.
+    static bool Expected(Exception e) => e is HttpRequestException
+        or TaskCanceledException or JsonException or InvalidOperationException
+        or NpgsqlException;
+    
+    string? token = null;
+    string? name = null;
+    string? databaseId = null;
+    var lookup = false;
+    string? branchId = null;
+    string? branchName = null;
+    var branchLookup = false;
+    var exitCode = 0;
+    try
+    {
+        token = await GetToken();
+    
+        var (region, size) = await ChoosePlacement(token);
+        Console.WriteLine($"Region: {region}");
+        Console.WriteLine($"Size: {size}");
+    
+        // Choose the name before the request, so that the program can find the
+        // database even if the reply to the request never arrives.
+        var suffix = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(3));
+        name = $"cookbook{suffix}";
+        var displayName = $"cookbook-{suffix}";
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the clean-up to
+        // delete another database that has the same name.
+        var ip = await ClientIp(token);
+        lookup = true;
+        JsonNode? database;
+        try
+        {
+            database = await CreateDatabase(token, name, displayName, region, size, ip);
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            lookup = OutcomeUnknown(e);
+            throw;
+        }
+        databaseId = Field(database, "id");
+        Console.WriteLine($"Created database {Field(database, "display_name")}");
+    
+        await WaitUntilAvailable(token, databaseId);
+        Console.WriteLine("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        branchName = $"cookbook-{suffix}-branch";
+        branchLookup = true;
+        JsonNode? branch;
+        try
+        {
+            branch = await CreateBranch(token, databaseId, branchName);
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            branchLookup = OutcomeUnknown(e);
+            throw;
+        }
+        branchId = Field(branch, "id");
+        Console.WriteLine($"Created branch {Field(branch, "display_name")}");
+    
+        var branchPath = $"/databases/{databaseId}/branches/{branchId}";
+        await WaitUntilBranchAvailable(token, branchPath);
+        Console.WriteLine("Branch is available");
+    
+        var connection = await ConnectionSettings(token, branchPath);
+        Console.WriteLine("Branch server version: "
+            + await QueryOne(connection, "SELECT version()"));
+    }
+    // After a signal, the request or wait in progress fails, whatever the
+    // error that it reports.
+    catch (Exception) when (signalled.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Interrupted");
+        exitCode = 130;
+    }
+    catch (Exception e) when (Expected(e))
+    {
+        Console.Error.WriteLine($"Error: {e.Message}");
+        exitCode = 1;
+    }
+    finally
+    {
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then. Signals
+        // no longer cancel anything, so that they cannot cut the clean-up
+        // short. The finally block also runs for an error that the catch does
+        // not handle.
+        cancel = CancellationToken.None;
+        if (token is not null && name is not null)
+        {
+            try
+            {
+                if (databaseId is null && lookup)
+                {
+                    databaseId = await FindCreatedDatabase(token, name);
+                    if (databaseId is null)
+                    {
+                        Console.Error.WriteLine(
+                            $"Error: the database {name} was not found; "
+                            + "check your account for it by hand");
+                        exitCode = 1;
+                    }
+                }
+                if (databaseId is not null)
+                {
+                    // Delete the branch before the database. A failure here must
+                    // not stop the database delete, which uses force=true as a
+                    // safety net.
+                    try
+                    {
+                        if (branchId is null && branchLookup)
+                        {
+                            branchId = await FindCreatedBranch(
+                                token, databaseId, branchName!);
+                            if (branchId is null)
+                            {
+                                Console.Error.WriteLine(
+                                    $"Error: the branch {branchName} was not found; "
+                                    + "check your account for it by hand");
+                                exitCode = 1;
+                            }
+                        }
+                        if (branchId is not null)
+                        {
+                            await DeleteBranch(token, databaseId, branchId);
+                            Console.WriteLine("Deleted branch");
+                        }
+                    }
+                    catch (Exception e) when (Expected(e))
+                    {
+                        Console.Error.WriteLine($"Error: {e.Message}");
+                        Console.Error.WriteLine(
+                            "The forced delete of the database that follows "
+                            + "also deletes the branch");
+                        exitCode = 1;
+                    }
+                    await DeleteDatabase(token, databaseId);
+                    Console.WriteLine("Deleted database");
+                }
+            }
+            catch (Exception e) when (Expected(e))
+            {
+                Console.Error.WriteLine($"Error: {e.Message}");
+                Console.Error.WriteLine(
+                    $"Delete the database {databaseId ?? name} and any "
+                    + "branches by hand, because it may still be billing");
+                exitCode = 1;
+            }
+        }
+    }
+    
+    return exitCode;
+    ```
+
+=== "Go"
+
+    ```go
+    // run creates the database, waits for it, and always deletes it, returning
+    // any error to the caller.
+    func run() (err error) {
+    	// Ctrl-C and SIGTERM cancel ctx instead of ending the process, so the
+    	// deferred cleanup below still runs.
+    	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    	defer stop()
+    	// Note whether a signal arrived, after the deferred clean-up below has
+    	// run, so that main can report an interruption.
+    	defer func() {
+    		if ctx.Err() != nil {
+    			interrupted = true
+    		}
+    	}()
+    
+    	token, err := getToken(ctx)
+    	if err != nil {
+    		return err
+    	}
+    
+    	region, size, err := choosePlacement(ctx, token)
+    	if err != nil {
+    		return err
+    	}
+    	fmt.Printf("Region: %s\n", region)
+    	fmt.Printf("Size: %s\n", size)
+    
+    	// Choose the name before the request, so that the program can find
+    	// the database even if the reply to the request never arrives.
+    	suffix, err := randomSuffix()
+    	if err != nil {
+    		return err
+    	}
+    	name, displayName := "cookbook"+suffix, "cookbook-"+suffix
+    
+    	// Delete the database whether the example succeeded, failed, or was
+    	// interrupted, because the service bills for it until then. The
+    	// cleanup uses its own context, because ctx ends on Ctrl-C, and the
+    	// signal handler above keeps absorbing any further signals until run
+    	// returns.
+    	var databaseID, branchID string
+    	lookup, branchLookup := false, false
+    	branchName := "cookbook-" + suffix + "-branch"
+    	defer func() {
+    		cleanup := context.Background()
+    		if databaseID == "" && lookup {
+    			id, findErr := findCreatedDatabase(cleanup, token, name)
+    			if findErr != nil {
+    				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr),
+    					fmt.Errorf("delete the database %s by hand, because it may still be billing", name))
+    				return
+    			}
+    			if id == "" {
+    				err = errors.Join(err, fmt.Errorf("the database %s was not found; check your account for it by hand", name))
+    				return
+    			}
+    			databaseID = id
+    		}
+    		if databaseID == "" {
+    			return
+    		}
+    		// Delete the branch before the database. A failure here must not
+    		// stop the database delete, which uses force=true as a safety net.
+    		if branchID == "" && branchLookup {
+    			id, findErr := findCreatedBranch(cleanup, token, databaseID, branchName)
+    			if findErr != nil {
+    				err = errors.Join(err, fmt.Errorf("looking for branch %s: %w", branchName, findErr),
+    					errors.New("the forced delete of the database that follows also deletes the branch"))
+    			} else if id == "" {
+    				err = errors.Join(err, fmt.Errorf("the branch %s was not found; check your account for it by hand", branchName))
+    			}
+    			branchID = id
+    		}
+    		if branchID != "" {
+    			if delErr := deleteBranch(cleanup, token, databaseID, branchID); delErr != nil {
+    				err = errors.Join(err, fmt.Errorf("deleting branch %s: %w", branchID, delErr),
+    					errors.New("the forced delete of the database that follows also deletes the branch"))
+    			} else {
+    				fmt.Println("Deleted branch")
+    			}
+    		}
+    		if delErr := deleteDatabase(cleanup, token, databaseID); delErr != nil {
+    			err = errors.Join(err, fmt.Errorf("deleting database %s: %w", databaseID, delErr),
+    				fmt.Errorf("delete the database %s and any branches by hand, because they may still be billing", databaseID))
+    			return
+    		}
+    		fmt.Println("Deleted database")
+    	}()
+    
+    	// Look the database up by name afterwards only if the outcome of the
+    	// request is unknown, so that a refusal cannot lead the cleanup to
+    	// delete another database that has the same name.
+    	ip, err := clientIP(ctx, token)
+    	if err != nil {
+    		return err
+    	}
+    	lookup = true
+    	database, err := createDatabase(ctx, token, name, displayName, region, size, ip)
+    	if err != nil {
+    		lookup = outcomeUnknown(err)
+    		return err
+    	}
+    	databaseID = database.ID
+    	fmt.Printf("Created database %s\n", database.DisplayName)
+    
+    	if err := waitUntilAvailable(ctx, token, database.ID); err != nil {
+    		return err
+    	}
+    	fmt.Println("Database is available")
+    
+    	// The program names the branch before the request, as it does the
+    	// database, and looks it up afterwards only if the outcome is unknown.
+    	branchLookup = true
+    	branch, err := createBranch(ctx, token, database.ID, branchName)
+    	if err != nil {
+    		branchLookup = outcomeUnknown(err)
+    		return err
+    	}
+    	branchID = branch.ID
+    	fmt.Printf("Created branch %s\n", branch.DisplayName)
+    
+    	branchPath := "/databases/" + database.ID + "/branches/" + branch.ID
+    	if err := waitUntilBranchAvailable(ctx, token, branchPath); err != nil {
+    		return err
+    	}
+    	fmt.Println("Branch is available")
+    
+    	config, err := connectionConfig(ctx, token, branchPath)
+    	if err != nil {
+    		return err
+    	}
+    	version, err := serverVersion(ctx, config)
+    	if err != nil {
+    		return err
+    	}
+    	fmt.Printf("Branch server version: %s\n", version)
+    	return nil
+    }
+    
+    // interrupted is set when Ctrl-C or SIGTERM arrived before run() returned.
+    var interrupted bool
+    
+    // main reports any error returned by run() and exits with a non-zero
+    // status. After a signal, it prints "Interrupted" and exits with 130, the
+    // status of a program that the user stopped, unless the clean-up failed as
+    // well, which errors.Join reports on a line of its own.
+    func main() {
+    	if err := run(); err != nil {
+    		if interrupted {
+    			fmt.Fprintln(os.Stderr, "Interrupted")
+    			if strings.Contains(err.Error(), "\n") {
+    				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    				os.Exit(1)
+    			}
+    			os.Exit(130)
+    		}
+    		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    		os.Exit(1)
+    	}
+    }
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    /// What the clean-up needs to know about the database that run created.
+    #[derive(Default)]
+    struct Created {
+        token: Option<String>,
+        name: Option<String>,
+        database_id: Option<String>,
+        lookup: bool,
+        branch_id: Option<String>,
+        branch_name: Option<String>,
+        branch_lookup: bool,
+    }
+    
+    /// Returns six random hexadecimal digits. The standard library has no
+    /// random number generator, but it seeds the keys of each RandomState
+    /// from the operating system, so the hash of nothing is a random number.
+    fn random_suffix() -> String {
+        format!("{:06x}", RandomState::new().build_hasher().finish() & 0xff_ffff)
+    }
+    
+    /// Does the work, recording in created what the clean-up needs to know.
+    fn run(cfg: &Settings, created: &mut Created) -> Result<()> {
+        let token = get_token(cfg)?;
+        created.token = Some(token.clone());
+    
+        let placement = choose_placement(cfg, &token)?;
+        println!("Region: {}", placement.0);
+        println!("Size: {}", placement.1);
+    
+        // Choose the name before the request, so that the program can find the
+        // database even if the reply to the request never arrives.
+        let suffix = random_suffix();
+        let name = format!("cookbook{suffix}");
+        let display_name = format!("cookbook-{suffix}");
+        let ip = client_ip(cfg, &token)?;
+        created.name = Some(name.clone());
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the clean-up to
+        // delete another database that has the same name.
+        created.lookup = true;
+        let database = create_database(cfg, &token, &name, &display_name, &placement, &ip)
+            .inspect_err(|e| created.lookup = outcome_unknown(e.as_ref()))?;
+        let database_id = field(&database, "id")?;
+        created.database_id = Some(database_id.clone());
+        println!("Created database {}", field(&database, "display_name")?);
+    
+        wait_until_available(cfg, &token, &database_id)?;
+        println!("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        let branch_name = format!("cookbook-{suffix}-branch");
+        created.branch_name = Some(branch_name.clone());
+        created.branch_lookup = true;
+        let branch = create_branch(cfg, &token, &database_id, &branch_name)
+            .inspect_err(|e| created.branch_lookup = outcome_unknown(e.as_ref()))?;
+        let branch_id = field(&branch, "id")?;
+        created.branch_id = Some(branch_id.clone());
+        println!("Created branch {}", field(&branch, "display_name")?);
+    
+        let branch_path = format!("/databases/{database_id}/branches/{branch_id}");
+        wait_until_branch_available(cfg, &token, &branch_path)?;
+        println!("Branch is available");
+    
+        let connection = connection_settings(cfg, &token, &branch_path)?;
+        println!("Branch server version: {}", server_version(&connection)?);
+        Ok(())
+    }
+    
+    /// Prints an error with the chain of underlying causes, because the
+    /// top-level error is often generic ("error sending request").
+    fn report(prefix: &str, e: &dyn Error) {
+        eprintln!("{prefix}{e}");
+        let mut cause = e.source();
+        while let Some(c) = cause {
+            eprintln!("  caused by: {c}");
+            cause = c.source();
+        }
+    }
+    
+    /// Deletes the database, if run created one, and returns the exit status.
+    fn clean_up(cfg: &Settings, created: &mut Created, mut status: u8) -> u8 {
+        let (Some(token), Some(name)) = (&created.token, &created.name) else {
+            return status;
+        };
+        let result = (|| -> Result<()> {
+            if created.database_id.is_none() && created.lookup {
+                created.database_id = find_created_database(cfg, token, name)?;
+                if created.database_id.is_none() {
+                    eprintln!("Error: the database {name} was not found; check your account for it by hand");
+                    status = 1;
+                }
+            }
+            if let Some(database_id) = &created.database_id {
+                // Delete the branch before the database. A failure here must
+                // not stop the database delete, which uses force=true as a
+                // safety net.
+                let branch = (|| -> Result<()> {
+                    if created.branch_id.is_none() && created.branch_lookup {
+                        let branch_name = created.branch_name.as_deref().unwrap_or_default();
+                        created.branch_id = find_created_branch(cfg, token, database_id, branch_name)?;
+                        if created.branch_id.is_none() {
+                            eprintln!(
+                                "Error: the branch {branch_name} was not found; check your account for it by hand"
+                            );
+                            status = 1;
+                        }
+                    }
+                    if let Some(branch_id) = &created.branch_id {
+                        delete_branch(cfg, token, database_id, branch_id)?;
+                        println!("Deleted branch");
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = branch {
+                    report("Error: ", e.as_ref());
+                    eprintln!("The forced delete of the database that follows also deletes the branch");
+                    status = 1;
+                }
+                delete_database(cfg, token, database_id)?;
+                println!("Deleted database");
+            }
+            Ok(())
+        })();
+        if let Err(e) = result {
+            report("Error: ", e.as_ref());
+            let database = created.database_id.as_ref().unwrap_or(name);
+            eprintln!("Delete the database {database} and any branches by hand, because it may still be billing");
+            status = 1;
+        }
+        status
+    }
+    
+    fn main() -> ExitCode {
+        if let Err(e) = catch_signals() {
+            report("Error: ", e.as_ref());
+            return ExitCode::FAILURE;
+        }
+        let cfg = settings();
+    
+        // catch_unwind turns a panic in run into an Err, so that the clean-up
+        // below runs after a panic too; the panic message has already been
+        // printed by then.
+        let mut created = Created::default();
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| run(&cfg, &mut created)));
+        let status = match outcome {
+            Ok(Ok(())) => 0,
+            _ if INTERRUPTED.load(Ordering::SeqCst) => {
+                eprintln!("Interrupted");
+                130
+            }
+            Ok(Err(e)) => {
+                report("Error: ", e.as_ref());
+                1
+            }
+            Err(_) => 1,
+        };
+    
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then. Signals no
+        // longer stop anything, so that they cannot cut the clean-up short.
+        CLEANING.store(true, Ordering::SeqCst);
+        ExitCode::from(clean_up(&cfg, &mut created, status))
+    }
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    def main
+      config = settings
+      exit_code = 0
+      token = nil
+      name = nil
+      database_id = nil
+      lookup = false
+      branch_id = nil
+      branch_name = nil
+      branch_lookup = false
+      begin
+        token = get_token(config)
+    
+        region, size = choose_placement(config, token)
+        puts "Region: #{region}"
+        puts "Size: #{size}"
+    
+        # Choose the name before the request, so that the program can find the
+        # database even if the reply to the request never arrives.
+        suffix = SecureRandom.hex(3)
+        name = "cookbook#{suffix}"
+        display_name = "cookbook-#{suffix}"
+        # Look the database up by name afterwards only if the outcome of the
+        # request is unknown, so that a refusal cannot lead the cleanup to
+        # delete another database that has the same name.
+        ip = client_ip(config, token)
+        lookup = true
+        begin
+          database = create_database(config, token, name, display_name, region, size, ip)
+        rescue StandardError => e
+          lookup = outcome_unknown?(e)
+          raise
+        end
+        database_id = database.fetch("id")
+        puts "Created database #{database.fetch('display_name')}"
+    
+        wait_until_available(config, token, database_id)
+        puts "Database is available"
+    
+        # The program names the branch before the request, as it does the
+        # database, and looks it up afterwards only if the outcome is unknown.
+        branch_name = "cookbook-#{suffix}-branch"
+        branch_lookup = true
+        begin
+          branch = create_branch(config, token, database_id, branch_name)
+        rescue StandardError => e
+          branch_lookup = outcome_unknown?(e)
+          raise
+        end
+        branch_id = branch.fetch("id")
+        puts "Created branch #{branch.fetch('display_name')}"
+    
+        branch_path = "/databases/#{database_id}/branches/#{branch_id}"
+        wait_until_branch_available(config, token, branch_path)
+        puts "Branch is available"
+    
+        connection = connection_settings(config, token, branch_path)
+        puts "Branch server version: #{server_version(connection)}"
+      # Net::HTTP raises errors of many classes, such as SystemCallError for a
+      # refused connection and Net::OpenTimeout for a timeout, the pg gem
+      # raises PG::Error, and the program raises ApiError and RuntimeError for
+      # replies that it cannot use, so this catches StandardError, their
+      # common ancestor.
+      rescue StandardError => e
+        warn "Error: #{e.message}"
+        exit_code = 1
+      # Ruby raises Interrupt for Ctrl-C and SignalException for SIGTERM.
+      rescue SignalException
+        warn "Interrupted"
+        exit_code = 130
+      ensure
+        # Delete the database whether the example succeeded, failed, or was
+        # interrupted, because the service bills for it until then. Ignore
+        # further interrupts, so that they cannot cut it short.
+        trap("INT", "IGNORE")
+        trap("TERM", "IGNORE")
+        if token && name
+          begin
+            if database_id.nil? && lookup
+              database_id = find_created_database(config, token, name)
+              if database_id.nil?
+                warn "Error: the database #{name} was not found; " \
+                     "check your account for it by hand"
+                exit_code = 1
+              end
+            end
+            if database_id
+              # Delete the branch before the database. A failure here must not
+              # stop the database delete, which uses force=true as a safety
+              # net.
+              begin
+                if branch_id.nil? && branch_lookup
+                  branch_id = find_created_branch(config, token, database_id, branch_name)
+                  if branch_id.nil?
+                    warn "Error: the branch #{branch_name} was not found; " \
+                         "check your account for it by hand"
+                    exit_code = 1
+                  end
+                end
+                if branch_id
+                  delete_branch(config, token, database_id, branch_id)
+                  puts "Deleted branch"
+                end
+              rescue StandardError => e
+                warn "Error: #{e.message}"
+                warn "The forced delete of the database that follows also deletes the branch"
+                exit_code = 1
+              end
+              delete_database(config, token, database_id)
+              puts "Deleted database"
+            end
+          rescue StandardError => e
+            warn "Error: #{e.message}"
+            warn "Delete the database #{database_id || name} and any branches by hand, " \
+                 "because it may still be billing"
+            exit_code = 1
+          end
+        end
+      end
+      exit_code
+    end
+    
+    exit main
+    ```
+
+=== "curl"
+
+    ```bash
+    # Deletes the branch and then the database, if the script created them. The
+    # EXIT trap runs this function when the script finishes, whether the example
+    # succeeded, failed, or was interrupted, because the service bills for them
+    # until then.
+    cleanup() {
+        local status=$?
+        # Ignore further interrupts, so that they cannot cut the cleanup short.
+        trap '' INT TERM
+        [[ -n "$passfile" ]] && rm -f "$passfile"
+        if [[ -n "$token" && -n "$name" ]]; then
+            # If the script has no ID and cannot tell whether the create request
+            # worked, look for the database by name.
+            if [[ -z "$database_id" && "$lookup" == 1 ]]; then
+                if ! database_id="$(find_created_database "$name")"; then
+                    echo "Error: could not look for database $name" >&2
+                    echo "Delete the database $name by hand, because it may still be billing" >&2
+                    database_id=""
+                    status=1
+                elif [[ -z "$database_id" ]]; then
+                    echo "Error: the database $name was not found; check your account for it by hand" >&2
+                    status=1
+                fi
+            fi
+            # Delete the branch before the database. A failure here must not stop
+            # the database delete, which uses force=true as a safety net.
+            if [[ -n "$database_id" && -z "$branch_id" && "$branch_lookup" == 1 ]]; then
+                if ! branch_id="$(find_created_branch "$database_id" "$branch_name")"; then
+                    echo "Error: could not look for branch $branch_name" >&2
+                    echo "The forced delete of the database that follows also deletes the branch" >&2
+                    branch_id=""
+                    status=1
+                elif [[ -z "$branch_id" ]]; then
+                    echo "Error: the branch $branch_name was not found; check your account for it by hand" >&2
+                    status=1
+                fi
+            fi
+            if [[ -n "$database_id" && -n "$branch_id" ]]; then
+                if delete_branch "$database_id" "$branch_id"; then
+                    echo "Deleted branch"
+                else
+                    echo "Error: could not delete branch $branch_id" >&2
+                    echo "The forced delete of the database that follows also deletes the branch" >&2
+                    status=1
+                fi
+            fi
+            if [[ -n "$database_id" ]]; then
+                if delete_database "$database_id"; then
+                    echo "Deleted database"
+                else
+                    echo "Error: could not delete database $database_id" >&2
+                    echo "Delete the database $database_id and any branches by hand, because they may still be billing" >&2
+                    status=1
+                fi
+            fi
+        fi
+        exit "$status"
+    }
+    
+    main() {
+        token="" name="" database_id="" lookup=0 passfile=""
+        branch_id="" branch_name="" branch_lookup=0
+        trap cleanup EXIT
+        # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
+        trap 'echo "Interrupted" >&2; exit 130' INT TERM
+    
+        token="$(get_token)"
+    
+        local placement region size suffix database display_name reply status ip version
+        local branch branch_path
+        placement="$(choose_placement)"
+        region="${placement% *}"
+        size="${placement#* }"
+        echo "Region: $region"
+        echo "Size: $size"
+    
+        # Choose the name before the request, so that the cleanup can find the
+        # database even if the reply to the request never arrives.
+        suffix="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+        name="cookbook$suffix"
+    
+        # Look the database up by name afterwards only if the outcome of the
+        # request is unknown, so that a refusal cannot lead the cleanup to
+        # delete another database that has the same name. The create_database
+        # function ends its output with the HTTP status on a line of its own,
+        # which is 000 if no reply arrived.
+        ip="$(client_ip)"
+        lookup=1
+        if ! reply="$(create_database "$name" "cookbook-$suffix" "$region" "$size" "$ip")"; then
+            status="${reply##*$'\n'}"
+            echo "Error: creating the database failed" >&2
+            echo "${reply%$'\n'*}" >&2
+            [[ "$status" =~ ^4[0-9][0-9]$ ]] && lookup=0
+            return 1
+        fi
+        database="${reply%$'\n'*}"
+        database_id="$(jq -er '.id' <<<"$database")"
+        display_name="$(jq -er '.display_name' <<<"$database")"
+        echo "Created database $display_name"
+    
+        wait_until_available "$database_id"
+        echo "Database is available"
+    
+        # Name the branch before the request, as for the database, and look it
+        # up afterwards only if the outcome is unknown.
+        branch_name="cookbook-$suffix-branch"
+        branch_lookup=1
+        if ! reply="$(create_branch "$database_id" "$branch_name")"; then
+            status="${reply##*$'\n'}"
+            echo "Error: creating the branch failed" >&2
+            echo "${reply%$'\n'*}" >&2
+            [[ "$status" =~ ^4[0-9][0-9]$ ]] && branch_lookup=0
+            return 1
+        fi
+        branch="${reply%$'\n'*}"
+        branch_id="$(jq -er '.id' <<<"$branch")"
+        display_name="$(jq -er '.display_name' <<<"$branch")"
+        echo "Created branch $display_name"
+    
+        branch_path="/databases/$database_id/branches/$branch_id"
+        wait_until_branch_available "$branch_path"
+        echo "Branch is available"
+    
+        # Run write_passfile here and not inside $(...), so that cleanup sees
+        # the path of the password file and can remove it.
+        write_passfile "$branch_path"
+        version="$(server_version)"
+        echo "Branch server version: $version"
+    }
+    
+    main
+    ```
+
+## Running the Example
+
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/branches).
+Set the environment variables for your account, and then run the command for
+your language from the corresponding project directory. The following tabs show
+the commands that build and run each example:
+
+=== "Python"
+
+    ```bash
+    python3 -m venv .venv
+    .venv/bin/pip install -r requirements.txt
+    .venv/bin/python main.py
+    ```
+
+=== "TypeScript"
+
+    ```bash
+    npm install
+    npm run build
+    npm start
+    ```
+
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
+=== "Go"
+
+    ```bash
+    go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
+    ```
+
+=== "curl"
+
+    ```bash
+    ./main.sh
+    ```
+
+The run takes several minutes, almost all of it spent waiting for the database
+and then the branch to become available.
+
+## Viewing the Complete Program
+
+The following tabs show the complete program for each language:
+
+=== "Python"
+
+    ```python
+    """
+    Ellie's Postgres Cookbook
+    Creating a branch of a pgEdge Starfleet database for a test run, and
+    connecting to it, using httpx and psycopg 3.
+    
+    The program creates a database of its own to branch. The Starfleet service
+    bills for every database and every branch from the moment that it becomes
+    connectable, so the program deletes the branch and then the database on
+    every path: after a success, after a failure, and after Ctrl-C.
+    
+    Copyright (c) 2026, pgEdge, Inc.
+    This code is released under the PostgreSQL License.
+    """
+    
+    import os
+    import secrets
+    import signal
+    import sys
+    import time
+    
+    import httpx
+    import psycopg
+    
+    
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    TIMEOUT_SECONDS = 900
+    POLL_SECONDS = 10
+    
+    # How many times to look for a database whose create reply was lost.
+    LOOKUP_ATTEMPTS = 3
+    
+    # How many times to try connecting to the database before giving up.
+    CONNECT_ATTEMPTS = 6
+    
+    
+    def settings() -> dict:
+        """Reads the API settings from the environment.
+    
+        The or operator treats an empty variable as unset. The client ID and
+        secret have no defaults, so a missing value becomes None, and the
+        token request reports it.
+        """
+        return {
+            "base_url": (
+                os.environ.get("STARFLEET_API_URL") or "https://api.pgedge.com"
+            ).rstrip("/"),
+            "client_id": os.environ.get("STARFLEET_CLIENT_ID") or None,
+            "client_secret": os.environ.get("STARFLEET_CLIENT_SECRET") or None,
+        }
+    
+    
+    def get_token(config: dict) -> str:
+        """Exchanges the client ID and secret for an access token, which the
+        Managed API accepts as a bearer token until it expires."""
+        if not config["client_id"] or not config["client_secret"]:
+            raise RuntimeError(
+                "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"
+            )
+    
+        response = httpx.post(
+            f"{config['base_url']}/account/v1/oauth/token",
+            json={
+                "grant_type": "client_credentials",
+                "client_id": config["client_id"],
+                "client_secret": config["client_secret"],
+            },
+            timeout=30,
+        )
+        # Turn any 4xx or 5xx status into an httpx.HTTPStatusError.
+        response.raise_for_status()
+        return response.json()["access_token"]
+    
+    
+    def api(config: dict, token: str, method: str, path: str, body=None):
+        """Sends an authenticated request to the Managed API and returns the
+        decoded JSON reply, or None if the reply has no body."""
+        response = httpx.request(
+            method,
+            f"{config['base_url']}/managed/v1{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json() if response.content else None
+    
+    
+    def choose_placement(config: dict, token: str) -> tuple[str, str]:
+        """Returns the region and size for the new database.
+    
+        The API lists sizes smallest first, so the first one is the cheapest.
+        The API does not price regions, so the example takes the first one.
+        """
+        regions = api(config, token, "GET", "/regions")
+        sizes = api(config, token, "GET", "/sizes")
+        if not regions or not sizes:
+            raise RuntimeError("the API offers no region or size")
+        return regions[0]["region"], sizes[0]["name"]
+    
+    
+    def client_ip(config: dict, token: str) -> str:
+        """Returns the address that the API sees requests come from."""
+        # A new database is closed to everyone until an allowlist rule admits
+        # an address. The API reports the address it sees this request come
+        # from, which is the one to admit; a bare address means a single host.
+        return api(config, token, "GET", "/client-ip")["ip_address"]
+    
+    
+    def create_database(
+        config: dict, token: str, name: str, display_name: str, region: str,
+        size: str, ip: str,
+    ) -> dict:
+        """Creates a database that only this machine can reach, and returns
+        the API's description of it, which includes its ID."""
+        return api(config, token, "POST", "/databases", {
+            # The name becomes the Postgres database name, so it holds only
+            # letters and digits, and the readable cookbook- prefix goes in
+            # the display name. The program also uses the name to find the
+            # database again if the reply to this request is lost.
+            "name": name,
+            "display_name": display_name,
+            "region": region,
+            "size": size,
+            "ip_allowlist": {"rules": [{"cidr": ip, "label": "cookbook"}]},
+        })
+    
+    
+    # The API does not document its status values; the example treats these
+    # two as failures, which end the wait at once instead of leaving it to run
+    # until the time limit.
+    FAILED_STATUSES = {"degraded", "failed"}
+    
+    
+    def wait_until_available(config: dict, token: str, database_id: str) -> None:
+        """Polls the database until its status is available."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        last = None
+        while time.monotonic() < deadline:
+            status = api(config, token, "GET", f"/databases/{database_id}")["status"]
+            if status != last:
+                print(f"Database status: {status}")
+                last = status
+            if status == "available":
+                return
+            if status in FAILED_STATUSES:
+                raise RuntimeError(f"the database has the status {status}")
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the database was not available after {TIMEOUT_SECONDS} seconds")
+    
+    
+    def create_branch(
+        config: dict, token: str, database_id: str, display_name: str
+    ) -> dict:
+        """Creates a copy-on-write branch of the database, and returns the
+        API's description of it, which includes its ID."""
+        # The API assigns the name of a branch, so the program gives the branch
+        # a display name and uses that to find it again if the reply to this
+        # request is lost. The request sets no allowlist, so the branch copies
+        # the rules of the database, which admit this machine. The branch also
+        # copies the size, the region, and the Postgres version.
+        return api(
+            config, token, "POST", f"/databases/{database_id}/branches",
+            {"display_name": display_name},
+        )
+    
+    
+    def wait_until_branch_available(
+        config: dict, token: str, branch_path: str
+    ) -> None:
+        """Polls the branch until its status is available."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        last = None
+        while time.monotonic() < deadline:
+            status = api(config, token, "GET", branch_path)["status"]
+            if status != last:
+                print(f"Branch status: {status}")
+                last = status
+            if status == "available":
+                return
+            if status in FAILED_STATUSES:
+                raise RuntimeError(f"the branch has the status {status}")
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the branch was not available after {TIMEOUT_SECONDS} seconds")
+    
+    
+    def connection_settings(config: dict, token: str, branch_path: str) -> dict:
+        """Reads the connection details of an available branch, and returns
+        them as keyword arguments for psycopg."""
+        # The connection details, including the password of the branch's own
+        # application user, come with the description of the branch. They are
+        # present only while the branch is available. The API does not require
+        # the host, so fall back to the external IP address if it is missing.
+        connection = api(config, token, "GET", branch_path)["connection"]
+        host = connection.get("host") or connection.get("external_ip_address")
+        details = {
+            "host": host,
+            "port": connection.get("port"),
+            "dbname": connection.get("database"),
+            "user": connection.get("username"),
+            "password": connection.get("password"),
+        }
+        if not all(details.values()):
+            raise RuntimeError("the database description has incomplete connection details")
+        return {
+            **details,
+            # Encrypt the connection. The certificate of a Starfleet database
+            # is not signed by a public authority, so the example does not
+            # verify it.
+            "sslmode": "require",
+            "connect_timeout": 15,
+        }
+    
+    
+    def server_version(connection: dict) -> str:
+        """Connects to the database and returns the server's version string."""
+        # A database can refuse connections for a short while after the API
+        # reports it as available, so try a few times before giving up. An
+        # error that carries an SQLSTATE code came from the server itself,
+        # such as a failed login, and will not change on a second attempt.
+        for attempt in range(CONNECT_ATTEMPTS):
+            try:
+                # The with block closes the connection when it exits, whether
+                # or not an error occurred.
+                with psycopg.connect(**connection) as conn:
+                    return conn.execute("SELECT version()").fetchone()[0]
+            except psycopg.OperationalError as e:
+                if e.sqlstate is not None or attempt == CONNECT_ATTEMPTS - 1:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+    
+    def is_transient(error: Exception) -> bool:
+        """Reports whether a failed request is worth repeating: no reply
+        arrived, the service is overloaded or failing, or it answered 409,
+        which the API does whilst a database is still being created."""
+        if isinstance(error, httpx.TransportError):
+            return True
+        if isinstance(error, httpx.HTTPStatusError):
+            status = error.response.status_code
+            return status in (409, 429) or status >= 500
+        return False
+    
+    
+    def is_gone(error: Exception) -> bool:
+        """Reports whether an error is a 404 reply, which means that the
+        database does not exist."""
+        return (
+            isinstance(error, httpx.HTTPStatusError)
+            and error.response.status_code == 404
+        )
+    
+    
+    def find_database(config: dict, token: str, name: str):
+        """Returns the ID of the database with the given name, or None. The
+        program uses this when it cannot tell whether a create request worked.
+        It repeats the request, as the delete does, because the fault that
+        lost the reply to the create request may still be there. The request
+        asks for the newest databases first, but the API does not say which
+        property it sorts on."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                databases = api(
+                    config, token, "GET", "/databases?limit=100&descending=true"
+                )
+                break
+            except httpx.HTTPError as e:
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+        for database in databases or []:
+            if database["name"] == name:
+                return database["id"]
+        return None
+    
+    
+    def find_created_database(config: dict, token: str, name: str):
+        """Looks for the database a few times, because the service may not
+        have recorded a request whose reply was lost until a little later.
+        Returns None if the database never appears."""
+        for attempt in range(LOOKUP_ATTEMPTS):
+            database_id = find_database(config, token, name)
+            if database_id is not None:
+                return database_id
+            if attempt < LOOKUP_ATTEMPTS - 1:
+                time.sleep(POLL_SECONDS)
+        return None
+    
+    
+    def outcome_unknown(error: Exception) -> bool:
+        """Reports whether a failed create request might still have created
+        the database: no reply arrived, or the service failed with a 5xx
+        status. A 4xx reply is a definite refusal."""
+        if isinstance(error, httpx.HTTPStatusError):
+            return error.response.status_code >= 500
+        return True
+    
+    
+    def list_branches(config: dict, token: str, database_id: str) -> list:
+        """Returns the branches of the database that have not been deleted,
+        newest first. The request repeats, as the deletes do, and a 404 means
+        that the database has gone, and so have its branches."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                return api(
+                    config, token, "GET",
+                    f"/databases/{database_id}/branches?limit=100&descending=true",
+                ) or []
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return []
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+    
+    def find_created_branch(config: dict, token: str, database_id: str, display_name: str):
+        """Looks for the branch with the given display name a few times, because
+        the service may not have recorded a request whose reply was lost until
+        a little later. Returns None if the branch never appears."""
+        for attempt in range(LOOKUP_ATTEMPTS):
+            for branch in list_branches(config, token, database_id):
+                if branch.get("display_name") == display_name:
+                    return branch["id"]
+            if attempt < LOOKUP_ATTEMPTS - 1:
+                time.sleep(POLL_SECONDS)
+        return None
+    
+    
+    def delete_branch(config: dict, token: str, database_id: str, branch_id: str) -> None:
+        """Deletes the branch and waits until the API no longer lists it."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                api(
+                    config, token, "DELETE",
+                    f"/databases/{database_id}/branches/{branch_id}",
+                )
+                break
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+        # The API takes a branch out of the list as soon as it accepts the
+        # delete, even though the teardown carries on afterwards.
+        while time.monotonic() < deadline:
+            branches = list_branches(config, token, database_id)
+            if all(branch["id"] != branch_id for branch in branches):
+                return
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the branch was still listed after {TIMEOUT_SECONDS} seconds")
+    
+    
+    def delete_database(config: dict, token: str, database_id: str) -> None:
+        """Deletes the database and waits until the API no longer lists it."""
+        deadline = time.monotonic() + TIMEOUT_SECONDS
+        while True:
+            try:
+                # The API refuses to delete a database that has branches, with a
+                # 409 reply, unless force=true, which deletes every branch first.
+                # The program has deleted its branch by now, so this is a safety
+                # net for a branch that the program could not find.
+                api(config, token, "DELETE", f"/databases/{database_id}?force=true")
+                break
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e) or time.monotonic() > deadline:
+                    raise
+                time.sleep(POLL_SECONDS)
+    
+        # The delete starts the teardown; a 404 shows that it has finished.
+        while time.monotonic() < deadline:
+            try:
+                api(config, token, "GET", f"/databases/{database_id}")
+            except httpx.HTTPError as e:
+                if is_gone(e):
+                    return
+                if not is_transient(e):
+                    raise
+            time.sleep(POLL_SECONDS)
+        raise TimeoutError(f"the database was still present after {TIMEOUT_SECONDS} seconds")
+    
+    
+    def stop(*_) -> None:
+        """Handles SIGTERM like Ctrl-C, by raising KeyboardInterrupt."""
+        raise KeyboardInterrupt
+    
+    
+    def main() -> int:
+        # Turn SIGTERM into a KeyboardInterrupt, so that the finally block
+        # runs, as it does for Ctrl-C.
+        signal.signal(signal.SIGTERM, stop)
+    
+        config = settings()
+        exit_code = 0
+        token = None
+        name = None
+        database_id = None
+        branch_id = None
+        branch_name = None
+        branch_lookup = False
+        lookup = False
+        try:
+            token = get_token(config)
+    
+            region, size = choose_placement(config, token)
+            print(f"Region: {region}")
+            print(f"Size: {size}")
+    
+            # Choose the name before the request, so that the program can find
+            # the database even if the reply to the request never arrives.
+            suffix = secrets.token_hex(3)
+            name, display_name = f"cookbook{suffix}", f"cookbook-{suffix}"
+            # Look the database up by name afterwards only if the outcome of
+            # the request is unknown, so that a refusal cannot lead the
+            # cleanup to delete another database that has the same name.
+            ip = client_ip(config, token)
+            lookup = True
+            try:
+                database = create_database(
+                    config, token, name, display_name, region, size, ip
+                )
+            except (httpx.HTTPError, ValueError) as e:
+                lookup = outcome_unknown(e)
+                raise
+            database_id = database["id"]
+            print(f"Created database {database['display_name']}")
+    
+            wait_until_available(config, token, database_id)
+            print("Database is available")
+    
+            # The program names the branch before the request, as it does the
+            # database, and looks it up afterwards only if the outcome is
+            # unknown.
+            branch_name = f"cookbook-{suffix}-branch"
+            branch_lookup = True
+            try:
+                branch = create_branch(config, token, database_id, branch_name)
+            except (httpx.HTTPError, ValueError) as e:
+                branch_lookup = outcome_unknown(e)
+                raise
+            branch_id = branch["id"]
+            print(f"Created branch {branch['display_name']}")
+    
+            branch_path = f"/databases/{database_id}/branches/{branch_id}"
+            wait_until_branch_available(config, token, branch_path)
+            print("Branch is available")
+    
+            connection = connection_settings(config, token, branch_path)
+            print(f"Branch server version: {server_version(connection)}")
+        # httpx.HTTPError covers connection failures and, through
+        # raise_for_status(), error responses from the API; psycopg.Error is
+        # the base class for every error the driver raises.
+        except (
+            httpx.HTTPError,
+            psycopg.Error,
+            KeyError,
+            ValueError,
+            RuntimeError,
+            TimeoutError,
+        ) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            exit_code = 1
+        except KeyboardInterrupt:
+            print("Interrupted", file=sys.stderr)
+            exit_code = 130
+        finally:
+            # Delete the database whether the example succeeded, failed, or
+            # was interrupted, because the service bills for it until then.
+            # Ignore further interrupts, so that they cannot cut it short.
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            if token is not None and name is not None:
+                try:
+                    if database_id is None and lookup:
+                        database_id = find_created_database(config, token, name)
+                        if database_id is None:
+                            print(
+                                f"Error: the database {name} was not found; "
+                                "check your account for it by hand",
+                                file=sys.stderr,
+                            )
+                            exit_code = 1
+                    if database_id is not None:
+                        # Delete the branch before the database. A failure here
+                        # must not stop the database delete, which uses
+                        # force=true as a safety net.
+                        try:
+                            if branch_id is None and branch_lookup:
+                                branch_id = find_created_branch(
+                                    config, token, database_id, branch_name
+                                )
+                                if branch_id is None:
+                                    print(
+                                        f"Error: the branch {branch_name} was not found; "
+                                        "check your account for it by hand",
+                                        file=sys.stderr,
+                                    )
+                                    exit_code = 1
+                            if branch_id is not None:
+                                delete_branch(config, token, database_id, branch_id)
+                                print("Deleted branch")
+                        except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
+                            print(f"Error: {e}", file=sys.stderr)
+                            print(
+                                "The forced delete of the database that follows "
+                                "also deletes the branch",
+                                file=sys.stderr,
+                            )
+                            exit_code = 1
+                        delete_database(config, token, database_id)
+                        print("Deleted database")
+                except (httpx.HTTPError, KeyError, ValueError, TimeoutError) as e:
+                    print(f"Error: {e}", file=sys.stderr)
+                    print(
+                        f"Delete the database {database_id or name} and any branches by hand, "
+                        "because it may still be billing",
+                        file=sys.stderr,
+                    )
+                    exit_code = 1
+    
+        return exit_code
+    
+    
+    if __name__ == "__main__":
+        sys.exit(main())
+    
+    ```
+
+=== "TypeScript"
+
+    ```typescript
+    /*
+     * Ellie's Postgres Cookbook
+     * Creating a branch of a pgEdge Starfleet database for a test run, and
+     * connecting to it, using the built-in fetch function and node-postgres.
+     *
+     * The program creates a database of its own to branch. The Starfleet
+     * service bills for every database and every branch from the moment that
+     * it becomes connectable, so the program deletes the branch and then the
+     * database on every path: after a success, after a failure, and after
+     * Ctrl-C.
+     *
+     * Copyright (c) 2026, pgEdge, Inc.
+     * This code is released under the PostgreSQL License.
+     */
+    
+    import { randomBytes } from "node:crypto";
+    import pg from "pg";
+    import process from "node:process";
+    import { setTimeout as sleep } from "node:timers/promises";
+    
+    // How long to wait for a database to become available, or to disappear
+    // after a delete, and how often to check.
+    const TIMEOUT_MS = 900_000;
+    const POLL_MS = 10_000;
+    
+    // How many times to look for a database whose create reply was lost.
+    const LOOKUP_ATTEMPTS = 3;
+    
+    // How many times to try connecting to the database before giving up.
+    const CONNECT_ATTEMPTS = 6;
+    
+    // Read the API settings from the environment. The || operator, unlike ??,
+    // also treats an empty variable as unset.
+    const baseUrl = (
+      process.env.STARFLEET_API_URL || "https://api.pgedge.com"
+    ).replace(/\/+$/, "");
+    const clientId = process.env.STARFLEET_CLIENT_ID || "";
+    const clientSecret = process.env.STARFLEET_CLIENT_SECRET || "";
+    
+    // Ctrl-C and SIGTERM abort the signal below instead of ending the
+    // process, which lets the program delete its database before it exits.
+    // The handlers stay in place, so a further Ctrl-C does not end the process
+    // during the cleanup either.
+    const interrupt = new AbortController();
+    for (const signalName of ["SIGINT", "SIGTERM"] as const) {
+      process.on(signalName, () => interrupt.abort());
+    }
+    
+    // Exchanges the client ID and secret for an access token, which the
+    // Managed API accepts as a bearer token until it expires.
+    async function getToken(): Promise<string> {
+      if (!clientId || !clientSecret) {
+        throw new Error(
+          "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set",
+        );
+      }
+    
+      const response = await fetch(`${baseUrl}/account/v1/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    
+      // fetch only rejects on network failures, so check the status here.
+      if (!response.ok) {
+        throw new Error(
+          `token request failed: ${response.status} ${await response.text()}`,
+        );
+      }
+      const body = (await response.json()) as { access_token: string };
+      return body.access_token;
+    }
+    
+    // An error reply from the Managed API, with its HTTP status.
+    class ApiError extends Error {
+      constructor(
+        readonly status: number,
+        message: string,
+      ) {
+        super(message);
+      }
+    }
+    
+    // Sends an authenticated request to the Managed API and returns the
+    // decoded JSON reply, or undefined if the reply has no body. The request
+    // stops when the user presses Ctrl-C, unless the caller passes a
+    // different signal, as the cleanup does.
+    async function api<T>(
+      token: string,
+      method: string,
+      path: string,
+      body?: unknown,
+      signal: AbortSignal = interrupt.signal,
+    ): Promise<T | undefined> {
+      const response = await fetch(`${baseUrl}/managed/v1${path}`, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+      });
+      if (!response.ok) {
+        throw new ApiError(
+          response.status,
+          `${method} ${path} failed: ${response.status} ${await response.text()}`,
+        );
+      }
+      const text = await response.text();
+      return text ? (JSON.parse(text) as T) : undefined;
+    }
+    
+    // Returns the region and size for the new database. The API lists sizes
+    // smallest first, so the first one is the cheapest. The API does not
+    // price regions, so the example takes the first one.
+    async function choosePlacement(
+      token: string,
+    ): Promise<{ region: string; size: string }> {
+      const regions = await api<{ region: string }[]>(token, "GET", "/regions");
+      const sizes = await api<{ name: string }[]>(token, "GET", "/sizes");
+      if (!regions?.length || !sizes?.length) {
+        throw new Error("the API offers no region or size");
+      }
+      return { region: regions[0].region, size: sizes[0].name };
+    }
+    
+    interface Database {
+      id: string;
+      display_name: string;
+      status: string;
+    }
+    
+    // Returns this machine's public IP address as the API sees it.
+    async function clientIp(token: string): Promise<string> {
+      // A new database is closed to everyone until an allowlist rule admits
+      // an address. The API reports the address it sees this request come
+      // from, which is the one to admit; a bare address means a single host.
+      const reply = await api<{ ip_address: string }>(token, "GET", "/client-ip");
+      return reply!.ip_address;
+    }
+    
+    // Creates a database that only this machine can reach, and returns the
+    // API's description of it, which includes its ID.
+    async function createDatabase(
+      token: string,
+      name: string,
+      displayName: string,
+      region: string,
+      size: string,
+      ip: string,
+    ): Promise<Database> {
+      const database = await api<Database>(token, "POST", "/databases", {
+        // The name becomes the Postgres database name, so it holds only
+        // letters and digits, and the readable cookbook- prefix goes in the
+        // display name. The program also uses the name to find the database
+        // again if the reply to this request is lost.
+        name,
+        display_name: displayName,
+        region,
+        size,
+        ip_allowlist: { rules: [{ cidr: ip, label: "cookbook" }] },
+      });
+      return database!;
+    }
+    
+    // Polls the database until its status is available.
+    async function waitUntilAvailable(
+      token: string,
+      databaseId: string,
+    ): Promise<void> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      let last = "";
+      while (Date.now() < deadline) {
+        const database = await api<Database>(token, "GET", `/databases/${databaseId}`);
+        if (database!.status !== last) {
+          console.log(`Database status: ${database!.status}`);
+          last = database!.status;
+        }
+        if (database!.status === "available") {
+          return;
+        }
+        // The API does not document its status values; the example treats
+        // these two as failures, which end the wait at once instead of leaving
+        // it to run until the time limit.
+        if (database!.status === "degraded" || database!.status === "failed") {
+          throw new Error(`the database has the status ${database!.status}`);
+        }
+        await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+      }
+      throw new Error(`the database was not available after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    
+    interface Branch {
+      id: string;
+      display_name?: string;
+      status: string;
+    }
+    
+    // Creates a copy-on-write branch of the database, and returns the API's
+    // description of it, which includes its ID.
+    async function createBranch(
+      token: string,
+      databaseId: string,
+      displayName: string,
+    ): Promise<Branch> {
+      // The API assigns the name of a branch, so the program gives the branch
+      // a display name and uses that to find it again if the reply to this
+      // request is lost. The request sets no allowlist, so the branch copies
+      // the rules of the database, which admit this machine. The branch also
+      // copies the size, the region, and the Postgres version.
+      const branch = await api<Branch>(
+        token,
+        "POST",
+        `/databases/${databaseId}/branches`,
+        { display_name: displayName },
+      );
+      return branch!;
+    }
+    
+    // Polls the branch until its status is available.
+    async function waitUntilBranchAvailable(
+      token: string,
+      branchPath: string,
+    ): Promise<void> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      let last = "";
+      while (Date.now() < deadline) {
+        const branch = await api<Branch>(token, "GET", branchPath);
+        if (branch!.status !== last) {
+          console.log(`Branch status: ${branch!.status}`);
+          last = branch!.status;
+        }
+        if (branch!.status === "available") {
+          return;
+        }
+        if (branch!.status === "degraded" || branch!.status === "failed") {
+          throw new Error(`the branch has the status ${branch!.status}`);
+        }
+        await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+      }
+      throw new Error(`the branch was not available after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    
+    // Reads the connection details of an available branch, and returns them
+    // as a node-postgres configuration.
+    async function connectionConfig(
+      token: string,
+      branchPath: string,
+    ): Promise<pg.ClientConfig> {
+      // The connection details, including the password of the branch's own
+      // application user, come with the description of the branch. They are
+      // present only while the branch is available. The API does not require
+      // the host, so fall back to the external IP address if it is missing.
+      const database = await api<{
+        connection?: {
+          host?: string;
+          external_ip_address?: string;
+          port?: number;
+          database?: string;
+          username?: string;
+          password?: string;
+        };
+      }>(token, "GET", branchPath);
+      const connection = database?.connection;
+      const host = connection?.host || connection?.external_ip_address;
+      if (
+        !host ||
+        !connection?.port ||
+        !connection.database ||
+        !connection.username ||
+        !connection.password
+      ) {
+        throw new Error("the database description has incomplete connection details");
+      }
+    
+      return {
+        host,
+        port: connection.port,
+        database: connection.database,
+        user: connection.username,
+        password: connection.password,
+        // Encrypt the connection. The certificate of a Starfleet database is
+        // not signed by a public authority, so the example does not verify it.
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 15_000,
+      };
+    }
+    
+    // Connects to the database and returns the server's version string.
+    async function serverVersion(config: pg.ClientConfig): Promise<string> {
+      // A database can refuse connections for a short while after the API
+      // reports it as available, so try a few times before giving up. An
+      // error from the server itself, such as a failed login, will not change
+      // on a second attempt. A failed client cannot be reused, so each attempt
+      // makes a new one.
+      let client = new pg.Client(config);
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await client.connect();
+          break;
+        } catch (err) {
+          if (err instanceof pg.DatabaseError || attempt === CONNECT_ATTEMPTS) {
+            throw err;
+          }
+          await sleep(POLL_MS, undefined, { signal: interrupt.signal });
+          client = new pg.Client(config);
+        }
+      }
+      try {
+        const result = await client.query<{ version: string }>("SELECT version()");
+        return result.rows[0].version;
+      } finally {
+        // The finally block closes the connection whether or not the query
+        // failed.
+        await client.end();
+      }
+    }
+    
+    // Reports whether a failed request is worth repeating: no reply arrived
+    // (fetch rejects, and the error is not an ApiError), the service is
+    // overloaded or failing, or it answered 409, which the API does whilst a
+    // database is still being created.
+    function isTransient(err: unknown): boolean {
+      if (!(err instanceof ApiError)) {
+        return true;
+      }
+      return err.status === 409 || err.status === 429 || err.status >= 500;
+    }
+    
+    // Looks for the database a few times, because the service may not have
+    // recorded a request whose reply was lost until a little later. Returns
+    // undefined if the database never appears.
+    async function findCreatedDatabase(
+      token: string,
+      name: string,
+      signal: AbortSignal,
+    ): Promise<string | undefined> {
+      for (let attempt = 1; ; attempt++) {
+        const id = await findDatabase(token, name, signal);
+        if (id || attempt === LOOKUP_ATTEMPTS) {
+          return id;
+        }
+        await sleep(POLL_MS);
+      }
+    }
+    
+    // Reports whether a failed create request might still have created the
+    // database: no reply arrived, the reply could not be decoded, or the
+    // service failed with a 5xx status. A 4xx reply is a definite refusal.
+    function outcomeUnknown(err: unknown): boolean {
+      return !(err instanceof ApiError) || err.status >= 500;
+    }
+    
+    // Returns the ID of the database with the given name, or undefined. The
+    // program uses this when it cannot tell whether a create request worked.
+    // It repeats the request, as the delete does, because the fault that lost
+    // the reply to the create request may still be there. The request asks for
+    // the newest databases first, but the API does not say which property it
+    // sorts on.
+    async function findDatabase(
+      token: string,
+      name: string,
+      signal: AbortSignal,
+    ): Promise<string | undefined> {
+      const deadline = Date.now() + TIMEOUT_MS;
+      for (;;) {
+        try {
+          const databases = await api<{ id: string; name: string }[]>(
+            token,
+            "GET",
+            "/databases?limit=100&descending=true",
+            undefined,
+            signal,
+          );
+          return databases?.find((database) => database.name === name)?.id;
+        } catch (err) {
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    }
+    
+    // Returns the branches of the database that have not been deleted, newest
+    // first. The request repeats, as the deletes do, and a 404 means that the
+    // database has gone, and so have its branches.
+    async function listBranches(token: string, databaseId: string): Promise<Branch[]> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+      for (;;) {
+        try {
+          const branches = await api<Branch[]>(
+            token,
+            "GET",
+            `/databases/${databaseId}/branches?limit=100&descending=true`,
+            undefined,
+            never,
+          );
+          return branches ?? [];
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return [];
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    }
+    
+    // Looks for the branch with the given display name a few times, because
+    // the service may not have recorded a request whose reply was lost until a
+    // little later. Returns undefined if the branch never appears.
+    async function findCreatedBranch(
+      token: string,
+      databaseId: string,
+      displayName: string,
+    ): Promise<string | undefined> {
+      for (let attempt = 1; ; attempt++) {
+        const branches = await listBranches(token, databaseId);
+        const id = branches.find((branch) => branch.display_name === displayName)?.id;
+        if (id || attempt === LOOKUP_ATTEMPTS) {
+          return id;
+        }
+        await sleep(POLL_MS);
+      }
+    }
+    
+    // Deletes the branch and waits until the API no longer lists it. The
+    // requests ignore Ctrl-C, so that a second interrupt cannot leave the
+    // branch behind.
+    async function deleteBranch(
+      token: string,
+      databaseId: string,
+      branchId: string,
+    ): Promise<void> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+    
+      for (;;) {
+        try {
+          await api(
+            token,
+            "DELETE",
+            `/databases/${databaseId}/branches/${branchId}`,
+            undefined,
+            never,
+          );
+          break;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    
+      // The API takes a branch out of the list as soon as it accepts the
+      // delete, even though the teardown carries on afterwards.
+      while (Date.now() < deadline) {
+        const branches = await listBranches(token, databaseId);
+        if (branches.every((branch) => branch.id !== branchId)) {
+          return;
+        }
+        await sleep(POLL_MS);
+      }
+      throw new Error(`the branch was still listed after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    
+    // Deletes the database and waits until the API no longer lists it. The
+    // requests ignore Ctrl-C, so that a second interrupt cannot leave the
+    // database behind.
+    async function deleteDatabase(token: string, databaseId: string): Promise<void> {
+      const never = new AbortController().signal;
+      const deadline = Date.now() + TIMEOUT_MS;
+    
+      for (;;) {
+        try {
+          // The API refuses to delete a database that has branches, with a 409
+          // reply, unless force=true, which deletes every branch first. The
+          // program has deleted its branch by now, so this is a safety net for
+          // a branch that the program could not find.
+          await api(
+            token,
+            "DELETE",
+            `/databases/${databaseId}?force=true`,
+            undefined,
+            never,
+          );
+          break;
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err) || Date.now() > deadline) {
+            throw err;
+          }
+          await sleep(POLL_MS);
+        }
+      }
+    
+      // The delete starts the teardown; a 404 shows that it has finished.
+      while (Date.now() < deadline) {
+        try {
+          await api(token, "GET", `/databases/${databaseId}`, undefined, never);
+        } catch (err) {
+          if (err instanceof ApiError && err.status === 404) {
+            return;
+          }
+          if (!isTransient(err)) {
+            throw err;
+          }
+        }
+        await sleep(POLL_MS);
+      }
+      throw new Error(`the database was still present after ${TIMEOUT_MS / 1000} seconds`);
+    }
+    
+    // Returns a readable description of an error. A failure to connect
+    // arrives as a TypeError whose cause holds the details, and Node reports
+    // a failure to reach several addresses as an AggregateError.
+    function describe(err: unknown): string {
+      if (err instanceof AggregateError) {
+        return err.errors.map(describe).join("; ");
+      }
+      if (err instanceof Error && err.cause) {
+        return `${err.message}: ${describe(err.cause)}`;
+      }
+      return err instanceof Error ? err.message : String(err);
+    }
+    
+    async function main(): Promise<number> {
+      let exitCode = 0;
+      let token: string | undefined;
+      let name: string | undefined;
+      let databaseId: string | undefined;
+      let branchId: string | undefined;
+      let branchName: string | undefined;
+      let branchLookup = false;
+      let lookup = false;
+      try {
+        token = await getToken();
+    
+        const { region, size } = await choosePlacement(token);
+        console.log(`Region: ${region}`);
+        console.log(`Size: ${size}`);
+    
+        // Choose the name before the request, so that the program can find
+        // the database even if the reply to the request never arrives.
+        const suffix = randomBytes(3).toString("hex");
+        name = `cookbook${suffix}`;
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the cleanup to
+        // delete another database that has the same name.
+        const ip = await clientIp(token);
+        lookup = true;
+        let database;
+        try {
+          database = await createDatabase(
+            token,
+            name,
+            `cookbook-${suffix}`,
+            region,
+            size,
+            ip,
+          );
+        } catch (err) {
+          lookup = outcomeUnknown(err);
+          throw err;
+        }
+        databaseId = database.id;
+        console.log(`Created database ${database.display_name}`);
+    
+        await waitUntilAvailable(token, databaseId);
+        console.log("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        branchName = `cookbook-${suffix}-branch`;
+        branchLookup = true;
+        let branch;
+        try {
+          branch = await createBranch(token, databaseId, branchName);
+        } catch (err) {
+          branchLookup = outcomeUnknown(err);
+          throw err;
+        }
+        branchId = branch.id;
+        console.log(`Created branch ${branch.display_name}`);
+    
+        const branchPath = `/databases/${databaseId}/branches/${branchId}`;
+        await waitUntilBranchAvailable(token, branchPath);
+        console.log("Branch is available");
+    
+        const config = await connectionConfig(token, branchPath);
+        console.log(`Branch server version: ${await serverVersion(config)}`);
+      } catch (err) {
+        if (interrupt.signal.aborted) {
+          console.error("Interrupted");
+          exitCode = 130;
+        } else {
+          console.error(`Error: ${describe(err)}`);
+          exitCode = 1;
+        }
+      } finally {
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then.
+        if (token && name) {
+          try {
+            if (!databaseId && lookup) {
+              databaseId = await findCreatedDatabase(
+                token,
+                name,
+                new AbortController().signal,
+              );
+              if (!databaseId) {
+                console.error(
+                  `Error: the database ${name} was not found; check your account for it by hand`,
+                );
+                exitCode = 1;
+              }
+            }
+            if (databaseId) {
+              // Delete the branch before the database. A failure here must not
+              // stop the database delete, which uses force=true as a safety
+              // net.
+              try {
+                if (!branchId && branchLookup && branchName) {
+                  branchId = await findCreatedBranch(token, databaseId, branchName);
+                  if (!branchId) {
+                    console.error(
+                      `Error: the branch ${branchName} was not found; check your account for it by hand`,
+                    );
+                    exitCode = 1;
+                  }
+                }
+                if (branchId) {
+                  await deleteBranch(token, databaseId, branchId);
+                  console.log("Deleted branch");
+                }
+              } catch (err) {
+                console.error(`Error: ${describe(err)}`);
+                console.error(
+                  "The forced delete of the database that follows also deletes the branch",
+                );
+                exitCode = 1;
+              }
+              await deleteDatabase(token, databaseId);
+              console.log("Deleted database");
+            }
+          } catch (err) {
+            console.error(`Error: ${describe(err)}`);
+            console.error(
+              `Delete the database ${databaseId ?? name} and any branches by hand, because they may still be billing`,
+            );
+            exitCode = 1;
+          }
+        }
+      }
+      return exitCode;
+    }
+    
+    process.exitCode = await main();
+    
+    ```
+
+=== "Java"
+
+    ```java
+    /*
+     * Ellie's Postgres Cookbook
+     * Creating a branch of a pgEdge Starfleet database for a test run, and
+     * connecting to it, using java.net.http, Jackson, and pgJDBC.
+     *
+     * The program creates a database of its own to branch. The Starfleet
+     * service bills for every database and every branch from the moment that it
+     * becomes connectable, so the program deletes the branch and then the
+     * database on every path: after a success, after a failure, and after
+     * Ctrl-C.
+     *
+     * Copyright (c) 2026, pgEdge, Inc.
+     * This code is released under the PostgreSQL License.
+     */
+    
+    import java.io.IOException;
+    import java.net.URI;
+    import java.net.http.HttpClient;
+    import java.net.http.HttpRequest;
+    import java.net.http.HttpResponse;
+    import java.net.http.HttpTimeoutException;
+    import java.security.SecureRandom;
+    import java.sql.Connection;
+    import java.sql.DriverManager;
+    import java.sql.ResultSet;
+    import java.sql.SQLException;
+    import java.sql.Statement;
+    import java.time.Duration;
+    import java.util.ArrayList;
+    import java.util.HexFormat;
+    import java.util.List;
+    import java.util.Map;
+    import java.util.Objects;
+    import java.util.Properties;
+    import java.util.Set;
+    import java.util.concurrent.CompletableFuture;
+    import java.util.concurrent.ExecutionException;
+    import java.util.concurrent.TimeUnit;
+    import java.util.concurrent.TimeoutException;
+    import org.postgresql.util.PSQLException;
+    import tools.jackson.core.JacksonException;
+    import tools.jackson.databind.JsonNode;
+    import tools.jackson.databind.ObjectMapper;
+    
+    public class Main {
+    
+        /**
+         * How long to wait for a database to become available, or to disappear
+         * after a delete, and how often to check.
+         */
+        static final int TIMEOUT_SECONDS = 900;
+        static final int POLL_SECONDS = 10;
+    
+        /** How many times to look for a database whose create reply was lost. */
+        static final int LOOKUP_ATTEMPTS = 3;
+    
+        /** How many times to try connecting to the database before giving up. */
+        static final int CONNECT_ATTEMPTS = 6;
+    
+        /** The settings that the program reads from the environment. */
+        record Settings(String baseUrl, String clientId, String clientSecret) {}
+    
+        /**
+         * Returns the value of an environment variable, or the fallback if the
+         * variable is unset or empty, as an unset variable would be.
+         */
+        static String envOr(String name, String fallback) {
+            String value = System.getenv(name);
+            return (value != null && !value.isEmpty()) ? value : fallback;
+        }
+    
+        /**
+         * Reads the API settings from the environment. The client ID and secret
+         * have no defaults, so a missing value becomes null, and the token
+         * request reports it.
+         */
+        static Settings settings() {
+            return new Settings(
+                    envOr("STARFLEET_API_URL", "https://api.pgedge.com")
+                            .replaceAll("/+$", ""),
+                    envOr("STARFLEET_CLIENT_ID", null),
+                    envOr("STARFLEET_CLIENT_SECRET", null));
+        }
+    
+        /**
+         * Returns a deadline the given number of seconds from now, on a clock
+         * that only moves forwards.
+         */
+        static long deadline(int seconds) {
+            return System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        }
+    
+        /** Reports whether a deadline is still in the future. */
+        static boolean before(long deadline) {
+            return System.nanoTime() - deadline < 0;
+        }
+    
+        /**
+         * Guards the state that the clean-up uses, which the main thread and
+         * the shutdown hook share (see main).
+         */
+        static final Object LOCK = new Object();
+    
+        /** Set by the shutdown hook when SIGINT or SIGTERM arrives. */
+        static volatile boolean interrupted;
+    
+        /**
+         * Throws InterruptedException once a signal has arrived, so that the
+         * main thread stops making requests. A thread that holds the lock is
+         * either creating the database or cleaning up, and both of those must
+         * run to the end.
+         */
+        static void checkInterrupted() throws InterruptedException {
+            if (interrupted && !Thread.holdsLock(LOCK)) {
+                throw new InterruptedException("interrupted");
+            }
+        }
+    
+        /** Waits for the given number of seconds, watching for a signal. */
+        static void pause(int seconds) throws InterruptedException {
+            long end = deadline(seconds);
+            while (before(end)) {
+                checkInterrupted();
+                Thread.sleep(200);
+            }
+        }
+    
+        /** One client serves every request; it is safe to share. */
+        static final HttpClient CLIENT = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .build();
+    
+        /** Converts between JSON text and Java objects. */
+        static final ObjectMapper JSON = new ObjectMapper();
+    
+        /** An error reply from the API, with its HTTP status. */
+        static class ApiException extends IOException {
+            final int status;
+    
+            ApiException(int status, String message) {
+                super(message);
+                this.status = status;
+            }
+        }
+    
+        /**
+         * Sends a request and returns the response with its whole body. The
+         * request timeout stops applying once the headers arrive, so a server
+         * that stalls part of the way through the body would hang send(); this
+         * applies the same timeout to the whole exchange instead.
+         */
+        static HttpResponse<String> send(HttpRequest request)
+                throws IOException, InterruptedException {
+            Duration timeout = request.timeout().orElseThrow();
+            CompletableFuture<HttpResponse<String>> pending =
+                    CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            try {
+                return pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                pending.cancel(true);
+                throw new HttpTimeoutException("request timed out");
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof IOException cause) {
+                    throw cause;
+                }
+                throw new IOException(e.getCause());
+            }
+        }
+    
+        /**
+         * Sends a request with a JSON body, if there is one, and returns the
+         * decoded JSON reply, or null if the reply has no body. A 4xx or 5xx
+         * reply throws an ApiException.
+         */
+        static JsonNode request(String method, String url, String path,
+                String token, Object body) throws IOException, InterruptedException {
+            checkInterrupted();
+            HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30));
+            if (token != null) {
+                request.header("Authorization", "Bearer " + token);
+            }
+            HttpRequest.BodyPublisher content = HttpRequest.BodyPublishers.noBody();
+            if (body != null) {
+                request.header("Content-Type", "application/json");
+                content = HttpRequest.BodyPublishers.ofString(
+                        JSON.writeValueAsString(body));
+            }
+    
+            HttpResponse<String> response = send(request.method(method, content).build());
+            if (response.statusCode() >= 400) {
+                throw new ApiException(response.statusCode(), method + " " + path
+                        + " failed with status " + response.statusCode() + ": "
+                        + response.body().strip());
+            }
+            String text = response.body();
+            return text.isEmpty() ? null : JSON.readTree(text);
+        }
+    
+        /**
+         * Returns a field of a JSON object as text, and throws if the field is
+         * missing.
+         */
+        static String field(JsonNode node, String name) {
+            JsonNode value = (node == null) ? null : node.get(name);
+            if (value == null || value.isNull()) {
+                throw new IllegalStateException("the reply has no " + name);
+            }
+            return value.asString();
+        }
+    
+        /**
+         * Exchanges the client ID and secret for an access token, which the
+         * Managed API accepts as a bearer token until it expires.
+         */
+        static String getToken(Settings cfg) throws IOException, InterruptedException {
+            if (cfg.clientId() == null || cfg.clientSecret() == null) {
+                throw new IllegalStateException(
+                        "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set");
+            }
+            String path = "/account/v1/oauth/token";
+            JsonNode token = request("POST", cfg.baseUrl() + path, path, null, Map.of(
+                    "grant_type", "client_credentials",
+                    "client_id", cfg.clientId(),
+                    "client_secret", cfg.clientSecret()));
+            return field(token, "access_token");
+        }
+    
+        /**
+         * Sends an authenticated request to the Managed API and returns the
+         * decoded JSON reply, or null if the reply has no body.
+         */
+        static JsonNode api(Settings cfg, String token, String method, String path,
+                Object body) throws IOException, InterruptedException {
+            return request(method, cfg.baseUrl() + "/managed/v1" + path, path,
+                    token, body);
+        }
+    
+        /** The region and size of a new database. */
+        record Placement(String region, String size) {}
+    
+        /**
+         * Returns the region and size for the new database. The API lists sizes
+         * smallest first, so the first one is the cheapest. The API does not
+         * price regions, so the example takes the first one.
+         */
+        static Placement choosePlacement(Settings cfg, String token)
+                throws IOException, InterruptedException {
+            JsonNode regions = api(cfg, token, "GET", "/regions", null);
+            JsonNode sizes = api(cfg, token, "GET", "/sizes", null);
+            if (regions == null || sizes == null || regions.size() == 0
+                    || sizes.size() == 0) {
+                throw new IllegalStateException("the API offers no region or size");
+            }
+            return new Placement(field(regions.get(0), "region"),
+                    field(sizes.get(0), "name"));
+        }
+    
+        /** Returns the address that the API sees requests come from. */
+        static String clientIp(Settings cfg, String token)
+                throws IOException, InterruptedException {
+            // A new database is closed to everyone until an allowlist rule
+            // admits an address. The API reports the address it sees this
+            // request come from, which is the one to admit; a bare address
+            // means a single host.
+            return field(api(cfg, token, "GET", "/client-ip", null), "ip_address");
+        }
+    
+        /**
+         * Creates a database that only this machine can reach, and returns the
+         * API's description of it, which includes its ID.
+         */
+        static JsonNode createDatabase(Settings cfg, String token, String name,
+                String displayName, Placement placement, String ip)
+                throws IOException, InterruptedException {
+            return api(cfg, token, "POST", "/databases", Map.of(
+                    // The name becomes the Postgres database name, so it holds
+                    // only letters and digits, and the readable cookbook- prefix
+                    // goes in the display name. The program also uses the name
+                    // to find the database again if the reply to this request
+                    // is lost.
+                    "name", name,
+                    "display_name", displayName,
+                    "region", placement.region(),
+                    "size", placement.size(),
+                    "ip_allowlist", Map.of("rules", List.of(
+                            Map.of("cidr", ip, "label", "cookbook")))));
+        }
+    
+        /**
+         * The API does not document its status values; the example treats
+         * these two as failures, which end the wait at once instead of leaving
+         * it to run until the time limit.
+         */
+        static final Set<String> FAILED_STATUSES = Set.of("degraded", "failed");
+    
+        /** Polls the database until its status is available. */
+        static void waitUntilAvailable(Settings cfg, String token, String databaseId)
+                throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            String last = null;
+            while (before(deadline)) {
+                String status = field(
+                        api(cfg, token, "GET", "/databases/" + databaseId, null),
+                        "status");
+                if (!status.equals(last)) {
+                    System.out.println("Database status: " + status);
+                    last = status;
+                }
+                if (status.equals("available")) {
+                    return;
+                }
+                if (FAILED_STATUSES.contains(status)) {
+                    throw new IllegalStateException(
+                            "the database has the status " + status);
+                }
+                pause(POLL_SECONDS);
+            }
+            throw new IllegalStateException("the database was not available after "
+                    + TIMEOUT_SECONDS + " seconds");
+        }
+    
+        /**
+         * Creates a copy-on-write branch of the database, and returns the API's
+         * description of it, which includes its ID.
+         */
+        static JsonNode createBranch(Settings cfg, String token, String databaseId,
+                String displayName) throws IOException, InterruptedException {
+            // The API assigns the name of a branch, so the program gives the
+            // branch a display name and uses that to find it again if the reply
+            // to this request is lost. The request sets no allowlist, so the
+            // branch copies the rules of the database, which admit this
+            // machine. The branch also copies the size, the region, and the
+            // Postgres version.
+            return api(cfg, token, "POST", "/databases/" + databaseId + "/branches",
+                    Map.of("display_name", displayName));
+        }
+    
+        /** Polls the branch until its status is available. */
+        static void waitUntilBranchAvailable(Settings cfg, String token,
+                String branchPath) throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            String last = null;
+            while (before(deadline)) {
+                String status = field(api(cfg, token, "GET", branchPath, null),
+                        "status");
+                if (!status.equals(last)) {
+                    System.out.println("Branch status: " + status);
+                    last = status;
+                }
+                if (status.equals("available")) {
+                    return;
+                }
+                if (FAILED_STATUSES.contains(status)) {
+                    throw new IllegalStateException(
+                            "the branch has the status " + status);
+                }
+                pause(POLL_SECONDS);
+            }
+            throw new IllegalStateException("the branch was not available after "
+                    + TIMEOUT_SECONDS + " seconds");
+        }
+    
+        /** The address and settings of a database, for pgJDBC. */
+        record ConnectionSettings(String url, Properties properties) {}
+    
+        /** Returns a field of a JSON object as text, or null if it is missing. */
+        static String optional(JsonNode node, String name) {
+            JsonNode value = node.get(name);
+            return (value == null || value.isNull() || value.asString().isEmpty())
+                    ? null : value.asString();
+        }
+    
+        /**
+         * Reads the connection details of an available branch, and returns them
+         * as a JDBC URL and properties.
+         */
+        static ConnectionSettings connectionSettings(Settings cfg, String token,
+                String branchPath) throws IOException, InterruptedException {
+            // The connection details, including the password of the branch's own
+            // application user, come with the description of the branch. They
+            // are present only while the branch is available. The API does not
+            // require the host, so fall back to the external IP address if it
+            // is missing.
+            JsonNode connection = api(cfg, token, "GET", branchPath, null)
+                    .path("connection");
+            String host = Objects.requireNonNullElse(optional(connection, "host"),
+                    Objects.requireNonNullElse(
+                            optional(connection, "external_ip_address"), ""));
+            String port = Objects.requireNonNullElse(optional(connection, "port"), "");
+            String database = Objects.requireNonNullElse(
+                    optional(connection, "database"), "");
+            String user = optional(connection, "username");
+            String password = optional(connection, "password");
+            if (host.isEmpty() || port.isEmpty() || database.isEmpty()
+                    || user == null || password == null) {
+                throw new IllegalStateException(
+                        "the database description has incomplete connection details");
+            }
+    
+            // The password goes in the properties rather than the URL, so that
+            // it cannot appear in an error message that quotes the URL.
+            Properties properties = new Properties();
+            properties.setProperty("user", user);
+            properties.setProperty("password", password);
+            // Encrypt the connection. The certificate of a Starfleet database is
+            // not signed by a public authority, so the example does not verify
+            // it; pgJDBC checks no certificate in require mode.
+            properties.setProperty("sslmode", "require");
+            // connectTimeout limits only the TCP connect, and loginTimeout the
+            // whole set-up, the TLS handshake and the login included.
+            properties.setProperty("connectTimeout", "15");
+            properties.setProperty("loginTimeout", "15");
+            return new ConnectionSettings(
+                    "jdbc:postgresql://" + host + ":" + port + "/" + database,
+                    properties);
+        }
+    
+        /** Connects to the database and returns the server's version string. */
+        static String serverVersion(ConnectionSettings connection)
+                throws SQLException, InterruptedException {
+            // A database can refuse connections for a short while after the API
+            // reports it as available, so try a few times before giving up. An
+            // error that carries a message from the server, such as a failed
+            // login, will not change on a second attempt; pgJDBC gives one only
+            // for errors that came from the server itself.
+            for (int attempt = 0; ; attempt++) {
+                checkInterrupted();
+                // The try-with-resources block closes the connection when it
+                // exits, whether or not an error occurred.
+                try (Connection conn = DriverManager.getConnection(
+                                connection.url(), connection.properties());
+                        Statement statement = conn.createStatement();
+                        ResultSet rows = statement.executeQuery("SELECT version()")) {
+                    rows.next();
+                    return rows.getString(1);
+                } catch (SQLException e) {
+                    boolean fromServer = e instanceof PSQLException psql
+                            && psql.getServerErrorMessage() != null;
+                    if (fromServer || attempt == CONNECT_ATTEMPTS - 1) {
+                        throw e;
+                    }
+                    pause(POLL_SECONDS);
+                }
+            }
+        }
+    
+        /**
+         * Reports whether a failed request is worth repeating: no reply arrived,
+         * the service is overloaded or failing, or it answered 409, which the
+         * API does whilst a database is still being created. Any IOException
+         * other than an ApiException means that no reply arrived, such as a
+         * refused connection or a timeout.
+         */
+        static boolean isTransient(Exception e) {
+            if (e instanceof ApiException api) {
+                return api.status == 409 || api.status == 429 || api.status >= 500;
+            }
+            return e instanceof IOException;
+        }
+    
+        /**
+         * Reports whether an error is a 404 reply, which means that the database
+         * does not exist.
+         */
+        static boolean isGone(Exception e) {
+            return e instanceof ApiException api && api.status == 404;
+        }
+    
+        /**
+         * Returns the ID of the database with the given name, or null. The
+         * program uses this when it cannot tell whether a create request worked.
+         * It repeats the request, as the delete does, because the fault that
+         * lost the reply to the create request may still be there. The request
+         * asks for the newest databases first, but the API does not say which
+         * property it sorts on.
+         */
+        static String findDatabase(Settings cfg, String token, String name)
+                throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            JsonNode databases;
+            while (true) {
+                try {
+                    databases = api(cfg, token, "GET",
+                            "/databases?limit=100&descending=true", null);
+                    break;
+                } catch (IOException e) {
+                    if (!isTransient(e) || !before(deadline)) {
+                        throw e;
+                    }
+                    pause(POLL_SECONDS);
+                }
+            }
+            if (databases != null) {
+                for (JsonNode database : databases) {
+                    if (name.equals(database.path("name").asString())) {
+                        return field(database, "id");
+                    }
+                }
+            }
+            return null;
+        }
+    
+        /**
+         * Looks for the database a few times, because the service may not have
+         * recorded a request whose reply was lost until a little later. Returns
+         * null if the database never appears.
+         */
+        static String findCreatedDatabase(Settings cfg, String token, String name)
+                throws IOException, InterruptedException {
+            for (int attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+                String databaseId = findDatabase(cfg, token, name);
+                if (databaseId != null) {
+                    return databaseId;
+                }
+                if (attempt < LOOKUP_ATTEMPTS - 1) {
+                    pause(POLL_SECONDS);
+                }
+            }
+            return null;
+        }
+    
+        /**
+         * Reports whether a failed create request might still have created the
+         * database: no reply arrived, the reply could not be read, or the
+         * service failed with a 5xx status. A 4xx reply is a definite refusal.
+         */
+        static boolean outcomeUnknown(Exception e) {
+            if (e instanceof ApiException api) {
+                return api.status >= 500;
+            }
+            return true;
+        }
+    
+        /**
+         * Returns the branches of the database that have not been deleted,
+         * newest first. The request repeats, as the deletes do, and a 404 means
+         * that the database has gone, and so have its branches.
+         */
+        static List<JsonNode> listBranches(Settings cfg, String token,
+                String databaseId) throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            while (true) {
+                try {
+                    JsonNode branches = api(cfg, token, "GET", "/databases/"
+                            + databaseId + "/branches?limit=100&descending=true", null);
+                    List<JsonNode> list = new ArrayList<>();
+                    if (branches != null) {
+                        branches.forEach(list::add);
+                    }
+                    return list;
+                } catch (IOException e) {
+                    if (isGone(e)) {
+                        return List.of();
+                    }
+                    if (!isTransient(e) || !before(deadline)) {
+                        throw e;
+                    }
+                    pause(POLL_SECONDS);
+                }
+            }
+        }
+    
+        /**
+         * Looks for the branch with the given display name a few times, because
+         * the service may not have recorded a request whose reply was lost until
+         * a little later. Returns null if the branch never appears.
+         */
+        static String findCreatedBranch(Settings cfg, String token,
+                String databaseId, String displayName)
+                throws IOException, InterruptedException {
+            for (int attempt = 0; attempt < LOOKUP_ATTEMPTS; attempt++) {
+                for (JsonNode branch : listBranches(cfg, token, databaseId)) {
+                    if (displayName.equals(branch.path("display_name").asString())) {
+                        return field(branch, "id");
+                    }
+                }
+                if (attempt < LOOKUP_ATTEMPTS - 1) {
+                    pause(POLL_SECONDS);
+                }
+            }
+            return null;
+        }
+    
+        /** Deletes the branch and waits until the API no longer lists it. */
+        static void deleteBranch(Settings cfg, String token, String databaseId,
+                String branchId) throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            while (true) {
+                try {
+                    api(cfg, token, "DELETE", "/databases/" + databaseId
+                            + "/branches/" + branchId, null);
+                    break;
+                } catch (IOException e) {
+                    if (isGone(e)) {
+                        return;
+                    }
+                    if (!isTransient(e) || !before(deadline)) {
+                        throw e;
+                    }
+                    pause(POLL_SECONDS);
+                }
+            }
+    
+            // The API takes a branch out of the list as soon as it accepts the
+            // delete, even though the teardown carries on afterwards.
+            while (before(deadline)) {
+                boolean listed = false;
+                for (JsonNode branch : listBranches(cfg, token, databaseId)) {
+                    if (branchId.equals(field(branch, "id"))) {
+                        listed = true;
+                    }
+                }
+                if (!listed) {
+                    return;
+                }
+                pause(POLL_SECONDS);
+            }
+            throw new IllegalStateException("the branch was still listed after "
+                    + TIMEOUT_SECONDS + " seconds");
+        }
+    
+        /** Deletes the database and waits until the API no longer lists it. */
+        static void deleteDatabase(Settings cfg, String token, String databaseId)
+                throws IOException, InterruptedException {
+            long deadline = deadline(TIMEOUT_SECONDS);
+            while (true) {
+                try {
+                    // The API refuses to delete a database that has branches,
+                    // with a 409 reply, unless force=true, which deletes every
+                    // branch first. The program has deleted its branch by now,
+                    // so this is a safety net for a branch that the program
+                    // could not find.
+                    api(cfg, token, "DELETE", "/databases/" + databaseId
+                            + "?force=true", null);
+                    break;
+                } catch (IOException e) {
+                    if (isGone(e)) {
+                        return;
+                    }
+                    if (!isTransient(e) || !before(deadline)) {
+                        throw e;
+                    }
+                    pause(POLL_SECONDS);
+                }
+            }
+    
+            // The delete starts the teardown; a 404 shows that it has finished.
+            while (before(deadline)) {
+                try {
+                    api(cfg, token, "GET", "/databases/" + databaseId, null);
+                } catch (IOException e) {
+                    if (isGone(e)) {
+                        return;
+                    }
+                    if (!isTransient(e)) {
+                        throw e;
+                    }
+                }
+                pause(POLL_SECONDS);
+            }
+            throw new IllegalStateException("the database was still present after "
+                    + TIMEOUT_SECONDS + " seconds");
+        }
+    
+        // What the clean-up needs to know, guarded by LOCK.
+        static Settings cfg;
+        static String token;
+        static String name;
+        static String databaseId;
+        static boolean lookup;
+        static String branchId;
+        static String branchName;
+        static boolean branchLookup;
+        /** The exit status, once the clean-up has run. */
+        static Integer result;
+        /** Set once the clean-up has started. */
+        static volatile boolean cleaning;
+        /** Set once the main thread has finished, clean-up included. */
+        static volatile boolean exiting;
+    
+        /**
+         * Returns the message of an error. Some errors, such as a refused
+         * connection, have no message, so their type stands in for one.
+         */
+        static String describe(Exception e) {
+            return Objects.requireNonNullElse(e.getMessage(), e.toString());
+        }
+    
+        /**
+         * Deletes the database, if the program created one, and returns the
+         * exit status. The main thread and the shutdown hook both call this,
+         * and whichever comes first does the work; the other waits for it and
+         * gets the same status.
+         */
+        static int cleanUp(int status) {
+            synchronized (LOCK) {
+                if (result != null) {
+                    return result;
+                }
+                cleaning = true;
+                if (token != null && name != null) {
+                    try {
+                        if (databaseId == null && lookup) {
+                            databaseId = findCreatedDatabase(cfg, token, name);
+                            if (databaseId == null) {
+                                System.err.println("Error: the database " + name
+                                        + " was not found; check your account for"
+                                        + " it by hand");
+                                status = 1;
+                            }
+                        }
+                        if (databaseId != null) {
+                            // Delete the branch before the database. A failure
+                            // here must not stop the database delete, which uses
+                            // force=true as a safety net.
+                            try {
+                                if (branchId == null && branchLookup) {
+                                    branchId = findCreatedBranch(cfg, token,
+                                            databaseId, branchName);
+                                    if (branchId == null) {
+                                        System.err.println("Error: the branch "
+                                                + branchName + " was not found;"
+                                                + " check your account for it by"
+                                                + " hand");
+                                        status = 1;
+                                    }
+                                }
+                                if (branchId != null) {
+                                    deleteBranch(cfg, token, databaseId, branchId);
+                                    System.out.println("Deleted branch");
+                                }
+                            } catch (IOException | JacksonException
+                                    | IllegalStateException e) {
+                                System.err.println("Error: " + describe(e));
+                                System.err.println("The forced delete of the"
+                                        + " database that follows also deletes"
+                                        + " the branch");
+                                status = 1;
+                            }
+                            deleteDatabase(cfg, token, databaseId);
+                            System.out.println("Deleted database");
+                        }
+                    } catch (IOException | InterruptedException | JacksonException
+                            | IllegalStateException e) {
+                        System.err.println("Error: " + describe(e));
+                        System.err.println("Delete the database "
+                                + (databaseId != null ? databaseId : name)
+                                + " and any branches by hand, because it may"
+                                + " still be billing");
+                        status = 1;
+                    }
+                }
+                result = status;
+                return status;
+            }
+        }
+    
+        public static void main(String[] args) {
+            // Java cannot catch a signal with its supported API, but SIGINT and
+            // SIGTERM start an orderly shutdown that runs this hook. The hook
+            // stops the main thread's requests, deletes the database (or waits
+            // for the main thread to finish doing so), and ends the program
+            // with the status of the clean-up. A normal exit runs the hook too,
+            // after the main thread has cleaned up.
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                if (!exiting) {
+                    interrupted = true;
+                    if (!cleaning) {
+                        System.err.println("Interrupted");
+                    }
+                }
+                int status = cleanUp(130);
+                System.out.flush();
+                Runtime.getRuntime().halt(status);
+            }));
+    
+            // The status stays 1 unless every step succeeds, so that an
+            // unexpected error, which the catch does not handle, still ends
+            // the program with a failure.
+            int status = 1;
+            try {
+                cfg = settings();
+                String bearer = getToken(cfg);
+                synchronized (LOCK) {
+                    token = bearer;
+                }
+    
+                Placement placement = choosePlacement(cfg, bearer);
+                System.out.println("Region: " + placement.region());
+                System.out.println("Size: " + placement.size());
+    
+                // Choose the name before the request, so that the program can
+                // find the database even if the reply to the request never
+                // arrives.
+                byte[] random = new byte[3];
+                new SecureRandom().nextBytes(random);
+                String suffix = HexFormat.of().formatHex(random);
+                String displayName = "cookbook-" + suffix;
+                String ip = clientIp(cfg, bearer);
+                JsonNode database;
+                // Hold the lock until the ID is recorded, so that a signal
+                // during the create call cannot leave the database behind.
+                synchronized (LOCK) {
+                    name = "cookbook" + suffix;
+                    // Look the database up by name afterwards only if the
+                    // outcome of the request is unknown, so that a refusal
+                    // cannot lead the clean-up to delete another database that
+                    // has the same name.
+                    lookup = true;
+                    try {
+                        database = createDatabase(cfg, bearer, name, displayName,
+                                placement, ip);
+                    } catch (IOException | JacksonException e) {
+                        lookup = outcomeUnknown(e);
+                        throw e;
+                    }
+                    databaseId = field(database, "id");
+                }
+                System.out.println("Created database " + field(database, "display_name"));
+    
+                waitUntilAvailable(cfg, bearer, databaseId);
+                System.out.println("Database is available");
+    
+                // The program names the branch before the request, as it does
+                // the database, and looks it up afterwards only if the outcome
+                // is unknown. The lock covers the request for the same reason.
+                JsonNode branch;
+                synchronized (LOCK) {
+                    branchName = "cookbook-" + suffix + "-branch";
+                    branchLookup = true;
+                    try {
+                        branch = createBranch(cfg, bearer, databaseId, branchName);
+                    } catch (IOException | JacksonException e) {
+                        branchLookup = outcomeUnknown(e);
+                        throw e;
+                    }
+                    branchId = field(branch, "id");
+                }
+                System.out.println("Created branch " + field(branch, "display_name"));
+    
+                String branchPath = "/databases/" + databaseId + "/branches/" + branchId;
+                waitUntilBranchAvailable(cfg, bearer, branchPath);
+                System.out.println("Branch is available");
+    
+                ConnectionSettings connection = connectionSettings(cfg, bearer,
+                        branchPath);
+                System.out.println("Branch server version: "
+                        + serverVersion(connection));
+                status = 0;
+            // IOException covers failures to connect and error replies from the
+            // API; SQLException covers every error from pgJDBC;
+            // InterruptedException means that a signal arrived, which the
+            // shutdown hook reports; Jackson throws JacksonException for a
+            // reply that is not JSON; and IllegalStateException covers replies
+            // that the program cannot use.
+            } catch (IOException | SQLException | InterruptedException
+                    | JacksonException | IllegalStateException e) {
+                if (!interrupted) {
+                    System.err.println("Error: " + describe(e));
+                }
+            } finally {
+                // Delete the database whether the example succeeded, failed, or
+                // was interrupted, because the service bills for it until then.
+                // The finally block also runs for an error that the catch does
+                // not handle.
+                status = cleanUp(interrupted ? 130 : status);
+            }
+            exiting = true;
+            System.exit(status);
+        }
+    }
+    
+    ```
+
+=== "C#"
+
+    ```csharp
+    /*
+     * Ellie's Postgres Cookbook
+     * Creating a branch of a pgEdge Starfleet database for a test run, and
+     * connecting to it, using HttpClient, System.Text.Json, and Npgsql.
+     *
+     * The program creates a database of its own to branch. The Starfleet
+     * service bills for every database and every branch from the moment that it
+     * becomes connectable, so the program deletes the branch and then the
+     * database on every path: after a success, after a failure, and after
+     * Ctrl-C.
+     *
+     * Copyright (c) 2026, pgEdge, Inc.
+     * This code is released under the PostgreSQL License.
+     */
+    
+    using System.Globalization;
+    using System.Net;
+    using System.Net.Http.Headers;
+    using System.Runtime.InteropServices;
+    using System.Security.Cryptography;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.Json.Nodes;
+    using Npgsql;
+    
+    // How long to wait for a database to become available, or to disappear
+    // after a delete, and how often to check.
+    const int TimeoutSeconds = 900;
+    const int PollSeconds = 10;
+    
+    // How many times to look for a database whose create reply was lost.
+    const int LookupAttempts = 3;
+    
+    // How many times to try connecting to the database before giving up.
+    const int ConnectAttempts = 6;
+    
+    // Returns the value of an environment variable, or null if the variable
+    // is unset or empty, as an unset variable would be.
+    static string? EnvValue(string name) =>
+        Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
+            ? value
+            : null;
+    
+    // Reads the API settings from the environment. The client ID and secret
+    // have no defaults, so a missing value becomes null, and the token request
+    // reports it.
+    static (string BaseUrl, string? ClientId, string? ClientSecret) Settings() =>
+        ((EnvValue("STARFLEET_API_URL") ?? "https://api.pgedge.com").TrimEnd('/'),
+            EnvValue("STARFLEET_CLIENT_ID"),
+            EnvValue("STARFLEET_CLIENT_SECRET"));
+    
+    var cfg = Settings();
+    
+    // Returns a deadline the given number of seconds from now, and reports
+    // whether it is still in the future, on a clock that only moves forwards.
+    static long Deadline(int seconds) => Environment.TickCount64 + seconds * 1000L;
+    static bool Before(long deadline) => Environment.TickCount64 < deadline;
+    
+    // A token that SIGINT or SIGTERM cancels, which abandons the request or
+    // the wait in progress. The clean-up replaces it with CancellationToken.None,
+    // so that nothing can cut the clean-up short.
+    using var signalled = new CancellationTokenSource();
+    var cancel = signalled.Token;
+    
+    // Catches SIGINT and SIGTERM. Setting Cancel stops the default action,
+    // which would end the program before it could delete the database, and a
+    // second signal does nothing more.
+    void OnSignal(PosixSignalContext context)
+    {
+        context.Cancel = true;
+        signalled.Cancel();
+    }
+    using var onInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, OnSignal);
+    using var onTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, OnSignal);
+    
+    // Waits for the given number of seconds; a signal ends the wait early.
+    async Task Pause(int seconds) =>
+        await Task.Delay(TimeSpan.FromSeconds(seconds), cancel);
+    
+    // One client serves every request. Its timeout covers the whole exchange,
+    // the body of the reply included.
+    var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+    
+    // Sends a request with a JSON body, if there is one, and returns the
+    // decoded JSON reply, or null if the reply has no body. A 4xx or 5xx reply
+    // throws an HttpRequestException that carries the status.
+    async Task<JsonNode?> Request(string method, string url, string path,
+        string? token, object? body, CancellationToken cancelRequest)
+    {
+        using var request = new HttpRequestMessage(new HttpMethod(method), url);
+        if (token is not null)
+        {
+            request.Headers.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+        }
+        if (body is not null)
+        {
+            // StringContent sends a Content-Length header; JsonContent would
+            // stream the body in chunks, which not every server accepts.
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+    
+        using var response = await http.SendAsync(request, cancelRequest);
+        var text = await response.Content.ReadAsStringAsync(cancelRequest);
+        if ((int)response.StatusCode >= 400)
+        {
+            throw new HttpRequestException(
+                $"{method} {path} failed with status {(int)response.StatusCode}: "
+                + text.Trim(), null, response.StatusCode);
+        }
+        return text.Length == 0 ? null : JsonNode.Parse(text);
+    }
+    
+    // Returns a field of a JSON object as text, and throws if the field is
+    // missing.
+    static string Field(JsonNode? node, string name) =>
+        node?[name] is JsonNode value
+            ? value.ToString()
+            : throw new InvalidOperationException($"the reply has no {name}");
+    
+    // Exchanges the client ID and secret for an access token, which the
+    // Managed API accepts as a bearer token until it expires.
+    async Task<string> GetToken()
+    {
+        if (cfg.ClientId is null || cfg.ClientSecret is null)
+        {
+            throw new InvalidOperationException(
+                "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set");
+        }
+        const string path = "/account/v1/oauth/token";
+        var token = await Request("POST", cfg.BaseUrl + path, path, null, new
+        {
+            grant_type = "client_credentials",
+            client_id = cfg.ClientId,
+            client_secret = cfg.ClientSecret,
+        }, cancel);
+        return Field(token, "access_token");
+    }
+    
+    // Sends an authenticated request to the Managed API and returns the
+    // decoded JSON reply, or null if the reply has no body. The create call
+    // passes interruptible: false, so that a signal cannot abandon a request
+    // whose result the program must not lose.
+    async Task<JsonNode?> Api(string token, string method, string path,
+        object? body = null, bool interruptible = true) =>
+        await Request(method, $"{cfg.BaseUrl}/managed/v1{path}", path, token,
+            body, interruptible ? cancel : CancellationToken.None);
+    
+    // Returns the region and size for the new database. The API lists sizes
+    // smallest first, so the first one is the cheapest. The API does not price
+    // regions, so the example takes the first one.
+    async Task<(string Region, string Size)> ChoosePlacement(string token)
+    {
+        var regions = await Api(token, "GET", "/regions") as JsonArray;
+        var sizes = await Api(token, "GET", "/sizes") as JsonArray;
+        if (regions is not { Count: > 0 } || sizes is not { Count: > 0 })
+        {
+            throw new InvalidOperationException("the API offers no region or size");
+        }
+        return (Field(regions[0], "region"), Field(sizes[0], "name"));
+    }
+    
+    // Returns the address that the API sees requests come from.
+    async Task<string> ClientIp(string token)
+    {
+        // A new database is closed to everyone until an allowlist rule admits
+        // an address. The API reports the address it sees this request come
+        // from, which is the one to admit; a bare address means a single host.
+        return Field(await Api(token, "GET", "/client-ip"), "ip_address");
+    }
+    
+    // Creates a database that only this machine can reach, and returns the
+    // API's description of it, which includes its ID.
+    async Task<JsonNode?> CreateDatabase(string token, string name,
+        string displayName, string region, string size, string ip) =>
+        await Api(token, "POST", "/databases", new
+        {
+            // The name becomes the Postgres database name, so it holds only
+            // letters and digits, and the readable cookbook- prefix goes in the
+            // display name. The program also uses the name to find the
+            // database again if the reply to this request is lost.
+            name,
+            display_name = displayName,
+            region,
+            size,
+            ip_allowlist = new
+            {
+                rules = new[] { new { cidr = ip, label = "cookbook" } },
+            },
+        }, interruptible: false);
+    
+    // The API does not document its status values; the example treats these
+    // two as failures, which end the wait at once instead of leaving it to run
+    // until the time limit.
+    string[] failedStatuses = ["degraded", "failed"];
+    
+    // Polls the database until its status is available.
+    async Task WaitUntilAvailable(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        string? last = null;
+        while (Before(deadline))
+        {
+            var status = Field(
+                await Api(token, "GET", $"/databases/{databaseId}"), "status");
+            if (status != last)
+            {
+                Console.WriteLine($"Database status: {status}");
+                last = status;
+            }
+            if (status == "available")
+            {
+                return;
+            }
+            if (failedStatuses.Contains(status))
+            {
+                throw new InvalidOperationException(
+                    $"the database has the status {status}");
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the database was not available after {TimeoutSeconds} seconds");
+    }
+    
+    // Creates a copy-on-write branch of the database, and returns the API's
+    // description of it, which includes its ID.
+    async Task<JsonNode?> CreateBranch(string token, string databaseId,
+        string displayName)
+    {
+        // The API assigns the name of a branch, so the program gives the branch
+        // a display name and uses that to find it again if the reply to this
+        // request is lost. The request sets no allowlist, so the branch copies
+        // the rules of the database, which admit this machine. The branch also
+        // copies the size, the region, and the Postgres version.
+        return await Api(token, "POST", $"/databases/{databaseId}/branches",
+            new { display_name = displayName }, interruptible: false);
+    }
+    
+    // Polls the branch until its status is available.
+    async Task WaitUntilBranchAvailable(string token, string branchPath)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        string? last = null;
+        while (Before(deadline))
+        {
+            var status = Field(await Api(token, "GET", branchPath), "status");
+            if (status != last)
+            {
+                Console.WriteLine($"Branch status: {status}");
+                last = status;
+            }
+            if (status == "available")
+            {
+                return;
+            }
+            if (failedStatuses.Contains(status))
+            {
+                throw new InvalidOperationException(
+                    $"the branch has the status {status}");
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the branch was not available after {TimeoutSeconds} seconds");
+    }
+    
+    // Reads the connection details of an available branch, and returns them
+    // as Npgsql connection settings.
+    async Task<NpgsqlConnectionStringBuilder> ConnectionSettings(string token,
+        string branchPath)
+    {
+        // The connection details, including the password of the branch's own
+        // application user, come with the description of the branch. They are
+        // present only while the branch is available. The API does not require
+        // the host, so fall back to the external IP address if it is missing.
+        var connection = (await Api(token, "GET", branchPath))?["connection"];
+        string? Value(string key) =>
+            connection?[key]?.ToString() is { Length: > 0 } value ? value : null;
+        var host = Value("host") ?? Value("external_ip_address");
+        var port = Value("port");
+        var database = Value("database");
+        var user = Value("username");
+        var password = Value("password");
+        if (host is null || port is null || database is null || user is null
+            || password is null)
+        {
+            throw new InvalidOperationException(
+                "the database description has incomplete connection details");
+        }
+        return new NpgsqlConnectionStringBuilder
+        {
+            Host = host,
+            Port = int.Parse(port, CultureInfo.InvariantCulture),
+            Database = database,
+            Username = user,
+            Password = password,
+            // Encrypt the connection. The certificate of a Starfleet database
+            // is not signed by a public authority, so the example does not
+            // verify it; Npgsql checks no certificate in Require mode.
+            SslMode = SslMode.Require,
+            // The connection timeout, in seconds.
+            Timeout = 15,
+        };
+    }
+    
+    // Connects to the database and returns the result of a query that returns
+    // one text value.
+    async Task<string> QueryOne(NpgsqlConnectionStringBuilder settings, string sql)
+    {
+        // A database can refuse connections for a short while after the API
+        // reports it as available, so try a few times before giving up. A
+        // PostgresException carries an SQLSTATE code: it came from the server
+        // itself, such as a failed login, and will not change on a second
+        // attempt.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                // The using declarations close the connection when the block
+                // exits, whether or not an error occurred.
+                await using var conn = new NpgsqlConnection(settings.ConnectionString);
+                await conn.OpenAsync(cancel);
+                await using var command = new NpgsqlCommand(sql, conn);
+                return (string)(await command.ExecuteScalarAsync(cancel))!;
+            }
+            catch (NpgsqlException e) when (e is not PostgresException
+                && attempt < ConnectAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    }
+    
+    // Reports whether a failed request is worth repeating: no reply arrived,
+    // such as a refused connection or a timeout, the service is overloaded or
+    // failing, or it answered 409, which the API does whilst a database is
+    // still being created.
+    static bool IsTransient(Exception e) => e switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode code } =>
+            (int)code is 409 or 429 or >= 500,
+        HttpRequestException or TaskCanceledException => true,
+        _ => false,
+    };
+    
+    // Reports whether an error is a 404 reply, which means that the database
+    // does not exist.
+    static bool IsGone(Exception e) =>
+        e is HttpRequestException { StatusCode: HttpStatusCode.NotFound };
+    
+    // Returns the ID of the database with the given name, or null. The program
+    // uses this when it cannot tell whether a create request worked. It
+    // repeats the request, as the delete does, because the fault that lost the
+    // reply to the create request may still be there. The request asks for
+    // the newest databases first, but the API does not say which property it
+    // sorts on.
+    async Task<string?> FindDatabase(string token, string name)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        JsonNode? databases;
+        while (true)
+        {
+            try
+            {
+                databases = await Api(
+                    token, "GET", "/databases?limit=100&descending=true");
+                break;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        foreach (var database in databases as JsonArray ?? [])
+        {
+            if (database?["name"]?.ToString() == name)
+            {
+                return Field(database, "id");
+            }
+        }
+        return null;
+    }
+    
+    // Looks for the database a few times, because the service may not have
+    // recorded a request whose reply was lost until a little later. Returns
+    // null if the database never appears.
+    async Task<string?> FindCreatedDatabase(string token, string name)
+    {
+        for (var attempt = 0; attempt < LookupAttempts; attempt++)
+        {
+            if (await FindDatabase(token, name) is string databaseId)
+            {
+                return databaseId;
+            }
+            if (attempt < LookupAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        return null;
+    }
+    
+    // Reports whether a failed create request might still have created the
+    // database: no reply arrived, the reply could not be read, or the service
+    // failed with a 5xx status. A 4xx reply is a definite refusal.
+    static bool OutcomeUnknown(Exception e) =>
+        e is not HttpRequestException { StatusCode: HttpStatusCode code }
+            || (int)code >= 500;
+    
+    // Returns the branches of the database that have not been deleted, newest
+    // first. The request repeats, as the deletes do, and a 404 means that the
+    // database has gone, and so have its branches.
+    async Task<JsonArray> ListBranches(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                return await Api(token, "GET",
+                    $"/databases/{databaseId}/branches?limit=100&descending=true")
+                    as JsonArray ?? [];
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return [];
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    }
+    
+    // Looks for the branch with the given display name a few times, because the
+    // service may not have recorded a request whose reply was lost until a
+    // little later. Returns null if the branch never appears.
+    async Task<string?> FindCreatedBranch(string token, string databaseId,
+        string displayName)
+    {
+        for (var attempt = 0; attempt < LookupAttempts; attempt++)
+        {
+            foreach (var branch in await ListBranches(token, databaseId))
+            {
+                if (branch?["display_name"]?.ToString() == displayName)
+                {
+                    return Field(branch, "id");
+                }
+            }
+            if (attempt < LookupAttempts - 1)
+            {
+                await Pause(PollSeconds);
+            }
+        }
+        return null;
+    }
+    
+    // Deletes the branch and waits until the API no longer lists it.
+    async Task DeleteBranch(string token, string databaseId, string branchId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                await Api(token, "DELETE",
+                    $"/databases/{databaseId}/branches/{branchId}");
+                break;
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    
+        // The API takes a branch out of the list as soon as it accepts the
+        // delete, even though the teardown carries on afterwards.
+        while (Before(deadline))
+        {
+            var branches = await ListBranches(token, databaseId);
+            if (branches.All(branch => Field(branch, "id") != branchId))
+            {
+                return;
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the branch was still listed after {TimeoutSeconds} seconds");
+    }
+    
+    // Deletes the database and waits until the API no longer lists it.
+    async Task DeleteDatabase(string token, string databaseId)
+    {
+        var deadline = Deadline(TimeoutSeconds);
+        while (true)
+        {
+            try
+            {
+                // The API refuses to delete a database that has branches,
+                // with a 409 reply, unless force=true, which deletes every
+                // branch first. The program has deleted its branch by now, so
+                // this is a safety net for a branch that the program could not
+                // find.
+                await Api(token, "DELETE", $"/databases/{databaseId}?force=true");
+                break;
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e) && Before(deadline))
+            {
+                await Pause(PollSeconds);
+            }
+        }
+    
+        // The delete starts the teardown; a 404 shows that it has finished.
+        while (Before(deadline))
+        {
+            try
+            {
+                await Api(token, "GET", $"/databases/{databaseId}");
+            }
+            catch (Exception e) when (IsGone(e))
+            {
+                return;
+            }
+            catch (Exception e) when (IsTransient(e))
+            {
+            }
+            await Pause(PollSeconds);
+        }
+        throw new InvalidOperationException(
+            $"the database was still present after {TimeoutSeconds} seconds");
+    }
+    
+    // Reports whether an error is one that the program expects: a failure to
+    // connect, an error reply from the API, a request that timed out, a reply
+    // that is not JSON, a reply that the program cannot use, or any error from
+    // Npgsql, whose PostgresException carries an error from the server.
+    static bool Expected(Exception e) => e is HttpRequestException
+        or TaskCanceledException or JsonException or InvalidOperationException
+        or NpgsqlException;
+    
+    string? token = null;
+    string? name = null;
+    string? databaseId = null;
+    var lookup = false;
+    string? branchId = null;
+    string? branchName = null;
+    var branchLookup = false;
+    var exitCode = 0;
+    try
+    {
+        token = await GetToken();
+    
+        var (region, size) = await ChoosePlacement(token);
+        Console.WriteLine($"Region: {region}");
+        Console.WriteLine($"Size: {size}");
+    
+        // Choose the name before the request, so that the program can find the
+        // database even if the reply to the request never arrives.
+        var suffix = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(3));
+        name = $"cookbook{suffix}";
+        var displayName = $"cookbook-{suffix}";
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the clean-up to
+        // delete another database that has the same name.
+        var ip = await ClientIp(token);
+        lookup = true;
+        JsonNode? database;
+        try
+        {
+            database = await CreateDatabase(token, name, displayName, region, size, ip);
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            lookup = OutcomeUnknown(e);
+            throw;
+        }
+        databaseId = Field(database, "id");
+        Console.WriteLine($"Created database {Field(database, "display_name")}");
+    
+        await WaitUntilAvailable(token, databaseId);
+        Console.WriteLine("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        branchName = $"cookbook-{suffix}-branch";
+        branchLookup = true;
+        JsonNode? branch;
+        try
+        {
+            branch = await CreateBranch(token, databaseId, branchName);
+        }
+        catch (Exception e) when (Expected(e))
+        {
+            branchLookup = OutcomeUnknown(e);
+            throw;
+        }
+        branchId = Field(branch, "id");
+        Console.WriteLine($"Created branch {Field(branch, "display_name")}");
+    
+        var branchPath = $"/databases/{databaseId}/branches/{branchId}";
+        await WaitUntilBranchAvailable(token, branchPath);
+        Console.WriteLine("Branch is available");
+    
+        var connection = await ConnectionSettings(token, branchPath);
+        Console.WriteLine("Branch server version: "
+            + await QueryOne(connection, "SELECT version()"));
+    }
+    // After a signal, the request or wait in progress fails, whatever the
+    // error that it reports.
+    catch (Exception) when (signalled.IsCancellationRequested)
+    {
+        Console.Error.WriteLine("Interrupted");
+        exitCode = 130;
+    }
+    catch (Exception e) when (Expected(e))
+    {
+        Console.Error.WriteLine($"Error: {e.Message}");
+        exitCode = 1;
+    }
+    finally
+    {
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then. Signals
+        // no longer cancel anything, so that they cannot cut the clean-up
+        // short. The finally block also runs for an error that the catch does
+        // not handle.
+        cancel = CancellationToken.None;
+        if (token is not null && name is not null)
+        {
+            try
+            {
+                if (databaseId is null && lookup)
+                {
+                    databaseId = await FindCreatedDatabase(token, name);
+                    if (databaseId is null)
+                    {
+                        Console.Error.WriteLine(
+                            $"Error: the database {name} was not found; "
+                            + "check your account for it by hand");
+                        exitCode = 1;
+                    }
+                }
+                if (databaseId is not null)
+                {
+                    // Delete the branch before the database. A failure here must
+                    // not stop the database delete, which uses force=true as a
+                    // safety net.
+                    try
+                    {
+                        if (branchId is null && branchLookup)
+                        {
+                            branchId = await FindCreatedBranch(
+                                token, databaseId, branchName!);
+                            if (branchId is null)
+                            {
+                                Console.Error.WriteLine(
+                                    $"Error: the branch {branchName} was not found; "
+                                    + "check your account for it by hand");
+                                exitCode = 1;
+                            }
+                        }
+                        if (branchId is not null)
+                        {
+                            await DeleteBranch(token, databaseId, branchId);
+                            Console.WriteLine("Deleted branch");
+                        }
+                    }
+                    catch (Exception e) when (Expected(e))
+                    {
+                        Console.Error.WriteLine($"Error: {e.Message}");
+                        Console.Error.WriteLine(
+                            "The forced delete of the database that follows "
+                            + "also deletes the branch");
+                        exitCode = 1;
+                    }
+                    await DeleteDatabase(token, databaseId);
+                    Console.WriteLine("Deleted database");
+                }
+            }
+            catch (Exception e) when (Expected(e))
+            {
+                Console.Error.WriteLine($"Error: {e.Message}");
+                Console.Error.WriteLine(
+                    $"Delete the database {databaseId ?? name} and any "
+                    + "branches by hand, because it may still be billing");
+                exitCode = 1;
+            }
+        }
+    }
+    
+    return exitCode;
+    
+    ```
+
+=== "Go"
+
+    ```go
+    // Ellie's Postgres Cookbook
+    // Creating a branch of a pgEdge Starfleet database for a test run, and
+    // connecting to it, using the net/http package and pgx.
+    //
+    // The program creates a database of its own to branch. The Starfleet
+    // service bills for every database and every branch from the moment that
+    // it becomes connectable, so the program deletes the branch and then the
+    // database on every path: after a success, after a failure, and after
+    // Ctrl-C.
+    //
+    // Copyright (c) 2026, pgEdge, Inc.
+    // This code is released under the PostgreSQL License.
+    
+    package main
+    
+    import (
+    	"bytes"
+    	"context"
+    	"crypto/rand"
+    	"encoding/hex"
+    	"encoding/json"
+    	"errors"
+    	"fmt"
+    	"io"
+    	"net/http"
+    	"os"
+    	"os/signal"
+    	"strings"
+    	"syscall"
+    	"time"
+    
+    	"github.com/jackc/pgx/v5"
+    	"github.com/jackc/pgx/v5/pgconn"
+    )
+    
+    
+    const (
+    	// How long to wait for a database to become available, or to
+    	// disappear after a delete, and how often to check.
+    	timeout      = 15 * time.Minute
+    	pollInterval = 10 * time.Second
+    
+    	// How many times to look for a database whose create reply was lost.
+    	lookupAttempts = 3
+    
+    	// How many times to try connecting to the database before giving up.
+    	connectAttempts = 6
+    )
+    
+    // envOr returns the value of an environment variable, or a fallback if
+    // the variable is unset or empty.
+    func envOr(name, fallback string) string {
+    	if value := os.Getenv(name); value != "" {
+    		return value
+    	}
+    	return fallback
+    }
+    
+    // baseURL is the root of the Starfleet API, without a trailing slash.
+    func baseURL() string {
+    	return strings.TrimRight(envOr("STARFLEET_API_URL", "https://api.pgedge.com"), "/")
+    }
+    
+    // httpClient gives every request a timeout; the default client has none.
+    var httpClient = &http.Client{Timeout: 30 * time.Second}
+    
+    
+    // getToken exchanges the client ID and secret for an access token, which
+    // the Managed API accepts as a bearer token until it expires.
+    func getToken(ctx context.Context) (string, error) {
+    	clientID := os.Getenv("STARFLEET_CLIENT_ID")
+    	clientSecret := os.Getenv("STARFLEET_CLIENT_SECRET")
+    	if clientID == "" || clientSecret == "" {
+    		return "", errors.New("STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set")
+    	}
+    
+    	body, err := json.Marshal(map[string]string{
+    		"grant_type":    "client_credentials",
+    		"client_id":     clientID,
+    		"client_secret": clientSecret,
+    	})
+    	if err != nil {
+    		return "", err
+    	}
+    
+    	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+    		baseURL()+"/account/v1/oauth/token", bytes.NewReader(body))
+    	if err != nil {
+    		return "", err
+    	}
+    	req.Header.Set("Content-Type", "application/json")
+    
+    	resp, err := httpClient.Do(req)
+    	if err != nil {
+    		return "", fmt.Errorf("token request failed: %w", err)
+    	}
+    	defer resp.Body.Close()
+    
+    	// A non-2xx status is not a Go error, so check it explicitly.
+    	if resp.StatusCode != http.StatusOK {
+    		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+    		return "", fmt.Errorf("token request failed: %s %s", resp.Status, detail)
+    	}
+    
+    	var token struct {
+    		AccessToken string `json:"access_token"`
+    	}
+    	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
+    		return "", fmt.Errorf("decoding the token response: %w", err)
+    	}
+    	return token.AccessToken, nil
+    }
+    
+    
+    // APIError is an error reply from the Managed API, with its HTTP status.
+    type APIError struct {
+    	Status  int
+    	Message string
+    }
+    
+    func (e *APIError) Error() string { return e.Message }
+    
+    // api sends an authenticated request to the Managed API. It encodes body
+    // as JSON if it is not nil, and decodes the reply into result if that is
+    // not nil and the reply has content.
+    func api(ctx context.Context, token, method, path string, body, result any) error {
+    	var reader io.Reader
+    	if body != nil {
+    		encoded, err := json.Marshal(body)
+    		if err != nil {
+    			return err
+    		}
+    		reader = bytes.NewReader(encoded)
+    	}
+    
+    	req, err := http.NewRequestWithContext(ctx, method, baseURL()+"/managed/v1"+path, reader)
+    	if err != nil {
+    		return err
+    	}
+    	req.Header.Set("Authorization", "Bearer "+token)
+    	if body != nil {
+    		req.Header.Set("Content-Type", "application/json")
+    	}
+    
+    	resp, err := httpClient.Do(req)
+    	if err != nil {
+    		return fmt.Errorf("%s %s failed: %w", method, path, err)
+    	}
+    	defer resp.Body.Close()
+    
+    	data, err := io.ReadAll(resp.Body)
+    	if err != nil {
+    		return err
+    	}
+    	if resp.StatusCode >= 300 {
+    		return &APIError{
+    			Status:  resp.StatusCode,
+    			Message: fmt.Sprintf("%s %s failed: %s %s", method, path, resp.Status, data),
+    		}
+    	}
+    	if result == nil || len(data) == 0 {
+    		return nil
+    	}
+    	return json.Unmarshal(data, result)
+    }
+    
+    // sleep waits for the interval, or until the context ends.
+    func sleep(ctx context.Context) error {
+    	select {
+    	case <-time.After(pollInterval):
+    		return nil
+    	case <-ctx.Done():
+    		return ctx.Err()
+    	}
+    }
+    
+    
+    // choosePlacement returns the region and size for the new database. The
+    // API lists sizes smallest first, so the first one is the cheapest. The
+    // API does not price regions, so the example takes the first one.
+    func choosePlacement(ctx context.Context, token string) (region, size string, err error) {
+    	var regions []struct {
+    		Region string `json:"region"`
+    	}
+    	var sizes []struct {
+    		Name string `json:"name"`
+    	}
+    	if err = api(ctx, token, http.MethodGet, "/regions", nil, &regions); err != nil {
+    		return
+    	}
+    	if err = api(ctx, token, http.MethodGet, "/sizes", nil, &sizes); err != nil {
+    		return
+    	}
+    	if len(regions) == 0 || len(sizes) == 0 {
+    		err = errors.New("the API offers no region or size")
+    		return
+    	}
+    	return regions[0].Region, sizes[0].Name, nil
+    }
+    
+    
+    // Database is the part of the API's description of a database that the
+    // example uses.
+    type Database struct {
+    	ID          string `json:"id"`
+    	DisplayName string `json:"display_name"`
+    	Status      string `json:"status"`
+    }
+    
+    // randomSuffix returns six random hexadecimal digits.
+    func randomSuffix() (string, error) {
+    	raw := make([]byte, 3)
+    	if _, err := rand.Read(raw); err != nil {
+    		return "", err
+    	}
+    	return hex.EncodeToString(raw), nil
+    }
+    
+    // clientIP returns this machine's public IP address as the API sees it.
+    func clientIP(ctx context.Context, token string) (string, error) {
+    	// A new database is closed to everyone until an allowlist rule admits
+    	// an address. The API reports the address it sees this request come
+    	// from, which is the one to admit; a bare address means a single host.
+    	var ip struct {
+    		IPAddress string `json:"ip_address"`
+    	}
+    	if err := api(ctx, token, http.MethodGet, "/client-ip", nil, &ip); err != nil {
+    		return "", err
+    	}
+    	return ip.IPAddress, nil
+    }
+    
+    // createDatabase creates a database that only this machine can reach,
+    // and returns the API's description of it, which includes its ID.
+    func createDatabase(ctx context.Context, token, name, displayName, region, size, ip string) (*Database, error) {
+    	var database Database
+    	err := api(ctx, token, http.MethodPost, "/databases", map[string]any{
+    		// The name becomes the Postgres database name, so it holds only
+    		// letters and digits, and the readable cookbook- prefix goes in
+    		// the display name. The program also uses the name to find the
+    		// database again if the reply to this request is lost.
+    		"name":         name,
+    		"display_name": displayName,
+    		"region":       region,
+    		"size":         size,
+    		"ip_allowlist": map[string]any{
+    			"rules": []map[string]string{{"cidr": ip, "label": "cookbook"}},
+    		},
+    	}, &database)
+    	if err != nil {
+    		return nil, err
+    	}
+    	return &database, nil
+    }
+    
+    
+    // waitUntilAvailable polls the database until its status is available.
+    func waitUntilAvailable(ctx context.Context, token, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	last := ""
+    	for time.Now().Before(deadline) {
+    		var database Database
+    		if err := api(ctx, token, http.MethodGet, "/databases/"+id, nil, &database); err != nil {
+    			return err
+    		}
+    		if database.Status != last {
+    			fmt.Printf("Database status: %s\n", database.Status)
+    			last = database.Status
+    		}
+    		if database.Status == "available" {
+    			return nil
+    		}
+    		// The API does not document its status values; the example
+    		// treats these two as failures, which end the wait at once
+    		// instead of leaving it to run until the time limit.
+    		if database.Status == "degraded" || database.Status == "failed" {
+    			return fmt.Errorf("the database has the status %s", database.Status)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the database was not available after %s", timeout)
+    }
+    
+    
+    // Branch is the part of the API's description of a branch that the example
+    // uses.
+    type Branch struct {
+    	ID          string `json:"id"`
+    	DisplayName string `json:"display_name"`
+    	Status      string `json:"status"`
+    }
+    
+    // createBranch creates a copy-on-write branch of the database, and returns
+    // the API's description of it, which includes its ID.
+    func createBranch(ctx context.Context, token, databaseID, displayName string) (*Branch, error) {
+    	// The API assigns the name of a branch, so the program gives the
+    	// branch a display name and uses that to find it again if the reply to
+    	// this request is lost. The request sets no allowlist, so the branch
+    	// copies the rules of the database, which admit this machine. The
+    	// branch also copies the size, the region, and the Postgres version.
+    	var branch Branch
+    	err := api(ctx, token, http.MethodPost, "/databases/"+databaseID+"/branches",
+    		map[string]string{"display_name": displayName}, &branch)
+    	if err != nil {
+    		return nil, err
+    	}
+    	return &branch, nil
+    }
+    
+    // waitUntilBranchAvailable polls the branch until its status is available.
+    func waitUntilBranchAvailable(ctx context.Context, token, branchPath string) error {
+    	deadline := time.Now().Add(timeout)
+    	last := ""
+    	for time.Now().Before(deadline) {
+    		var branch Branch
+    		if err := api(ctx, token, http.MethodGet, branchPath, nil, &branch); err != nil {
+    			return err
+    		}
+    		if branch.Status != last {
+    			fmt.Printf("Branch status: %s\n", branch.Status)
+    			last = branch.Status
+    		}
+    		if branch.Status == "available" {
+    			return nil
+    		}
+    		if branch.Status == "degraded" || branch.Status == "failed" {
+    			return fmt.Errorf("the branch has the status %s", branch.Status)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the branch was not available after %s", timeout)
+    }
+    
+    
+    // connectionConfig reads the connection details of an available branch,
+    // and returns them as a pgx configuration.
+    func connectionConfig(ctx context.Context, token, branchPath string) (*pgx.ConnConfig, error) {
+    	// The connection details, including the password of the branch's own
+    	// application user, come with the description of the branch. They are
+    	// present only while the branch is available. The API does not require
+    	// the host, so fall back to the external IP address if it is missing.
+    	var database struct {
+    		Connection struct {
+    			Host       string `json:"host"`
+    			ExternalIP string `json:"external_ip_address"`
+    			Port       uint16 `json:"port"`
+    			Database   string `json:"database"`
+    			Username   string `json:"username"`
+    			Password   string `json:"password"`
+    		} `json:"connection"`
+    	}
+    	if err := api(ctx, token, http.MethodGet, branchPath, nil, &database); err != nil {
+    		return nil, err
+    	}
+    	c := database.Connection
+    	if c.Host == "" {
+    		c.Host = c.ExternalIP
+    	}
+    	if c.Host == "" || c.Port == 0 || c.Database == "" || c.Username == "" || c.Password == "" {
+    		return nil, errors.New("the database description has incomplete connection details")
+    	}
+    
+    	// Parse a key/value connection string that holds everything except the
+    	// password, and then set the password on the configuration, so that it
+    	// never appears in a connection string or in an error message that
+    	// quotes one. The host has to be in the string, because pgx takes the
+    	// server name for the TLS handshake from it. The require mode encrypts
+    	// the connection without verifying the server certificate, which a
+    	// public authority has not signed.
+    	config, err := pgx.ParseConfig(fmt.Sprintf(
+    		"host=%s port=%d dbname=%s user=%s sslmode=require connect_timeout=15",
+    		quote(c.Host), c.Port, quote(c.Database), quote(c.Username)))
+    	if err != nil {
+    		return nil, err
+    	}
+    	config.Password = c.Password
+    	return config, nil
+    }
+    
+    // quote wraps a value for a key/value connection string in single quotes,
+    // escaping any backslash or single quote inside it.
+    func quote(value string) string {
+    	value = strings.ReplaceAll(value, `\`, `\\`)
+    	value = strings.ReplaceAll(value, `'`, `\'`)
+    	return "'" + value + "'"
+    }
+    
+    
+    // serverVersion connects to the database and returns the server's version
+    // string.
+    func serverVersion(ctx context.Context, config *pgx.ConnConfig) (string, error) {
+    	// A database can refuse connections for a short while after the API
+    	// reports it as available, so try a few times before giving up. An
+    	// error from the server itself, such as a failed login, will not
+    	// change on a second attempt, so it ends the loop at once.
+    	var conn *pgx.Conn
+    	var err error
+    	for attempt := 1; attempt <= connectAttempts; attempt++ {
+    		conn, err = pgx.ConnectConfig(ctx, config)
+    		if err == nil {
+    			break
+    		}
+    		var serverErr *pgconn.PgError
+    		if attempt == connectAttempts || errors.As(err, &serverErr) {
+    			return "", fmt.Errorf("connection failed: %w", err)
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    	// The deferred call closes the connection when the function returns,
+    	// whether or not the query failed.
+    	defer conn.Close(ctx)
+    
+    	var version string
+    	if err := conn.QueryRow(ctx, "SELECT version()").Scan(&version); err != nil {
+    		return "", fmt.Errorf("query failed: %w", err)
+    	}
+    	return version, nil
+    }
+    
+    
+    // isStatus reports whether err is an API error with the given status.
+    func isStatus(err error, status int) bool {
+    	var apiErr *APIError
+    	return errors.As(err, &apiErr) && apiErr.Status == status
+    }
+    
+    // isTransient reports whether a failed request is worth repeating: no
+    // reply arrived, the service is overloaded or failing, or it answered 409,
+    // which the API does whilst a database is still being created.
+    func isTransient(err error) bool {
+    	var apiErr *APIError
+    	if !errors.As(err, &apiErr) {
+    		return true
+    	}
+    	return apiErr.Status == http.StatusConflict ||
+    		apiErr.Status == http.StatusTooManyRequests ||
+    		apiErr.Status >= 500
+    }
+    
+    // findCreatedDatabase looks for the database a few times, because the
+    // service may not have recorded a request whose reply was lost until a
+    // little later. It returns an empty string if the database never appears.
+    func findCreatedDatabase(ctx context.Context, token, name string) (string, error) {
+    	for attempt := 1; ; attempt++ {
+    		id, err := findDatabase(ctx, token, name)
+    		if err != nil || id != "" || attempt == lookupAttempts {
+    			return id, err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    }
+    
+    // outcomeUnknown reports whether a failed create request might still have
+    // created the database: no reply arrived, the reply could not be decoded,
+    // or the service failed with a 5xx status. A 4xx reply is a definite
+    // refusal.
+    func outcomeUnknown(err error) bool {
+    	var apiErr *APIError
+    	if !errors.As(err, &apiErr) {
+    		return true
+    	}
+    	return apiErr.Status >= 500
+    }
+    
+    // findDatabase returns the ID of the database with the given name, or an
+    // empty string. The program uses it when it cannot tell whether a create
+    // request worked. It repeats the request, as the delete does, because the
+    // fault that lost the reply to the create request may still be there. The
+    // request asks for the newest databases first, but the API does not say
+    // which property it sorts on.
+    func findDatabase(ctx context.Context, token, name string) (string, error) {
+    	var databases []struct {
+    		ID   string `json:"id"`
+    		Name string `json:"name"`
+    	}
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		err := api(ctx, token, http.MethodGet, "/databases?limit=100&descending=true", nil, &databases)
+    		if err == nil {
+    			break
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return "", err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    	for _, database := range databases {
+    		if database.Name == name {
+    			return database.ID, nil
+    		}
+    	}
+    	return "", nil
+    }
+    
+    // listBranches returns the branches of the database that have not been
+    // deleted, newest first. The request repeats, as the deletes do, and a 404
+    // means that the database has gone, and so have its branches.
+    func listBranches(ctx context.Context, token, databaseID string) ([]Branch, error) {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		var branches []Branch
+    		err := api(ctx, token, http.MethodGet,
+    			"/databases/"+databaseID+"/branches?limit=100&descending=true", nil, &branches)
+    		if err == nil {
+    			return branches, nil
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil, nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return nil, err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return nil, err
+    		}
+    	}
+    }
+    
+    // findCreatedBranch looks for the branch with the given display name a few
+    // times, because the service may not have recorded a request whose reply
+    // was lost until a little later. It returns an empty string if the branch
+    // never appears.
+    func findCreatedBranch(ctx context.Context, token, databaseID, displayName string) (string, error) {
+    	for attempt := 1; ; attempt++ {
+    		branches, err := listBranches(ctx, token, databaseID)
+    		if err != nil {
+    			return "", err
+    		}
+    		for _, branch := range branches {
+    			if branch.DisplayName == displayName {
+    				return branch.ID, nil
+    			}
+    		}
+    		if attempt == lookupAttempts {
+    			return "", nil
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return "", err
+    		}
+    	}
+    }
+    
+    // deleteBranch deletes the branch and waits until the API no longer lists
+    // it.
+    func deleteBranch(ctx context.Context, token, databaseID, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		err := api(ctx, token, http.MethodDelete,
+    			"/databases/"+databaseID+"/branches/"+id, nil, nil)
+    		if err == nil {
+    			break
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    
+    	// The API takes a branch out of the list as soon as it accepts the
+    	// delete, even though the teardown carries on afterwards.
+    	for time.Now().Before(deadline) {
+    		branches, err := listBranches(ctx, token, databaseID)
+    		if err != nil {
+    			return err
+    		}
+    		listed := false
+    		for _, branch := range branches {
+    			listed = listed || branch.ID == id
+    		}
+    		if !listed {
+    			return nil
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the branch was still listed after %s", timeout)
+    }
+    
+    // deleteDatabase deletes the database and waits until the API no longer
+    // lists it.
+    func deleteDatabase(ctx context.Context, token, id string) error {
+    	deadline := time.Now().Add(timeout)
+    	for {
+    		// The API refuses to delete a database that has branches, with a
+    		// 409 reply, unless force=true, which deletes every branch first.
+    		// The program has deleted its branch by now, so this is a safety
+    		// net for a branch that the program could not find.
+    		err := api(ctx, token, http.MethodDelete, "/databases/"+id+"?force=true", nil, nil)
+    		if err == nil {
+    			break
+    		}
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if !isTransient(err) || time.Now().After(deadline) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    
+    	// The delete starts the teardown; a 404 shows that it has finished.
+    	for time.Now().Before(deadline) {
+    		err := api(ctx, token, http.MethodGet, "/databases/"+id, nil, nil)
+    		if isStatus(err, http.StatusNotFound) {
+    			return nil
+    		}
+    		if err != nil && !isTransient(err) {
+    			return err
+    		}
+    		if err := sleep(ctx); err != nil {
+    			return err
+    		}
+    	}
+    	return fmt.Errorf("the database was still present after %s", timeout)
+    }
+    
+    
+    // run creates the database, waits for it, and always deletes it, returning
+    // any error to the caller.
+    func run() (err error) {
+    	// Ctrl-C and SIGTERM cancel ctx instead of ending the process, so the
+    	// deferred cleanup below still runs.
+    	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    	defer stop()
+    	// Note whether a signal arrived, after the deferred clean-up below has
+    	// run, so that main can report an interruption.
+    	defer func() {
+    		if ctx.Err() != nil {
+    			interrupted = true
+    		}
+    	}()
+    
+    	token, err := getToken(ctx)
+    	if err != nil {
+    		return err
+    	}
+    
+    	region, size, err := choosePlacement(ctx, token)
+    	if err != nil {
+    		return err
+    	}
+    	fmt.Printf("Region: %s\n", region)
+    	fmt.Printf("Size: %s\n", size)
+    
+    	// Choose the name before the request, so that the program can find
+    	// the database even if the reply to the request never arrives.
+    	suffix, err := randomSuffix()
+    	if err != nil {
+    		return err
+    	}
+    	name, displayName := "cookbook"+suffix, "cookbook-"+suffix
+    
+    	// Delete the database whether the example succeeded, failed, or was
+    	// interrupted, because the service bills for it until then. The
+    	// cleanup uses its own context, because ctx ends on Ctrl-C, and the
+    	// signal handler above keeps absorbing any further signals until run
+    	// returns.
+    	var databaseID, branchID string
+    	lookup, branchLookup := false, false
+    	branchName := "cookbook-" + suffix + "-branch"
+    	defer func() {
+    		cleanup := context.Background()
+    		if databaseID == "" && lookup {
+    			id, findErr := findCreatedDatabase(cleanup, token, name)
+    			if findErr != nil {
+    				err = errors.Join(err, fmt.Errorf("looking for database %s: %w", name, findErr),
+    					fmt.Errorf("delete the database %s by hand, because it may still be billing", name))
+    				return
+    			}
+    			if id == "" {
+    				err = errors.Join(err, fmt.Errorf("the database %s was not found; check your account for it by hand", name))
+    				return
+    			}
+    			databaseID = id
+    		}
+    		if databaseID == "" {
+    			return
+    		}
+    		// Delete the branch before the database. A failure here must not
+    		// stop the database delete, which uses force=true as a safety net.
+    		if branchID == "" && branchLookup {
+    			id, findErr := findCreatedBranch(cleanup, token, databaseID, branchName)
+    			if findErr != nil {
+    				err = errors.Join(err, fmt.Errorf("looking for branch %s: %w", branchName, findErr),
+    					errors.New("the forced delete of the database that follows also deletes the branch"))
+    			} else if id == "" {
+    				err = errors.Join(err, fmt.Errorf("the branch %s was not found; check your account for it by hand", branchName))
+    			}
+    			branchID = id
+    		}
+    		if branchID != "" {
+    			if delErr := deleteBranch(cleanup, token, databaseID, branchID); delErr != nil {
+    				err = errors.Join(err, fmt.Errorf("deleting branch %s: %w", branchID, delErr),
+    					errors.New("the forced delete of the database that follows also deletes the branch"))
+    			} else {
+    				fmt.Println("Deleted branch")
+    			}
+    		}
+    		if delErr := deleteDatabase(cleanup, token, databaseID); delErr != nil {
+    			err = errors.Join(err, fmt.Errorf("deleting database %s: %w", databaseID, delErr),
+    				fmt.Errorf("delete the database %s and any branches by hand, because they may still be billing", databaseID))
+    			return
+    		}
+    		fmt.Println("Deleted database")
+    	}()
+    
+    	// Look the database up by name afterwards only if the outcome of the
+    	// request is unknown, so that a refusal cannot lead the cleanup to
+    	// delete another database that has the same name.
+    	ip, err := clientIP(ctx, token)
+    	if err != nil {
+    		return err
+    	}
+    	lookup = true
+    	database, err := createDatabase(ctx, token, name, displayName, region, size, ip)
+    	if err != nil {
+    		lookup = outcomeUnknown(err)
+    		return err
+    	}
+    	databaseID = database.ID
+    	fmt.Printf("Created database %s\n", database.DisplayName)
+    
+    	if err := waitUntilAvailable(ctx, token, database.ID); err != nil {
+    		return err
+    	}
+    	fmt.Println("Database is available")
+    
+    	// The program names the branch before the request, as it does the
+    	// database, and looks it up afterwards only if the outcome is unknown.
+    	branchLookup = true
+    	branch, err := createBranch(ctx, token, database.ID, branchName)
+    	if err != nil {
+    		branchLookup = outcomeUnknown(err)
+    		return err
+    	}
+    	branchID = branch.ID
+    	fmt.Printf("Created branch %s\n", branch.DisplayName)
+    
+    	branchPath := "/databases/" + database.ID + "/branches/" + branch.ID
+    	if err := waitUntilBranchAvailable(ctx, token, branchPath); err != nil {
+    		return err
+    	}
+    	fmt.Println("Branch is available")
+    
+    	config, err := connectionConfig(ctx, token, branchPath)
+    	if err != nil {
+    		return err
+    	}
+    	version, err := serverVersion(ctx, config)
+    	if err != nil {
+    		return err
+    	}
+    	fmt.Printf("Branch server version: %s\n", version)
+    	return nil
+    }
+    
+    // interrupted is set when Ctrl-C or SIGTERM arrived before run() returned.
+    var interrupted bool
+    
+    // main reports any error returned by run() and exits with a non-zero
+    // status. After a signal, it prints "Interrupted" and exits with 130, the
+    // status of a program that the user stopped, unless the clean-up failed as
+    // well, which errors.Join reports on a line of its own.
+    func main() {
+    	if err := run(); err != nil {
+    		if interrupted {
+    			fmt.Fprintln(os.Stderr, "Interrupted")
+    			if strings.Contains(err.Error(), "\n") {
+    				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    				os.Exit(1)
+    			}
+    			os.Exit(130)
+    		}
+    		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    		os.Exit(1)
+    	}
+    }
+    
+    
+    ```
+
+=== "Rust"
+
+    ```rust
+    // Ellie's Postgres Cookbook
+    // Creating a branch of a pgEdge Starfleet database for a test run, and
+    // connecting to it, using reqwest, serde_json, and the postgres crate.
+    //
+    // The program creates a database of its own to branch. The Starfleet
+    // service bills for every database and every branch from the moment that
+    // it becomes connectable, so the program deletes the branch and then the
+    // database on every path: after a success, after a failure, after a
+    // panic, and after Ctrl-C.
+    //
+    // Copyright (c) 2026, pgEdge, Inc.
+    // This code is released under the PostgreSQL License.
+    
+    use std::collections::hash_map::RandomState;
+    use std::env;
+    use std::error::Error;
+    use std::fmt;
+    use std::hash::{BuildHasher, Hasher};
+    use std::panic::{self, AssertUnwindSafe};
+    use std::process::ExitCode;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::LazyLock;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::thread;
+    use std::time::{Duration, Instant};
+    
+    use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+    use postgres::config::SslMode;
+    use postgres::Config;
+    use postgres_openssl::MakeTlsConnector;
+    use reqwest::blocking::Client;
+    use reqwest::Method;
+    use serde_json::{json, Value};
+    use signal_hook::consts::{SIGINT, SIGTERM};
+    
+    /// How long to wait for a database to become available, or to disappear
+    /// after a delete, and how often to check.
+    const TIMEOUT: Duration = Duration::from_secs(900);
+    const POLL: Duration = Duration::from_secs(10);
+    
+    /// How many times to look for a database whose create reply was lost.
+    const LOOKUP_ATTEMPTS: u32 = 3;
+    
+    /// How many times to try connecting to the database before giving up.
+    const CONNECT_ATTEMPTS: u32 = 6;
+    
+    /// Any error, boxed, so that a function can return errors of several types
+    /// with the ? operator.
+    type Result<T> = std::result::Result<T, Box<dyn Error>>;
+    
+    /// The settings that the program reads from the environment.
+    struct Settings {
+        base_url: String,
+        client_id: Option<String>,
+        client_secret: Option<String>,
+    }
+    
+    /// Returns the value of an environment variable, if it is set and not
+    /// empty; an empty variable counts as unset.
+    fn env_value(name: &str) -> Option<String> {
+        env::var(name).ok().filter(|value| !value.is_empty())
+    }
+    
+    /// Reads the API settings from the environment. The client ID and secret
+    /// have no defaults, so a missing value becomes None, and the token
+    /// request reports it.
+    fn settings() -> Settings {
+        Settings {
+            base_url: env_value("STARFLEET_API_URL")
+                .unwrap_or_else(|| "https://api.pgedge.com".to_string())
+                .trim_end_matches('/')
+                .to_string(),
+            client_id: env_value("STARFLEET_CLIENT_ID"),
+            client_secret: env_value("STARFLEET_CLIENT_SECRET"),
+        }
+    }
+    
+    /// Set when SIGINT or SIGTERM arrives.
+    static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+    
+    /// Set once the clean-up has started, which nothing may cut short.
+    static CLEANING: AtomicBool = AtomicBool::new(false);
+    
+    /// Catches SIGINT and SIGTERM. The handler sets INTERRUPTED and replaces
+    /// the default action, which would end the program before it could delete
+    /// the database, so a second signal does nothing more.
+    fn catch_signals() -> Result<()> {
+        for signal in [SIGINT, SIGTERM] {
+            signal_hook::flag::register(signal, &INTERRUPTED)?;
+        }
+        Ok(())
+    }
+    
+    /// The error that a request or a wait returns once a signal has arrived.
+    #[derive(Debug)]
+    struct Interrupted;
+    
+    impl fmt::Display for Interrupted {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("interrupted")
+        }
+    }
+    
+    impl Error for Interrupted {}
+    
+    /// Returns an error once a signal has arrived, so that the program stops
+    /// making requests, unless the clean-up has started.
+    fn check_interrupted() -> Result<()> {
+        if INTERRUPTED.load(Ordering::SeqCst) && !CLEANING.load(Ordering::SeqCst) {
+            return Err(Interrupted.into());
+        }
+        Ok(())
+    }
+    
+    /// Waits for the given time, watching for a signal.
+    fn pause(duration: Duration) -> Result<()> {
+        let end = Instant::now() + duration;
+        while Instant::now() < end {
+            check_interrupted()?;
+            thread::sleep(Duration::from_millis(200));
+        }
+        Ok(())
+    }
+    
+    /// One client serves every request. Its timeout covers the whole exchange,
+    /// the body of the reply included.
+    static CLIENT: LazyLock<Client> = LazyLock::new(|| {
+        Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("could not create the HTTP client")
+    });
+    
+    /// An error reply from the API, with its HTTP status.
+    #[derive(Debug)]
+    struct ApiError {
+        status: u16,
+        message: String,
+    }
+    
+    impl fmt::Display for ApiError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str(&self.message)
+        }
+    }
+    
+    impl Error for ApiError {}
+    
+    /// Sends a request with a JSON body, if there is one, and returns the
+    /// decoded JSON reply, or null if the reply has no body. A 4xx or 5xx
+    /// reply returns an ApiError.
+    fn request(
+        method: Method,
+        url: &str,
+        path: &str,
+        token: Option<&str>,
+        body: Option<&Value>,
+    ) -> Result<Value> {
+        let mut request = CLIENT.request(method.clone(), url);
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+    
+        let response = request.send()?;
+        let status = response.status().as_u16();
+        let text = response.text()?;
+        if status >= 400 {
+            return Err(ApiError {
+                status,
+                message: format!("{method} {path} failed with status {status}: {}", text.trim()),
+            }
+            .into());
+        }
+        if text.is_empty() {
+            return Ok(Value::Null);
+        }
+        Ok(serde_json::from_str(&text)?)
+    }
+    
+    /// Returns a field of a JSON object as text, and an error if the field is
+    /// missing.
+    fn field(value: &Value, name: &str) -> Result<String> {
+        match value.get(name) {
+            Some(Value::String(text)) => Ok(text.clone()),
+            Some(Value::Null) | None => Err(format!("the reply has no {name}").into()),
+            Some(other) => Ok(other.to_string()),
+        }
+    }
+    
+    /// Exchanges the client ID and secret for an access token, which the
+    /// Managed API accepts as a bearer token until it expires.
+    fn get_token(cfg: &Settings) -> Result<String> {
+        let (Some(client_id), Some(client_secret)) = (&cfg.client_id, &cfg.client_secret) else {
+            return Err("STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set".into());
+        };
+        check_interrupted()?;
+        let path = "/account/v1/oauth/token";
+        let body = json!({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        });
+        let token = request(
+            Method::POST,
+            &format!("{}{path}", cfg.base_url),
+            path,
+            None,
+            Some(&body),
+        )?;
+        field(&token, "access_token")
+    }
+    
+    /// Sends an authenticated request to the Managed API and returns the
+    /// decoded JSON reply, or null if the reply has no body. After a signal,
+    /// it returns an error without sending anything.
+    fn api(cfg: &Settings, token: &str, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
+        check_interrupted()?;
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        request(method, &url, path, Some(token), body)
+    }
+    
+    /// Returns the region and size for the new database. The API lists sizes
+    /// smallest first, so the first one is the cheapest. The API does not
+    /// price regions, so the example takes the first one.
+    fn choose_placement(cfg: &Settings, token: &str) -> Result<(String, String)> {
+        let regions = api(cfg, token, Method::GET, "/regions", None)?;
+        let sizes = api(cfg, token, Method::GET, "/sizes", None)?;
+        match (regions.get(0), sizes.get(0)) {
+            (Some(region), Some(size)) => Ok((field(region, "region")?, field(size, "name")?)),
+            _ => Err("the API offers no region or size".into()),
+        }
+    }
+    
+    /// Returns the address that the API sees requests come from.
+    fn client_ip(cfg: &Settings, token: &str) -> Result<String> {
+        // A new database is closed to everyone until an allowlist rule admits
+        // an address. The API reports the address it sees this request come
+        // from, which is the one to admit; a bare address means a single host.
+        field(&api(cfg, token, Method::GET, "/client-ip", None)?, "ip_address")
+    }
+    
+    /// Creates a database that only this machine can reach, and returns the
+    /// API's description of it, which includes its ID.
+    fn create_database(
+        cfg: &Settings,
+        token: &str,
+        name: &str,
+        display_name: &str,
+        placement: &(String, String),
+        ip: &str,
+    ) -> Result<Value> {
+        let body = json!({
+            // The name becomes the Postgres database name, so it holds only
+            // letters and digits, and the readable cookbook- prefix goes in the
+            // display name. The program also uses the name to find the
+            // database again if the reply to this request is lost.
+            "name": name,
+            "display_name": display_name,
+            "region": placement.0,
+            "size": placement.1,
+            "ip_allowlist": {"rules": [{"cidr": ip, "label": "cookbook"}]},
+        });
+        // This calls request rather than api, so that a signal cannot stop a
+        // request whose result the program must not lose.
+        let path = "/databases";
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        request(Method::POST, &url, path, Some(token), Some(&body))
+    }
+    
+    /// The API does not document its status values; the example treats these
+    /// two as failures, which end the wait at once instead of leaving it to
+    /// run until the time limit.
+    const FAILED_STATUSES: [&str; 2] = ["degraded", "failed"];
+    
+    /// Polls the database until its status is available.
+    fn wait_until_available(cfg: &Settings, token: &str, database_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut last = String::new();
+        while Instant::now() < deadline {
+            let path = format!("/databases/{database_id}");
+            let status = field(&api(cfg, token, Method::GET, &path, None)?, "status")?;
+            if status != last {
+                println!("Database status: {status}");
+                last = status.clone();
+            }
+            if status == "available" {
+                return Ok(());
+            }
+            if FAILED_STATUSES.contains(&status.as_str()) {
+                return Err(format!("the database has the status {status}").into());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the database was not available after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    
+    /// Creates a copy-on-write branch of the database, and returns the API's
+    /// description of it, which includes its ID.
+    fn create_branch(cfg: &Settings, token: &str, database_id: &str, display_name: &str) -> Result<Value> {
+        // The API assigns the name of a branch, so the program gives the
+        // branch a display name and uses that to find it again if the reply to
+        // this request is lost. The request sets no allowlist, so the branch
+        // copies the rules of the database, which admit this machine. The
+        // branch also copies the size, the region, and the Postgres version.
+        // This calls request rather than api, so that a signal cannot stop a
+        // request whose result the program must not lose.
+        let path = format!("/databases/{database_id}/branches");
+        let url = format!("{}/managed/v1{path}", cfg.base_url);
+        let body = json!({"display_name": display_name});
+        request(Method::POST, &url, &path, Some(token), Some(&body))
+    }
+    
+    /// Polls the branch until its status is available.
+    fn wait_until_branch_available(cfg: &Settings, token: &str, branch_path: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let mut last = String::new();
+        while Instant::now() < deadline {
+            let status = field(&api(cfg, token, Method::GET, branch_path, None)?, "status")?;
+            if status != last {
+                println!("Branch status: {status}");
+                last = status.clone();
+            }
+            if status == "available" {
+                return Ok(());
+            }
+            if FAILED_STATUSES.contains(&status.as_str()) {
+                return Err(format!("the branch has the status {status}").into());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the branch was not available after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    
+    /// Reads the connection details of an available branch, and returns them
+    /// as a postgres connection configuration.
+    fn connection_settings(cfg: &Settings, token: &str, branch_path: &str) -> Result<Config> {
+        // The connection details, including the password of the branch's own
+        // application user, come with the description of the branch. They are
+        // present only while the branch is available. The API does not
+        // require the host, so fall back to the external IP address if it is
+        // missing.
+        let branch = api(cfg, token, Method::GET, branch_path, None)?;
+        let connection = &branch["connection"];
+        let value = |key: &str| field(connection, key).ok().filter(|value| !value.is_empty());
+        let (Some(host), Some(port), Some(dbname), Some(user), Some(password)) = (
+            value("host").or_else(|| value("external_ip_address")),
+            value("port"),
+            value("database"),
+            value("username"),
+            value("password"),
+        ) else {
+            return Err("the database description has incomplete connection details".into());
+        };
+    
+        let mut config = Config::new();
+        config
+            .host(&host)
+            .port(port.parse()?)
+            .dbname(&dbname)
+            .user(&user)
+            .password(&password)
+            // Encrypt the connection. The crate's default, Prefer, would fall
+            // back to a plain connection, so Require is set explicitly.
+            .ssl_mode(SslMode::Require)
+            // This limits only the TCP connect; server_version limits the rest.
+            .connect_timeout(Duration::from_secs(15));
+        Ok(config)
+    }
+    
+    /// Builds the TLS connector for the connection. The certificate of a
+    /// Starfleet database is not signed by a public authority, so the example
+    /// does not verify it.
+    fn tls_connector() -> Result<MakeTlsConnector> {
+        let mut builder = SslConnector::builder(SslMethod::tls())?;
+        builder.set_verify(SslVerifyMode::NONE);
+        Ok(MakeTlsConnector::new(builder.build()))
+    }
+    
+    /// How long one connection attempt and its query may take. The
+    /// connect_timeout setting limits only the TCP connect in rust-postgres, so
+    /// the TLS handshake, the login, and the query get as long again.
+    const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+    
+    /// Runs one connection attempt on a thread of its own, and waits for it
+    /// for at most ATTEMPT_TIMEOUT whilst watching for a signal, which the
+    /// blocking driver cannot do. Returns None if the attempt runs out of
+    /// time; its thread is then left to end on its own.
+    fn within_time_limit<T: Send + 'static>(
+        work: impl FnOnce() -> std::result::Result<T, postgres::Error> + Send + 'static,
+    ) -> Result<Option<std::result::Result<T, postgres::Error>>> {
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            // The send fails only if the attempt has already run out of time.
+            let _ = sender.send(work());
+        });
+        let end = Instant::now() + ATTEMPT_TIMEOUT;
+        loop {
+            check_interrupted()?;
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(None);
+            }
+            match receiver.recv_timeout(left.min(Duration::from_millis(200))) {
+                Ok(result) => return Ok(Some(result)),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("the connection attempt ended without a result".into());
+                }
+            }
+        }
+    }
+    
+    /// Connects to the database and returns the server's version string.
+    fn server_version(connection: &Config) -> Result<String> {
+        // A database can refuse connections for a short while after the API
+        // reports it as available, so try a few times before giving up. An
+        // error that carries an SQLSTATE code came from the server itself,
+        // such as a failed login, and will not change on a second attempt. An
+        // attempt that runs out of time is repeated, as a failure to connect is.
+        let mut attempt = 0;
+        loop {
+            let config = connection.clone();
+            let tls = tls_connector()?;
+            let outcome = within_time_limit(move || {
+                let mut client = config.connect(tls)?;
+                let version: String = client.query_one("SELECT version()", &[])?.get(0);
+                // Dropping the client also closes the connection, but close()
+                // reports any error that occurs whilst doing so.
+                client.close()?;
+                Ok(version)
+            })?;
+            let error: Box<dyn Error> = match outcome {
+                Some(Ok(version)) => return Ok(version),
+                Some(Err(e)) if e.code().is_none() => e.into(),
+                Some(Err(e)) => return Err(e.into()),
+                None => "the connection attempt timed out".into(),
+            };
+            if attempt == CONNECT_ATTEMPTS - 1 {
+                return Err(error);
+            }
+            pause(POLL)?;
+            attempt += 1;
+        }
+    }
+    
+    /// Reports whether a failed request is worth repeating: no reply arrived,
+    /// such as a refused connection or a timeout, the service is overloaded or
+    /// failing, or it answered 409, which the API does whilst a database is
+    /// still being created.
+    fn is_transient(e: &(dyn Error + 'static)) -> bool {
+        if let Some(api) = e.downcast_ref::<ApiError>() {
+            return matches!(api.status, 409 | 429 | 500..);
+        }
+        e.is::<reqwest::Error>()
+    }
+    
+    /// Reports whether an error is a 404 reply, which means that the database
+    /// does not exist.
+    fn is_gone(e: &(dyn Error + 'static)) -> bool {
+        matches!(e.downcast_ref::<ApiError>(), Some(api) if api.status == 404)
+    }
+    
+    /// Returns the ID of the database with the given name, if there is one.
+    /// The program uses this when it cannot tell whether a create request
+    /// worked. It repeats the request, as the delete does, because the fault
+    /// that lost the reply to the create request may still be there. The
+    /// request asks for the newest databases first, but the API does not say
+    /// which property it sorts on.
+    fn find_database(cfg: &Settings, token: &str, name: &str) -> Result<Option<String>> {
+        let deadline = Instant::now() + TIMEOUT;
+        let databases = loop {
+            match api(cfg, token, Method::GET, "/databases?limit=100&descending=true", None) {
+                Ok(databases) => break databases,
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        };
+        for database in databases.as_array().into_iter().flatten() {
+            if database["name"].as_str() == Some(name) {
+                return Ok(Some(field(database, "id")?));
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Looks for the database a few times, because the service may not have
+    /// recorded a request whose reply was lost until a little later. Returns
+    /// None if the database never appears.
+    fn find_created_database(cfg: &Settings, token: &str, name: &str) -> Result<Option<String>> {
+        for attempt in 0..LOOKUP_ATTEMPTS {
+            if let Some(database_id) = find_database(cfg, token, name)? {
+                return Ok(Some(database_id));
+            }
+            if attempt < LOOKUP_ATTEMPTS - 1 {
+                pause(POLL)?;
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Reports whether a failed create request might still have created the
+    /// database: no reply arrived, the reply could not be read, or the service
+    /// failed with a 5xx status. A 4xx reply is a definite refusal.
+    fn outcome_unknown(e: &(dyn Error + 'static)) -> bool {
+        match e.downcast_ref::<ApiError>() {
+            Some(api) => api.status >= 500,
+            None => true,
+        }
+    }
+    
+    /// Returns the branches of the database that have not been deleted,
+    /// newest first. The request repeats, as the deletes do, and a 404 means
+    /// that the database has gone, and so have its branches.
+    fn list_branches(cfg: &Settings, token: &str, database_id: &str) -> Result<Vec<Value>> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}/branches?limit=100&descending=true");
+        loop {
+            match api(cfg, token, Method::GET, &path, None) {
+                Ok(Value::Array(branches)) => return Ok(branches),
+                Ok(_) => return Ok(Vec::new()),
+                Err(e) if is_gone(e.as_ref()) => return Ok(Vec::new()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    
+    /// Looks for the branch with the given display name a few times, because
+    /// the service may not have recorded a request whose reply was lost until
+    /// a little later. Returns None if the branch never appears.
+    fn find_created_branch(
+        cfg: &Settings,
+        token: &str,
+        database_id: &str,
+        display_name: &str,
+    ) -> Result<Option<String>> {
+        for attempt in 0..LOOKUP_ATTEMPTS {
+            for branch in list_branches(cfg, token, database_id)? {
+                if branch["display_name"].as_str() == Some(display_name) {
+                    return Ok(Some(field(&branch, "id")?));
+                }
+            }
+            if attempt < LOOKUP_ATTEMPTS - 1 {
+                pause(POLL)?;
+            }
+        }
+        Ok(None)
+    }
+    
+    /// Deletes the branch and waits until the API no longer lists it.
+    fn delete_branch(cfg: &Settings, token: &str, database_id: &str, branch_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}/branches/{branch_id}");
+        loop {
+            match api(cfg, token, Method::DELETE, &path, None) {
+                Ok(_) => break,
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    
+        // The API takes a branch out of the list as soon as it accepts the
+        // delete, even though the teardown carries on afterwards.
+        while Instant::now() < deadline {
+            let branches = list_branches(cfg, token, database_id)?;
+            if branches.iter().all(|branch| branch["id"].as_str() != Some(branch_id)) {
+                return Ok(());
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the branch was still listed after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    
+    /// Deletes the database and waits until the API no longer lists it.
+    fn delete_database(cfg: &Settings, token: &str, database_id: &str) -> Result<()> {
+        let deadline = Instant::now() + TIMEOUT;
+        let path = format!("/databases/{database_id}");
+        // The API refuses to delete a database that has branches, with a 409
+        // reply, unless force=true, which deletes every branch first. The
+        // program has deleted its branch by now, so this is a safety net for a
+        // branch that the program could not find.
+        let delete_path = format!("{path}?force=true");
+        loop {
+            match api(cfg, token, Method::DELETE, &delete_path, None) {
+                Ok(_) => break,
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if is_transient(e.as_ref()) && Instant::now() < deadline => pause(POLL)?,
+                Err(e) => return Err(e),
+            }
+        }
+    
+        // The delete starts the teardown; a 404 shows that it has finished.
+        while Instant::now() < deadline {
+            match api(cfg, token, Method::GET, &path, None) {
+                Err(e) if is_gone(e.as_ref()) => return Ok(()),
+                Err(e) if !is_transient(e.as_ref()) => return Err(e),
+                _ => {}
+            }
+            pause(POLL)?;
+        }
+        Err(format!("the database was still present after {} seconds", TIMEOUT.as_secs()).into())
+    }
+    
+    /// What the clean-up needs to know about the database that run created.
+    #[derive(Default)]
+    struct Created {
+        token: Option<String>,
+        name: Option<String>,
+        database_id: Option<String>,
+        lookup: bool,
+        branch_id: Option<String>,
+        branch_name: Option<String>,
+        branch_lookup: bool,
+    }
+    
+    /// Returns six random hexadecimal digits. The standard library has no
+    /// random number generator, but it seeds the keys of each RandomState
+    /// from the operating system, so the hash of nothing is a random number.
+    fn random_suffix() -> String {
+        format!("{:06x}", RandomState::new().build_hasher().finish() & 0xff_ffff)
+    }
+    
+    /// Does the work, recording in created what the clean-up needs to know.
+    fn run(cfg: &Settings, created: &mut Created) -> Result<()> {
+        let token = get_token(cfg)?;
+        created.token = Some(token.clone());
+    
+        let placement = choose_placement(cfg, &token)?;
+        println!("Region: {}", placement.0);
+        println!("Size: {}", placement.1);
+    
+        // Choose the name before the request, so that the program can find the
+        // database even if the reply to the request never arrives.
+        let suffix = random_suffix();
+        let name = format!("cookbook{suffix}");
+        let display_name = format!("cookbook-{suffix}");
+        let ip = client_ip(cfg, &token)?;
+        created.name = Some(name.clone());
+        // Look the database up by name afterwards only if the outcome of the
+        // request is unknown, so that a refusal cannot lead the clean-up to
+        // delete another database that has the same name.
+        created.lookup = true;
+        let database = create_database(cfg, &token, &name, &display_name, &placement, &ip)
+            .inspect_err(|e| created.lookup = outcome_unknown(e.as_ref()))?;
+        let database_id = field(&database, "id")?;
+        created.database_id = Some(database_id.clone());
+        println!("Created database {}", field(&database, "display_name")?);
+    
+        wait_until_available(cfg, &token, &database_id)?;
+        println!("Database is available");
+    
+        // The program names the branch before the request, as it does the
+        // database, and looks it up afterwards only if the outcome is unknown.
+        let branch_name = format!("cookbook-{suffix}-branch");
+        created.branch_name = Some(branch_name.clone());
+        created.branch_lookup = true;
+        let branch = create_branch(cfg, &token, &database_id, &branch_name)
+            .inspect_err(|e| created.branch_lookup = outcome_unknown(e.as_ref()))?;
+        let branch_id = field(&branch, "id")?;
+        created.branch_id = Some(branch_id.clone());
+        println!("Created branch {}", field(&branch, "display_name")?);
+    
+        let branch_path = format!("/databases/{database_id}/branches/{branch_id}");
+        wait_until_branch_available(cfg, &token, &branch_path)?;
+        println!("Branch is available");
+    
+        let connection = connection_settings(cfg, &token, &branch_path)?;
+        println!("Branch server version: {}", server_version(&connection)?);
+        Ok(())
+    }
+    
+    /// Prints an error with the chain of underlying causes, because the
+    /// top-level error is often generic ("error sending request").
+    fn report(prefix: &str, e: &dyn Error) {
+        eprintln!("{prefix}{e}");
+        let mut cause = e.source();
+        while let Some(c) = cause {
+            eprintln!("  caused by: {c}");
+            cause = c.source();
+        }
+    }
+    
+    /// Deletes the database, if run created one, and returns the exit status.
+    fn clean_up(cfg: &Settings, created: &mut Created, mut status: u8) -> u8 {
+        let (Some(token), Some(name)) = (&created.token, &created.name) else {
+            return status;
+        };
+        let result = (|| -> Result<()> {
+            if created.database_id.is_none() && created.lookup {
+                created.database_id = find_created_database(cfg, token, name)?;
+                if created.database_id.is_none() {
+                    eprintln!("Error: the database {name} was not found; check your account for it by hand");
+                    status = 1;
+                }
+            }
+            if let Some(database_id) = &created.database_id {
+                // Delete the branch before the database. A failure here must
+                // not stop the database delete, which uses force=true as a
+                // safety net.
+                let branch = (|| -> Result<()> {
+                    if created.branch_id.is_none() && created.branch_lookup {
+                        let branch_name = created.branch_name.as_deref().unwrap_or_default();
+                        created.branch_id = find_created_branch(cfg, token, database_id, branch_name)?;
+                        if created.branch_id.is_none() {
+                            eprintln!(
+                                "Error: the branch {branch_name} was not found; check your account for it by hand"
+                            );
+                            status = 1;
+                        }
+                    }
+                    if let Some(branch_id) = &created.branch_id {
+                        delete_branch(cfg, token, database_id, branch_id)?;
+                        println!("Deleted branch");
+                    }
+                    Ok(())
+                })();
+                if let Err(e) = branch {
+                    report("Error: ", e.as_ref());
+                    eprintln!("The forced delete of the database that follows also deletes the branch");
+                    status = 1;
+                }
+                delete_database(cfg, token, database_id)?;
+                println!("Deleted database");
+            }
+            Ok(())
+        })();
+        if let Err(e) = result {
+            report("Error: ", e.as_ref());
+            let database = created.database_id.as_ref().unwrap_or(name);
+            eprintln!("Delete the database {database} and any branches by hand, because it may still be billing");
+            status = 1;
+        }
+        status
+    }
+    
+    fn main() -> ExitCode {
+        if let Err(e) = catch_signals() {
+            report("Error: ", e.as_ref());
+            return ExitCode::FAILURE;
+        }
+        let cfg = settings();
+    
+        // catch_unwind turns a panic in run into an Err, so that the clean-up
+        // below runs after a panic too; the panic message has already been
+        // printed by then.
+        let mut created = Created::default();
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| run(&cfg, &mut created)));
+        let status = match outcome {
+            Ok(Ok(())) => 0,
+            _ if INTERRUPTED.load(Ordering::SeqCst) => {
+                eprintln!("Interrupted");
+                130
+            }
+            Ok(Err(e)) => {
+                report("Error: ", e.as_ref());
+                1
+            }
+            Err(_) => 1,
+        };
+    
+        // Delete the database whether the example succeeded, failed, or was
+        // interrupted, because the service bills for it until then. Signals no
+        // longer stop anything, so that they cannot cut the clean-up short.
+        CLEANING.store(true, Ordering::SeqCst);
+        ExitCode::from(clean_up(&cfg, &mut created, status))
+    }
+    
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    # Ellie's Postgres Cookbook
+    # Creating a branch of a pgEdge Starfleet database for a test run, and
+    # connecting to it, using Net::HTTP and the pg gem.
+    #
+    # The program creates a database of its own to branch. The Starfleet service
+    # bills for every database and every branch from the moment that it becomes
+    # connectable, so the program deletes the branch and then the database on
+    # every path: after a success, after a failure, and after Ctrl-C.
+    #
+    # Copyright (c) 2026, pgEdge, Inc.
+    # This code is released under the PostgreSQL License.
+    
+    require "json"
+    require "net/http"
+    require "pg"
+    require "securerandom"
+    
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    TIMEOUT_SECONDS = 900
+    POLL_SECONDS = 10
+    
+    # How many times to look for a database whose create reply was lost.
+    LOOKUP_ATTEMPTS = 3
+    
+    # How many times to try connecting to the database before giving up.
+    CONNECT_ATTEMPTS = 6
+    
+    # Returns the value of an environment variable, or a fallback if the
+    # variable is unset or empty, as an unset variable would be.
+    def env_or(name, fallback)
+      value = ENV[name]
+      value.nil? || value.empty? ? fallback : value
+    end
+    
+    # Reads the API settings from the environment. The client ID and secret
+    # have no defaults, so a missing value becomes nil, and the token request
+    # reports it.
+    def settings
+      {
+        base_url: env_or("STARFLEET_API_URL", "https://api.pgedge.com").sub(%r{/+\z}, ""),
+        client_id: env_or("STARFLEET_CLIENT_ID", nil),
+        client_secret: env_or("STARFLEET_CLIENT_SECRET", nil)
+      }
+    end
+    
+    # The current time from a clock that only moves forwards, for deadlines.
+    def now
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+    
+    # An error reply from the API, with its HTTP status.
+    class ApiError < StandardError
+      attr_reader :status
+    
+      def initialize(status, message)
+        super(message)
+        @status = status
+      end
+    end
+    
+    # Sends a request with a JSON body, if there is one, and returns the
+    # response. Net::HTTP has no overall timeout, so this limits both the
+    # connection and each read.
+    def send_request(method, url, headers, body)
+      uri = URI(url)
+      headers = headers.merge("Content-Type" => "application/json") if body
+      Net::HTTP.start(uri.host, uri.port,
+                      use_ssl: uri.scheme == "https",
+                      open_timeout: 30, read_timeout: 30, write_timeout: 30) do |http|
+        http.send_request(method, uri.request_uri, body&.to_json, headers)
+      end
+    end
+    
+    # Raises an ApiError for a 4xx or 5xx reply.
+    def check_status(method, path, response)
+      return if response.code.to_i < 400
+    
+      raise ApiError.new(response.code.to_i,
+                         "#{method} #{path} failed with status #{response.code}: " \
+                         "#{response.body.to_s.strip}")
+    end
+    
+    # Exchanges the client ID and secret for an access token, which the
+    # Managed API accepts as a bearer token until it expires.
+    def get_token(config)
+      unless config[:client_id] && config[:client_secret]
+        raise "STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set"
+      end
+    
+      path = "/account/v1/oauth/token"
+      response = send_request("POST", "#{config[:base_url]}#{path}", {}, {
+                                grant_type: "client_credentials",
+                                client_id: config[:client_id],
+                                client_secret: config[:client_secret]
+                              })
+      check_status("POST", path, response)
+      JSON.parse(response.body).fetch("access_token")
+    end
+    
+    # Sends an authenticated request to the Managed API and returns the
+    # decoded JSON reply, or nil if the reply has no body.
+    def api(config, token, method, path, body = nil)
+      response = send_request(method, "#{config[:base_url]}/managed/v1#{path}",
+                              { "Authorization" => "Bearer #{token}" }, body)
+      check_status(method, path, response)
+      text = response.body.to_s
+      text.empty? ? nil : JSON.parse(text)
+    end
+    
+    # Returns the region and size for the new database. The API lists sizes
+    # smallest first, so the first one is the cheapest. The API does not price
+    # regions, so the example takes the first one.
+    def choose_placement(config, token)
+      regions = api(config, token, "GET", "/regions")
+      sizes = api(config, token, "GET", "/sizes")
+      raise "the API offers no region or size" if regions.to_a.empty? || sizes.to_a.empty?
+    
+      [regions[0].fetch("region"), sizes[0].fetch("name")]
+    end
+    
+    # Returns the address that the API sees requests come from.
+    def client_ip(config, token)
+      # A new database is closed to everyone until an allowlist rule admits an
+      # address. The API reports the address it sees this request come from,
+      # which is the one to admit; a bare address means a single host.
+      api(config, token, "GET", "/client-ip").fetch("ip_address")
+    end
+    
+    # Creates a database that only this machine can reach, and returns the
+    # API's description of it, which includes its ID.
+    def create_database(config, token, name, display_name, region, size, ip)
+      api(config, token, "POST", "/databases", {
+            # The name becomes the Postgres database name, so it holds only
+            # letters and digits, and the readable cookbook- prefix goes in the
+            # display name. The program also uses the name to find the database
+            # again if the reply to this request is lost.
+            name: name,
+            display_name: display_name,
+            region: region,
+            size: size,
+            ip_allowlist: { rules: [{ cidr: ip, label: "cookbook" }] }
+          })
+    end
+    
+    # The API does not document its status values; the example treats these
+    # two as failures, which end the wait at once instead of leaving it to run
+    # until the time limit.
+    FAILED_STATUSES = %w[degraded failed].freeze
+    
+    # Polls the database until its status is available.
+    def wait_until_available(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      last = nil
+      while now < deadline
+        status = api(config, token, "GET", "/databases/#{database_id}").fetch("status")
+        if status != last
+          puts "Database status: #{status}"
+          last = status
+        end
+        return if status == "available"
+        raise "the database has the status #{status}" if FAILED_STATUSES.include?(status)
+    
+        sleep POLL_SECONDS
+      end
+      raise "the database was not available after #{TIMEOUT_SECONDS} seconds"
+    end
+    
+    # Creates a copy-on-write branch of the database, and returns the API's
+    # description of it, which includes its ID.
+    def create_branch(config, token, database_id, display_name)
+      # The API assigns the name of a branch, so the program gives the branch a
+      # display name and uses that to find it again if the reply to this
+      # request is lost. The request sets no allowlist, so the branch copies
+      # the rules of the database, which admit this machine. The branch also
+      # copies the size, the region, and the Postgres version.
+      api(config, token, "POST", "/databases/#{database_id}/branches",
+          { display_name: display_name })
+    end
+    
+    # Polls the branch until its status is available.
+    def wait_until_branch_available(config, token, branch_path)
+      deadline = now + TIMEOUT_SECONDS
+      last = nil
+      while now < deadline
+        status = api(config, token, "GET", branch_path).fetch("status")
+        if status != last
+          puts "Branch status: #{status}"
+          last = status
+        end
+        return if status == "available"
+        raise "the branch has the status #{status}" if FAILED_STATUSES.include?(status)
+    
+        sleep POLL_SECONDS
+      end
+      raise "the branch was not available after #{TIMEOUT_SECONDS} seconds"
+    end
+    
+    # Reads the connection details of an available branch, and returns them as
+    # connection parameters for the pg gem.
+    def connection_settings(config, token, branch_path)
+      # The connection details, including the password of the branch's own
+      # application user, come with the description of the branch. They are
+      # present only while the branch is available. The API does not require
+      # the host, so fall back to the external IP address if it is missing.
+      connection = api(config, token, "GET", branch_path)["connection"] || {}
+      host = connection["host"].to_s.empty? ? connection["external_ip_address"] : connection["host"]
+      details = {
+        host: host,
+        port: connection["port"],
+        dbname: connection["database"],
+        user: connection["username"],
+        password: connection["password"]
+      }
+      if details.values.any? { |v| v.nil? || v.to_s.empty? }
+        raise "the database description has incomplete connection details"
+      end
+    
+      details.merge(
+        # Encrypt the connection. The certificate of a Starfleet database is
+        # not signed by a public authority, so the example does not verify it.
+        sslmode: "require",
+        connect_timeout: 15
+      )
+    end
+    
+    # The errors that mean that no reply arrived: a refused or reset
+    # connection, a failed name lookup, a TLS failure, or a timeout.
+    TRANSPORT_ERRORS = [SystemCallError, IOError, SocketError, Timeout::Error,
+                        OpenSSL::SSL::SSLError].freeze
+    
+    # Reports whether a failed request is worth repeating: no reply arrived,
+    # the service is overloaded or failing, or it answered 409, which the API
+    # does whilst a database is still being created.
+    def transient?(error)
+      return true if TRANSPORT_ERRORS.any? { |type| error.is_a?(type) }
+      return false unless error.is_a?(ApiError)
+    
+      [409, 429].include?(error.status) || error.status >= 500
+    end
+    
+    # Reports whether an error is a 404 reply, which means that the database
+    # does not exist.
+    def gone?(error)
+      error.is_a?(ApiError) && error.status == 404
+    end
+    
+    # Returns the ID of the database with the given name, or nil. The program
+    # uses this when it cannot tell whether a create request worked. It repeats
+    # the request, as the delete does, because the fault that lost the reply to
+    # the create request may still be there. The request asks for the newest
+    # databases first, but the API does not say which property it sorts on.
+    def find_database(config, token, name)
+      deadline = now + TIMEOUT_SECONDS
+      databases = begin
+        api(config, token, "GET", "/databases?limit=100&descending=true")
+      rescue StandardError => e
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+      database = databases.to_a.find { |d| d["name"] == name }
+      database&.fetch("id")
+    end
+    
+    # Looks for the database a few times, because the service may not have
+    # recorded a request whose reply was lost until a little later. Returns nil
+    # if the database never appears.
+    def find_created_database(config, token, name)
+      LOOKUP_ATTEMPTS.times do |attempt|
+        database_id = find_database(config, token, name)
+        return database_id if database_id
+    
+        sleep POLL_SECONDS if attempt < LOOKUP_ATTEMPTS - 1
+      end
+      nil
+    end
+    
+    # Reports whether a failed create request might still have created the
+    # database: no reply arrived, the reply could not be read, or the service
+    # failed with a 5xx status. A 4xx reply is a definite refusal.
+    def outcome_unknown?(error)
+      return error.status >= 500 if error.is_a?(ApiError)
+    
+      true
+    end
+    
+    # Returns the branches of the database that have not been deleted, newest
+    # first. The request repeats, as the deletes do, and a 404 means that the
+    # database has gone, and so have its branches.
+    def list_branches(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        api(config, token, "GET",
+            "/databases/#{database_id}/branches?limit=100&descending=true").to_a
+      rescue StandardError => e
+        return [] if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    end
+    
+    # Looks for the branch with the given display name a few times, because
+    # the service may not have recorded a request whose reply was lost until a
+    # little later. Returns nil if the branch never appears.
+    def find_created_branch(config, token, database_id, display_name)
+      LOOKUP_ATTEMPTS.times do |attempt|
+        branch = list_branches(config, token, database_id)
+                 .find { |b| b["display_name"] == display_name }
+        return branch.fetch("id") if branch
+    
+        sleep POLL_SECONDS if attempt < LOOKUP_ATTEMPTS - 1
+      end
+      nil
+    end
+    
+    # Deletes the branch and waits until the API no longer lists it.
+    def delete_branch(config, token, database_id, branch_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        api(config, token, "DELETE", "/databases/#{database_id}/branches/#{branch_id}")
+      rescue StandardError => e
+        return if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    
+      # The API takes a branch out of the list as soon as it accepts the
+      # delete, even though the teardown carries on afterwards.
+      while now < deadline
+        branches = list_branches(config, token, database_id)
+        return if branches.none? { |b| b.fetch("id") == branch_id }
+    
+        sleep POLL_SECONDS
+      end
+      raise "the branch was still listed after #{TIMEOUT_SECONDS} seconds"
+    end
+    
+    # Deletes the database and waits until the API no longer lists it.
+    def delete_database(config, token, database_id)
+      deadline = now + TIMEOUT_SECONDS
+      begin
+        # The API refuses to delete a database that has branches, with a 409
+        # reply, unless force=true, which deletes every branch first. The
+        # program has deleted its branch by now, so this is a safety net for a
+        # branch that the program could not find.
+        api(config, token, "DELETE", "/databases/#{database_id}?force=true")
+      rescue StandardError => e
+        return if gone?(e)
+        raise if !transient?(e) || now > deadline
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    
+      # The delete starts the teardown; a 404 shows that it has finished.
+      while now < deadline
+        begin
+          api(config, token, "GET", "/databases/#{database_id}")
+        rescue StandardError => e
+          return if gone?(e)
+          raise unless transient?(e)
+        end
+        sleep POLL_SECONDS
+      end
+      raise "the database was still present after #{TIMEOUT_SECONDS} seconds"
+    end
+    
+    # Connects to the database and returns the server's version string.
+    def server_version(connection)
+      # A database can refuse connections for a short while after the API
+      # reports it as available, so try a few times before giving up. The
+      # TypeScript, Java, C#, Go, and Rust programs repeat only errors that
+      # carry no SQLSTATE code, but libpq gives none for any failure to
+      # connect, a failed login included, so the pg gem cannot tell them
+      # apart and the example repeats every PG::ConnectionBad.
+      attempt = 0
+      begin
+        conn = PG.connect(connection)
+        begin
+          conn.exec("SELECT version()").getvalue(0, 0)
+        ensure
+          conn.close
+        end
+      rescue PG::ConnectionBad
+        attempt += 1
+        raise if attempt == CONNECT_ATTEMPTS
+    
+        sleep POLL_SECONDS
+        retry
+      end
+    end
+    
+    def main
+      config = settings
+      exit_code = 0
+      token = nil
+      name = nil
+      database_id = nil
+      lookup = false
+      branch_id = nil
+      branch_name = nil
+      branch_lookup = false
+      begin
+        token = get_token(config)
+    
+        region, size = choose_placement(config, token)
+        puts "Region: #{region}"
+        puts "Size: #{size}"
+    
+        # Choose the name before the request, so that the program can find the
+        # database even if the reply to the request never arrives.
+        suffix = SecureRandom.hex(3)
+        name = "cookbook#{suffix}"
+        display_name = "cookbook-#{suffix}"
+        # Look the database up by name afterwards only if the outcome of the
+        # request is unknown, so that a refusal cannot lead the cleanup to
+        # delete another database that has the same name.
+        ip = client_ip(config, token)
+        lookup = true
+        begin
+          database = create_database(config, token, name, display_name, region, size, ip)
+        rescue StandardError => e
+          lookup = outcome_unknown?(e)
+          raise
+        end
+        database_id = database.fetch("id")
+        puts "Created database #{database.fetch('display_name')}"
+    
+        wait_until_available(config, token, database_id)
+        puts "Database is available"
+    
+        # The program names the branch before the request, as it does the
+        # database, and looks it up afterwards only if the outcome is unknown.
+        branch_name = "cookbook-#{suffix}-branch"
+        branch_lookup = true
+        begin
+          branch = create_branch(config, token, database_id, branch_name)
+        rescue StandardError => e
+          branch_lookup = outcome_unknown?(e)
+          raise
+        end
+        branch_id = branch.fetch("id")
+        puts "Created branch #{branch.fetch('display_name')}"
+    
+        branch_path = "/databases/#{database_id}/branches/#{branch_id}"
+        wait_until_branch_available(config, token, branch_path)
+        puts "Branch is available"
+    
+        connection = connection_settings(config, token, branch_path)
+        puts "Branch server version: #{server_version(connection)}"
+      # Net::HTTP raises errors of many classes, such as SystemCallError for a
+      # refused connection and Net::OpenTimeout for a timeout, the pg gem
+      # raises PG::Error, and the program raises ApiError and RuntimeError for
+      # replies that it cannot use, so this catches StandardError, their
+      # common ancestor.
+      rescue StandardError => e
+        warn "Error: #{e.message}"
+        exit_code = 1
+      # Ruby raises Interrupt for Ctrl-C and SignalException for SIGTERM.
+      rescue SignalException
+        warn "Interrupted"
+        exit_code = 130
+      ensure
+        # Delete the database whether the example succeeded, failed, or was
+        # interrupted, because the service bills for it until then. Ignore
+        # further interrupts, so that they cannot cut it short.
+        trap("INT", "IGNORE")
+        trap("TERM", "IGNORE")
+        if token && name
+          begin
+            if database_id.nil? && lookup
+              database_id = find_created_database(config, token, name)
+              if database_id.nil?
+                warn "Error: the database #{name} was not found; " \
+                     "check your account for it by hand"
+                exit_code = 1
+              end
+            end
+            if database_id
+              # Delete the branch before the database. A failure here must not
+              # stop the database delete, which uses force=true as a safety
+              # net.
+              begin
+                if branch_id.nil? && branch_lookup
+                  branch_id = find_created_branch(config, token, database_id, branch_name)
+                  if branch_id.nil?
+                    warn "Error: the branch #{branch_name} was not found; " \
+                         "check your account for it by hand"
+                    exit_code = 1
+                  end
+                end
+                if branch_id
+                  delete_branch(config, token, database_id, branch_id)
+                  puts "Deleted branch"
+                end
+              rescue StandardError => e
+                warn "Error: #{e.message}"
+                warn "The forced delete of the database that follows also deletes the branch"
+                exit_code = 1
+              end
+              delete_database(config, token, database_id)
+              puts "Deleted database"
+            end
+          rescue StandardError => e
+            warn "Error: #{e.message}"
+            warn "Delete the database #{database_id || name} and any branches by hand, " \
+                 "because it may still be billing"
+            exit_code = 1
+          end
+        end
+      end
+      exit_code
+    end
+    
+    exit main
+    
+    ```
+
+=== "curl"
+
+    ```bash
+    #!/usr/bin/env bash
+    #
+    # Ellie's Postgres Cookbook
+    # Creating a branch of a pgEdge Starfleet database for a test run, and
+    # connecting to it, using curl, jq and psql.
+    #
+    # The Starfleet service bills for every database and every branch from the
+    # moment that it becomes connectable, so this script deletes the branch and
+    # then the database it creates on every path: after a success, after a
+    # failure, and after Ctrl-C.
+    #
+    # Copyright (c) 2026, pgEdge, Inc.
+    # This code is released under the PostgreSQL License.
+    
+    # Stop at the first failed command or unset variable, and make a failure
+    # anywhere in a pipeline fail the whole pipeline.
+    set -euo pipefail
+    
+    # The script needs curl to call the API, jq to read the JSON replies and
+    # psql to connect to the database.
+    for tool in curl jq psql; do
+        command -v "$tool" >/dev/null || { echo "Error: $tool is required" >&2; exit 1; }
+    done
+    
+    # How long to wait for a database to become available, or to disappear
+    # after a delete, and how often to check.
+    timeout_seconds=900
+    poll_seconds=10
+    
+    # The :- expansion treats an empty variable as unset.
+    base_url="${STARFLEET_API_URL:-https://api.pgedge.com}"
+    base_url="${base_url%/}"
+    client_id="${STARFLEET_CLIENT_ID:-}"
+    client_secret="${STARFLEET_CLIENT_SECRET:-}"
+    
+    # Exchanges the client ID and secret for an access token, which the
+    # Managed API accepts as a bearer token until it expires, and prints
+    # the token.
+    get_token() {
+        if [[ -z "$client_id" || -z "$client_secret" ]]; then
+            echo "Error: STARFLEET_CLIENT_ID and STARFLEET_CLIENT_SECRET must be set" >&2
+            return 1
+        fi
+    
+        # jq builds the body from the environment, and curl reads it from
+        # standard input with --data @-, so the secret never appears in the
+        # process list. --fail-with-body makes curl exit non-zero on an HTTP
+        # error status whilst still printing the API's error message.
+        jq -n '{grant_type: "client_credentials",
+                client_id: env.STARFLEET_CLIENT_ID,
+                client_secret: env.STARFLEET_CLIENT_SECRET}' |
+            curl --silent --show-error --fail-with-body --max-time 30 \
+                --header "Content-Type: application/json" \
+                --data @- \
+                "$base_url/account/v1/oauth/token" |
+            jq -er '.access_token'
+    }
+    
+    # Sends an authenticated request to the Managed API and prints the JSON
+    # reply. The first argument is the method, the second is the path, and any
+    # others go to curl, such as --data @- to send standard input as the body.
+    # The --config option reads the Authorization header from a file that
+    # bash creates from the printf command, so the token never appears in the
+    # process list; that leaves standard input free for the body.
+    api() {
+        local method="$1" path="$2"
+        shift 2
+        curl --silent --show-error --fail-with-body --max-time 30 \
+            --request "$method" \
+            --config <(printf 'header = "Authorization: Bearer %s"\n' "$token") \
+            "$@" "$base_url/managed/v1$path"
+    }
+    
+    # Sends a request and prints only the HTTP status, for the calls that
+    # react to a particular status. A status of 000 means no reply arrived.
+    api_status() {
+        curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 \
+            --request "$1" \
+            --config <(printf 'header = "Authorization: Bearer %s"\n' "$token") \
+            "$base_url/managed/v1$2" || true
+    }
+    
+    # Prints the region and size for the new database, separated by a space.
+    # The API lists sizes smallest first, so the first one is the cheapest.
+    # The API does not price regions, so the example takes the first one.
+    choose_placement() {
+        local region size
+        region="$(api GET /regions | jq -er '.[0].region')"
+        size="$(api GET /sizes | jq -er '.[0].name')"
+        echo "$region $size"
+    }
+    
+    # Prints the address that the API sees requests come from. A new database
+    # is closed to everyone until an allowlist rule admits an address, and this
+    # is the one to admit; a bare address means a single host.
+    client_ip() {
+        api GET /client-ip | jq -er '.ip_address'
+    }
+    
+    # Creates a database that only this machine can reach, and prints the
+    # API's description of it, which includes its ID.
+    create_database() {
+        local name="$1" display_name="$2" region="$3" size="$4" ip="$5"
+        # The name becomes the Postgres database name, so it holds only letters
+        # and digits, and the readable cookbook- prefix goes in the display
+        # name. The script also uses the name to find the database again if the
+        # reply to this request is lost.
+        jq -n --arg name "$name" --arg display_name "$display_name" \
+            --arg region "$region" --arg size "$size" --arg ip "$ip" \
+            '{name: $name, display_name: $display_name,
+              region: $region, size: $size,
+              ip_allowlist: {rules: [{cidr: $ip, label: "cookbook"}]}}' |
+            api POST /databases --header "Content-Type: application/json" \
+                --data @- --write-out '\n%{http_code}'
+    }
+    
+    # Polls the database until its status is available.
+    wait_until_available() {
+        local id="$1" deadline=$((SECONDS + timeout_seconds)) status last=""
+        while ((SECONDS < deadline)); do
+            status="$(api GET "/databases/$id" | jq -er '.status')"
+            if [[ "$status" != "$last" ]]; then
+                echo "Database status: $status"
+                last="$status"
+            fi
+            [[ "$status" == "available" ]] && return 0
+            # The API does not document its status values; the example treats
+            # these two as failures, which end the wait at once instead of
+            # leaving it to run until the time limit.
+            if [[ "$status" == "degraded" || "$status" == "failed" ]]; then
+                echo "Error: the database has the status $status" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        echo "Error: the database was not available after $timeout_seconds seconds" >&2
+        return 1
+    }
+    
+    # Creates a copy-on-write branch of the database, and prints the API's
+    # description of it, which includes its ID, followed by the HTTP status on a
+    # line of its own (000 if no reply arrived). The API assigns the name of a
+    # branch, so the script gives the branch a display name and uses that to
+    # find it again if the reply is lost. The request sets no allowlist, so the
+    # branch copies the rules of the database, which admit this machine. The
+    # branch also copies the size, the region, and the Postgres version.
+    create_branch() {
+        jq -n --arg display_name "$2" '{display_name: $display_name}' |
+            api POST "/databases/$1/branches" \
+                --header "Content-Type: application/json" \
+                --data @- --write-out '\n%{http_code}'
+    }
+    
+    # Polls the branch until its status is available. The argument is the path
+    # of the branch.
+    wait_until_branch_available() {
+        local deadline=$((SECONDS + timeout_seconds)) status last=""
+        while ((SECONDS < deadline)); do
+            status="$(api GET "$1" | jq -er '.status')" || return 1
+            if [[ "$status" != "$last" ]]; then
+                echo "Branch status: $status"
+                last="$status"
+            fi
+            [[ "$status" == "available" ]] && return 0
+            if [[ "$status" == "degraded" || "$status" == "failed" ]]; then
+                echo "Error: the branch has the status $status" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        echo "Error: the branch was not available after $timeout_seconds seconds" >&2
+        return 1
+    }
+    
+    # Reads the connection details of an available branch from its description
+    # (the argument is the path of the branch), and writes a password file for
+    # psql in the format that it reads. The details, including the password of
+    # the branch's own application user, come with the description of the
+    # branch, and are present only while the branch is available. The API does not require the host, so fall back
+    # to the external IP address if it is missing. Each jq call fails if its
+    # field is missing, and the script reads the fields one by one instead of
+    # passing the output to eval, so that a failure cannot print the password
+    # or the environment.
+    write_passfile() {
+        local description host port database username
+        description="$(api GET "$1")" || return 1
+        host="$(jq -er '.connection.host // .connection.external_ip_address | strings' <<<"$description")" || return 1
+        port="$(jq -er '.connection.port | numbers' <<<"$description")" || return 1
+        database="$(jq -er '.connection.database | strings' <<<"$description")" || return 1
+        username="$(jq -er '.connection.username | strings' <<<"$description")" || return 1
+        jq -e '.connection.password | strings' <<<"$description" >/dev/null || return 1
+    
+        # Only the owner may read the file, and the password goes into it
+        # without passing through the process list. In a password file a colon
+        # or backslash in a field needs a backslash before it.
+        umask 077
+        passfile="$(mktemp)" || return 1
+        jq -er '.connection | [.host // .external_ip_address, (.port | tostring),
+                .database, .username, .password]
+                | map(strings | gsub("\\\\"; "\\\\") | gsub(":"; "\\:"))
+                | join(":")' <<<"$description" >"$passfile" || return 1
+    
+        export PGPASSFILE="$passfile" PGHOST="$host" PGPORT="$port" \
+            PGDATABASE="$database" PGUSER="$username" PGCONNECT_TIMEOUT=15
+        # The sslmode=require setting encrypts the connection but does not
+        # check the server certificate, which a public authority has not
+        # signed. Anyone who can intercept the traffic could therefore
+        # impersonate the server, so treat this as suitable for an example
+        # only.
+        export PGSSLMODE=require
+    }
+    
+    # Connects to the database with psql, using the PG variables that
+    # write_passfile exported, and prints the server's version
+    # string.
+    server_version() {
+        # A database can refuse connections for a short while after the API
+        # reports it as available, so try a few times. psql exits with 2 for
+        # every failure to connect, including a failed login, so the script
+        # cannot tell a temporary failure from a permanent one and repeats
+        # them all.
+        local attempt
+        for ((attempt = 1; attempt <= 6; attempt++)); do
+            psql --no-psqlrc --tuples-only --no-align \
+                --command 'SELECT version()' && return 0
+            ((attempt < 6)) && sleep "$poll_seconds"
+        done
+        return 1
+    }
+    
+    # Prints the ID of the database with the given name, or nothing. The script
+    # uses this when it cannot tell whether the create request worked. It
+    # repeats the request, as the delete does, because the fault that lost the
+    # reply to the create request may still be there.
+    find_database() {
+        local deadline=$((SECONDS + timeout_seconds)) reply status
+        while true; do
+            # The --write-out option adds the HTTP status on a last line, and
+            # prints 000 if no reply arrived. The request asks for the newest
+            # databases first, but the API does not say which property it
+            # sorts on.
+            reply="$(api GET "/databases?limit=100&descending=true" \
+                --write-out '\n%{http_code}')" || true
+            status="${reply##*$'\n'}"
+            case "$status" in
+                200) break ;;
+                000|409|429|5??) ;;
+                *) echo "Error: listing the databases returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the list was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        jq -r --arg name "$1" 'first(.[] | select(.name == $name) | .id) // empty' \
+            <<<"${reply%$'\n'*}"
+    }
+    
+    # Prints the ID of the database with the given name, looking up to three
+    # times because the service may not have recorded a request whose reply was
+    # lost until a little later. Prints nothing if the database never appears,
+    # and fails if a lookup fails.
+    find_created_database() {
+        local attempt id
+        for ((attempt = 1; attempt <= 3; attempt++)); do
+            id="$(find_database "$1")" || return 1
+            if [[ -n "$id" ]]; then
+                echo "$id"
+                return 0
+            fi
+            ((attempt < 3)) && sleep "$poll_seconds"
+        done
+        return 0
+    }
+    
+    # Prints the IDs and display names of the branches of the database that
+    # have not been deleted, newest first, one per line with a tab between them.
+    # The request repeats, as the deletes do, and a 404 means that the database
+    # has gone, and so have its branches.
+    list_branches() {
+        local deadline=$((SECONDS + timeout_seconds)) reply status
+        while true; do
+            reply="$(api GET "/databases/$1/branches?limit=100&descending=true" \
+                --write-out '\n%{http_code}')" || true
+            status="${reply##*$'\n'}"
+            case "$status" in
+                200) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: listing the branches returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the list was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+        jq -r '.[] | [.id, .display_name] | @tsv' <<<"${reply%$'\n'*}"
+    }
+    
+    # Prints the ID of the branch with the given display name, looking up to
+    # three times because the service may not have recorded a request whose
+    # reply was lost until a little later. Prints nothing if the branch never
+    # appears, and fails if a lookup fails.
+    find_created_branch() {
+        local attempt listing id name
+        for ((attempt = 1; attempt <= 3; attempt++)); do
+            listing="$(list_branches "$1")" || return 1
+            while IFS=$'\t' read -r id name; do
+                if [[ "$name" == "$2" ]]; then
+                    echo "$id"
+                    return 0
+                fi
+            done <<<"$listing"
+            ((attempt < 3)) && sleep "$poll_seconds"
+        done
+        return 0
+    }
+    
+    # Deletes the branch and waits until the API no longer lists it. The
+    # arguments are the database ID and the branch ID.
+    delete_branch() {
+        local deadline=$((SECONDS + timeout_seconds)) status listing id name listed
+        while true; do
+            status="$(api_status DELETE "/databases/$1/branches/$2")"
+            case "$status" in
+                2??) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: deleting the branch returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the delete was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    
+        # The API takes a branch out of the list as soon as it accepts the
+        # delete, even though the teardown carries on afterwards.
+        while ((SECONDS < deadline)); do
+            listing="$(list_branches "$1")" || return 1
+            listed=0
+            while IFS=$'\t' read -r id name; do
+                [[ "$id" == "$2" ]] && listed=1
+            done <<<"$listing"
+            ((listed == 0)) && return 0
+            sleep "$poll_seconds"
+        done
+        echo "Error: the branch was still listed after $timeout_seconds seconds" >&2
+        return 1
+    }
+    
+    # Deletes the database and waits until the API no longer lists it. A status
+    # of 000 means that no reply arrived; that, 409 (which the API gives whilst a
+    # database is still being created), 429, and the 5xx statuses are worth
+    # repeating until the time limit.
+    delete_database() {
+        local id="$1" deadline=$((SECONDS + timeout_seconds)) status
+    
+        while true; do
+            # The API refuses to delete a database that has branches, with a
+            # 409 reply, unless force=true, which deletes every branch first.
+            # The script has deleted its branch by now, so this is a safety net
+            # for a branch that the script could not find.
+            status="$(api_status DELETE "/databases/$id?force=true")"
+            case "$status" in
+                204) break ;;
+                404) return 0 ;;
+                000|409|429|5??) ;;
+                *) echo "Error: deleting the database returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the delete was still failing after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    
+        # The delete starts the teardown; a 404 shows that it has finished.
+        while true; do
+            status="$(api_status GET "/databases/$id")"
+            case "$status" in
+                404) return 0 ;;
+                200|000|429|5??) ;;
+                *) echo "Error: checking the database returned HTTP status $status" >&2
+                   return 1 ;;
+            esac
+            if ((SECONDS >= deadline)); then
+                echo "Error: the database was still present after $timeout_seconds seconds" >&2
+                return 1
+            fi
+            sleep "$poll_seconds"
+        done
+    }
+    
+    # Deletes the branch and then the database, if the script created them. The
+    # EXIT trap runs this function when the script finishes, whether the example
+    # succeeded, failed, or was interrupted, because the service bills for them
+    # until then.
+    cleanup() {
+        local status=$?
+        # Ignore further interrupts, so that they cannot cut the cleanup short.
+        trap '' INT TERM
+        [[ -n "$passfile" ]] && rm -f "$passfile"
+        if [[ -n "$token" && -n "$name" ]]; then
+            # If the script has no ID and cannot tell whether the create request
+            # worked, look for the database by name.
+            if [[ -z "$database_id" && "$lookup" == 1 ]]; then
+                if ! database_id="$(find_created_database "$name")"; then
+                    echo "Error: could not look for database $name" >&2
+                    echo "Delete the database $name by hand, because it may still be billing" >&2
+                    database_id=""
+                    status=1
+                elif [[ -z "$database_id" ]]; then
+                    echo "Error: the database $name was not found; check your account for it by hand" >&2
+                    status=1
+                fi
+            fi
+            # Delete the branch before the database. A failure here must not stop
+            # the database delete, which uses force=true as a safety net.
+            if [[ -n "$database_id" && -z "$branch_id" && "$branch_lookup" == 1 ]]; then
+                if ! branch_id="$(find_created_branch "$database_id" "$branch_name")"; then
+                    echo "Error: could not look for branch $branch_name" >&2
+                    echo "The forced delete of the database that follows also deletes the branch" >&2
+                    branch_id=""
+                    status=1
+                elif [[ -z "$branch_id" ]]; then
+                    echo "Error: the branch $branch_name was not found; check your account for it by hand" >&2
+                    status=1
+                fi
+            fi
+            if [[ -n "$database_id" && -n "$branch_id" ]]; then
+                if delete_branch "$database_id" "$branch_id"; then
+                    echo "Deleted branch"
+                else
+                    echo "Error: could not delete branch $branch_id" >&2
+                    echo "The forced delete of the database that follows also deletes the branch" >&2
+                    status=1
+                fi
+            fi
+            if [[ -n "$database_id" ]]; then
+                if delete_database "$database_id"; then
+                    echo "Deleted database"
+                else
+                    echo "Error: could not delete database $database_id" >&2
+                    echo "Delete the database $database_id and any branches by hand, because they may still be billing" >&2
+                    status=1
+                fi
+            fi
+        fi
+        exit "$status"
+    }
+    
+    main() {
+        token="" name="" database_id="" lookup=0 passfile=""
+        branch_id="" branch_name="" branch_lookup=0
+        trap cleanup EXIT
+        # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
+        trap 'echo "Interrupted" >&2; exit 130' INT TERM
+    
+        token="$(get_token)"
+    
+        local placement region size suffix database display_name reply status ip version
+        local branch branch_path
+        placement="$(choose_placement)"
+        region="${placement% *}"
+        size="${placement#* }"
+        echo "Region: $region"
+        echo "Size: $size"
+    
+        # Choose the name before the request, so that the cleanup can find the
+        # database even if the reply to the request never arrives.
+        suffix="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
+        name="cookbook$suffix"
+    
+        # Look the database up by name afterwards only if the outcome of the
+        # request is unknown, so that a refusal cannot lead the cleanup to
+        # delete another database that has the same name. The create_database
+        # function ends its output with the HTTP status on a line of its own,
+        # which is 000 if no reply arrived.
+        ip="$(client_ip)"
+        lookup=1
+        if ! reply="$(create_database "$name" "cookbook-$suffix" "$region" "$size" "$ip")"; then
+            status="${reply##*$'\n'}"
+            echo "Error: creating the database failed" >&2
+            echo "${reply%$'\n'*}" >&2
+            [[ "$status" =~ ^4[0-9][0-9]$ ]] && lookup=0
+            return 1
+        fi
+        database="${reply%$'\n'*}"
+        database_id="$(jq -er '.id' <<<"$database")"
+        display_name="$(jq -er '.display_name' <<<"$database")"
+        echo "Created database $display_name"
+    
+        wait_until_available "$database_id"
+        echo "Database is available"
+    
+        # Name the branch before the request, as for the database, and look it
+        # up afterwards only if the outcome is unknown.
+        branch_name="cookbook-$suffix-branch"
+        branch_lookup=1
+        if ! reply="$(create_branch "$database_id" "$branch_name")"; then
+            status="${reply##*$'\n'}"
+            echo "Error: creating the branch failed" >&2
+            echo "${reply%$'\n'*}" >&2
+            [[ "$status" =~ ^4[0-9][0-9]$ ]] && branch_lookup=0
+            return 1
+        fi
+        branch="${reply%$'\n'*}"
+        branch_id="$(jq -er '.id' <<<"$branch")"
+        display_name="$(jq -er '.display_name' <<<"$branch")"
+        echo "Created branch $display_name"
+    
+        branch_path="/databases/$database_id/branches/$branch_id"
+        wait_until_branch_available "$branch_path"
+        echo "Branch is available"
+    
+        # Run write_passfile here and not inside $(...), so that cleanup sees
+        # the path of the password file and can remove it.
+        write_passfile "$branch_path"
+        version="$(server_version)"
+        echo "Branch server version: $version"
+    }
+    
+    main
+    
+    ```
+
+## Next Steps
+
+The following resources provide more information about the topics in this
+recipe:
+
+- The "Creating a Database and Waiting for It" recipe explains the creation and
+  deletion steps in more detail.
+- The "Connecting to a Starfleet Database" recipe explains the connection step
+  in more detail.
+- The PostgreSQL documentation for
+  [SSL support](https://www.postgresql.org/docs/current/libpq-ssl.html)
+  explains the `sslmode` setting.
