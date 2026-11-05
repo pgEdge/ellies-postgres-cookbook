@@ -28,6 +28,7 @@ jobs:
       rag_server: ${{ steps.filter.outputs.rag_server }}
       workbench: ${{ steps.filter.outputs.workbench }}
       extensions: ${{ steps.filter.outputs.extensions }}
+      control_plane: ${{ steps.filter.outputs.control_plane }}
       server: ${{ steps.filter.outputs.server }}
     steps:
       # The whole history, so that the commit before a push is available.
@@ -67,6 +68,7 @@ jobs:
           esac
 
           recipes=$all rag_server=$all workbench=$all extensions=$all
+          control_plane=$all
           while IFS= read -r file; do
             case "$file" in
               # Everything that every recipe job runs.
@@ -74,6 +76,7 @@ jobs:
               scripts/test_recipes.sh | scripts/run_example.sh | \
               scripts/start_test_server.sh | scripts/test_server/*)
                 recipes=true rag_server=true workbench=true extensions=true
+                control_plane=true
                 ;;
               scripts/start_rag_server.sh | scripts/fixtures/* | \
               recipes/rag_server/* | docs/rag_server/*)
@@ -88,11 +91,14 @@ jobs:
               recipes/semantic_cache/* | docs/semantic_cache/*)
                 extensions=true
                 ;;
-              # Starfleet runs only by hand and on the schedule, and the
-              # MCP Server and Control Plane recipes have no job yet.
-              recipes/starfleet/* | docs/starfleet/* | \
-              recipes/postgres_mcp/* | docs/postgres_mcp/* | \
+              scripts/start_control_plane.sh | \
               recipes/control_plane/* | docs/control_plane/*)
+                control_plane=true
+                ;;
+              # Starfleet runs only by hand and on the schedule, and the
+              # MCP Server recipes have no job yet.
+              recipes/starfleet/* | docs/starfleet/* | \
+              recipes/postgres_mcp/* | docs/postgres_mcp/*)
                 ;;
               # The recipes job tests every other directory under recipes/.
               recipes/* | docs/postgresql/* | docs/go_llm_lib/*)
@@ -108,7 +114,7 @@ jobs:
 
           echo "Event: $EVENT; testing everything: $all"
           [[ -n "$files" ]] && printf 'Changed:\n%s\n' "$files"
-          for job in recipes rag_server workbench extensions server; do
+          for job in recipes rag_server workbench extensions control_plane server; do
             echo "$job=${!job}" | tee -a "$GITHUB_OUTPUT"
           done
 
@@ -630,6 +636,94 @@ jobs:
       - name: Show the Workbench logs
         if: failure()
         run: docker compose -p cookbook-workbench logs || true
+
+  # The Control Plane recipes call the API of a pgEdge Control Plane on
+  # Docker Swarm, and connect to the cookbook database that the start
+  # script creates on it, so they need no test server. Starting it takes
+  # about 35 seconds once the images are pulled, and stopping it about 25.
+  control_plane:
+    name: Recipes (Control Plane)
+    needs: changes
+    if: needs.changes.outputs.control_plane == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # libpq for the Ruby driver, as in the recipes job.
+      - name: Install psql, jq and libpq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client jq libpq-dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+        with:
+          ruby-version: '3.4'
+
+      # The start script pulls these itself if they are missing; pulling
+      # them first keeps the download out of its time limits.
+      - name: Pull the Control Plane and database images
+        run: |
+          docker pull -q ghcr.io/pgedge/control-plane:v0.11.0
+          docker pull -q ghcr.io/pgedge/pgedge-postgres:18.6-spock5.0.12-standard-1
+          docker pull -q busybox:1.37
+
+      # The database password is generated for this run only, but mask it
+      # anyway before it reaches the environment file.
+      - name: Start the Control Plane
+        run: |
+          scripts/start_control_plane.sh > "$RUNNER_TEMP/control-plane.env"
+          sed -n 's/^CONTROL_PLANE_DATABASE_PASSWORD=/::add-mask::/p' \
+            "$RUNNER_TEMP/control-plane.env"
+          cat "$RUNNER_TEMP/control-plane.env" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/control-plane.env"
+
+      # test_recipes.sh fails when it finds no recipes, so pass when there
+      # are none yet.
+      - name: Test recipes
+        run: |
+          if [[ ! -d recipes/control_plane ]] ||
+             [[ -z "$(find recipes/control_plane \( -name expected_output.txt \
+                      -o -name check_output \) -print -quit)" ]]; then
+            echo "::notice::There are no Control Plane recipes to test yet"
+            exit 0
+          fi
+          scripts/test_recipes.sh --dir recipes/control_plane \
+            python typescript java csharp go rust ruby curl
+
+      - name: Show the Control Plane log
+        if: failure()
+        run: docker logs --tail 300 cookbook-control-plane || true
+
+      - name: Stop the Control Plane
+        if: always()
+        run: scripts/start_control_plane.sh --stop
 
   # The Starfleet recipes create billable resources (always named
   # cookbook-..., and always deleted again), so they run only by hand and
