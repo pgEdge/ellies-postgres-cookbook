@@ -21,6 +21,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -381,6 +382,7 @@ fn connection_settings(cfg: &Settings, token: &str, branch_path: &str) -> Result
         // Encrypt the connection. The crate's default, Prefer, would fall
         // back to a plain connection, so Require is set explicitly.
         .ssl_mode(SslMode::Require)
+        // This limits only the TCP connect; server_version limits the rest.
         .connect_timeout(Duration::from_secs(15));
     Ok(config)
 }
@@ -396,26 +398,69 @@ fn tls_connector() -> Result<MakeTlsConnector> {
 // --8<-- [end:connection]
 
 // --8<-- [start:query]
+/// How long one connection attempt and its query may take. The
+/// connect_timeout setting limits only the TCP connect in rust-postgres, so
+/// the TLS handshake, the login, and the query get as long again.
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs one connection attempt on a thread of its own, and waits for it
+/// for at most ATTEMPT_TIMEOUT whilst watching for a signal, which the
+/// blocking driver cannot do. Returns None if the attempt runs out of
+/// time; its thread is then left to end on its own.
+fn within_time_limit<T: Send + 'static>(
+    work: impl FnOnce() -> std::result::Result<T, postgres::Error> + Send + 'static,
+) -> Result<Option<std::result::Result<T, postgres::Error>>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        // The send fails only if the attempt has already run out of time.
+        let _ = sender.send(work());
+    });
+    let end = Instant::now() + ATTEMPT_TIMEOUT;
+    loop {
+        check_interrupted()?;
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(None);
+        }
+        match receiver.recv_timeout(left.min(Duration::from_millis(200))) {
+            Ok(result) => return Ok(Some(result)),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err("the connection attempt ended without a result".into());
+            }
+        }
+    }
+}
+
 /// Connects to the database and returns the server's version string.
 fn server_version(connection: &Config) -> Result<String> {
     // A database can refuse connections for a short while after the API
     // reports it as available, so try a few times before giving up. An
     // error that carries an SQLSTATE code came from the server itself,
-    // such as a failed login, and will not change on a second attempt.
+    // such as a failed login, and will not change on a second attempt. An attempt that runs out of
+    // time is repeated, as a failure to connect is.
     let mut attempt = 0;
     loop {
-        let result = connection.connect(tls_connector()?).and_then(|mut client| {
+        let config = connection.clone();
+        let tls = tls_connector()?;
+        let outcome = within_time_limit(move || {
+            let mut client = config.connect(tls)?;
             let version: String = client.query_one("SELECT version()", &[])?.get(0);
             // Dropping the client also closes the connection, but close()
             // reports any error that occurs whilst doing so.
             client.close()?;
             Ok(version)
-        });
-        match result {
-            Ok(version) => return Ok(version),
-            Err(e) if e.code().is_none() && attempt < CONNECT_ATTEMPTS - 1 => pause(POLL)?,
-            Err(e) => return Err(e.into()),
+        })?;
+        let error: Box<dyn Error> = match outcome {
+            Some(Ok(version)) => return Ok(version),
+            Some(Err(e)) if e.code().is_none() => e.into(),
+            Some(Err(e)) => return Err(e.into()),
+            None => "the connection attempt timed out".into(),
+        };
+        if attempt == CONNECT_ATTEMPTS - 1 {
+            return Err(error);
         }
+        pause(POLL)?;
         attempt += 1;
     }
 }

@@ -22,6 +22,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -343,6 +344,7 @@ fn connection_settings(cfg: &Settings, token: &str, database_id: &str) -> Result
         // Encrypt the connection. The crate's default, Prefer, would fall
         // back to a plain connection, so Require is set explicitly.
         .ssl_mode(SslMode::Require)
+        // This limits only the TCP connect; current_user limits the rest.
         .connect_timeout(Duration::from_secs(15));
     Ok(config)
 }
@@ -402,6 +404,40 @@ fn wait_for_rotation(cfg: &Settings, token: &str, database_id: &str, old_passwor
 // --8<-- [end:rotate]
 
 // --8<-- [start:query]
+/// How long one connection attempt and its query may take. The
+/// connect_timeout setting limits only the TCP connect in rust-postgres, so
+/// the TLS handshake, the login, and the query get as long again.
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs one connection attempt on a thread of its own, and waits for it
+/// for at most ATTEMPT_TIMEOUT whilst watching for a signal, which the
+/// blocking driver cannot do. Returns None if the attempt runs out of
+/// time; its thread is then left to end on its own.
+fn within_time_limit<T: Send + 'static>(
+    work: impl FnOnce() -> std::result::Result<T, postgres::Error> + Send + 'static,
+) -> Result<Option<std::result::Result<T, postgres::Error>>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        // The send fails only if the attempt has already run out of time.
+        let _ = sender.send(work());
+    });
+    let end = Instant::now() + ATTEMPT_TIMEOUT;
+    loop {
+        check_interrupted()?;
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(None);
+        }
+        match receiver.recv_timeout(left.min(Duration::from_millis(200))) {
+            Ok(result) => return Ok(Some(result)),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err("the connection attempt ended without a result".into());
+            }
+        }
+    }
+}
+
 /// Connects to the database and returns the name of the user that the
 /// server logged in.
 fn current_user(connection: &Config) -> Result<String> {
@@ -410,22 +446,32 @@ fn current_user(connection: &Config) -> Result<String> {
     // error that carries an SQLSTATE code came from the server itself and
     // will not change on a second attempt, except for a failed login
     // (28P01), which the example also repeats: the API may report the
-    // database as available a moment before the new password works.
+    // database as available a moment before the new password works. An
+    // attempt that runs out of time is repeated, as a failure to connect
+    // is.
     let retryable = |e: &postgres::Error| matches!(e.code(), None | Some(&SqlState::INVALID_PASSWORD));
     let mut attempt = 0;
     loop {
-        let result = connection.connect(tls_connector()?).and_then(|mut client| {
+        let config = connection.clone();
+        let tls = tls_connector()?;
+        let outcome = within_time_limit(move || {
+            let mut client = config.connect(tls)?;
             let user: String = client.query_one("SELECT current_user", &[])?.get(0);
             // Dropping the client also closes the connection, but close()
             // reports any error that occurs whilst doing so.
             client.close()?;
             Ok(user)
-        });
-        match result {
-            Ok(user) => return Ok(user),
-            Err(e) if retryable(&e) && attempt < CONNECT_ATTEMPTS - 1 => pause(POLL)?,
-            Err(e) => return Err(e.into()),
+        })?;
+        let error: Box<dyn Error> = match outcome {
+            Some(Ok(user)) => return Ok(user),
+            Some(Err(e)) if retryable(&e) => e.into(),
+            Some(Err(e)) => return Err(e.into()),
+            None => "the connection attempt timed out".into(),
+        };
+        if attempt == CONNECT_ATTEMPTS - 1 {
+            return Err(error);
         }
+        pause(POLL)?;
         attempt += 1;
     }
 }

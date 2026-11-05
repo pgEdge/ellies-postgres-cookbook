@@ -378,7 +378,10 @@ public class Main {
         // not signed by a public authority, so the example does not verify
         // it; pgJDBC checks no certificate in require mode.
         properties.setProperty("sslmode", "require");
+        // connectTimeout limits only the TCP connect, and loginTimeout the
+        // whole set-up, the TLS handshake and the login included.
         properties.setProperty("connectTimeout", "15");
+        properties.setProperty("loginTimeout", "15");
         return new ConnectionSettings(
                 "jdbc:postgresql://" + host + ":" + port + "/" + database,
                 properties);
