@@ -29,6 +29,7 @@ jobs:
       workbench: ${{ steps.filter.outputs.workbench }}
       extensions: ${{ steps.filter.outputs.extensions }}
       control_plane: ${{ steps.filter.outputs.control_plane }}
+      postgres_mcp: ${{ steps.filter.outputs.postgres_mcp }}
       server: ${{ steps.filter.outputs.server }}
     steps:
       # The whole history, so that the commit before a push is available.
@@ -69,6 +70,7 @@ jobs:
 
           recipes=$all rag_server=$all workbench=$all extensions=$all
           control_plane=$all
+          postgres_mcp=$all
           while IFS= read -r file; do
             case "$file" in
               # Everything that every recipe job runs.
@@ -77,6 +79,7 @@ jobs:
               scripts/start_test_server.sh | scripts/test_server/*)
                 recipes=true rag_server=true workbench=true extensions=true
                 control_plane=true
+                postgres_mcp=true
                 ;;
               scripts/start_rag_server.sh | scripts/fixtures/* | \
               recipes/rag_server/* | docs/rag_server/*)
@@ -95,10 +98,12 @@ jobs:
               recipes/control_plane/* | docs/control_plane/*)
                 control_plane=true
                 ;;
-              # Starfleet runs only by hand and on the schedule, and the
-              # MCP Server recipes have no job yet.
-              recipes/starfleet/* | docs/starfleet/* | \
+              scripts/start_postgres_mcp.sh | \
               recipes/postgres_mcp/* | docs/postgres_mcp/*)
+                postgres_mcp=true
+                ;;
+              # Starfleet runs only by hand and on the schedule.
+              recipes/starfleet/* | docs/starfleet/*)
                 ;;
               # The recipes job tests every other directory under recipes/.
               recipes/* | docs/postgresql/* | docs/go_llm_lib/*)
@@ -108,13 +113,13 @@ jobs:
           done <<<"$files"
 
           server=false
-          if [[ "$recipes$rag_server$workbench$extensions" == *true* ]]; then
+          if [[ "$recipes$rag_server$workbench$extensions$postgres_mcp" == *true* ]]; then
             server=true
           fi
 
           echo "Event: $EVENT; testing everything: $all"
           [[ -n "$files" ]] && printf 'Changed:\n%s\n' "$files"
-          for job in recipes rag_server workbench extensions control_plane server; do
+          for job in recipes rag_server workbench extensions control_plane postgres_mcp server; do
             echo "$job=${!job}" | tee -a "$GITHUB_OUTPUT"
           done
 
@@ -547,6 +552,152 @@ jobs:
         run: |
           docker logs cookbook-rag-server || true
           docker logs cookbook-rag-server-identity || true
+
+  # The MCP Server recipes are API recipes in every language except C. The
+  # start script embeds its sample data through the test server's
+  # vectorizer, and the server embeds search text itself, both through
+  # Ollama with nomic-embed-text.
+  postgres_mcp:
+    name: Recipes (Postgres MCP Server)
+    needs: [changes, test_server_image]
+    if: needs.changes.outputs.postgres_mcp == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: postgres
+      PGUSER: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore the test server image
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/test-server-image
+          key: ${{ needs.test_server_image.outputs.cache-key }}
+
+      - name: Load the test server image
+        run: |
+          if [[ -f "$RUNNER_TEMP/test-server-image/image.tar" ]]; then
+            docker load --input "$RUNNER_TEMP/test-server-image/image.tar"
+            rm -rf "$RUNNER_TEMP/test-server-image"
+          else
+            echo "::warning::The test server image is not in the cache, so it will be built"
+          fi
+
+      # The MCP Server reaches the test server by name on a shared network,
+      # and verifies its certificate, which names the container.
+      - name: Start PostgreSQL
+        run: |
+          scripts/start_test_server.sh --network cookbook-ci --port 5432 \
+            > "$RUNNER_TEMP/server.env"
+          tee -a "$GITHUB_ENV" < "$RUNNER_TEMP/server.env"
+
+      - name: Install psql and jq
+        run: |
+          if ! command -v psql >/dev/null || ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client jq
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1.336.0
+        with:
+          ruby-version: '3.4'
+
+      # Only nomic-embed-text is needed here, but the other jobs' cache
+      # already holds it, so restore that cache rather than keep another.
+      - name: Restore the Ollama models
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-models-qwen2.5-1.5b-nomic-embed-text-v1
+
+      # Listen on every address, so that the test server and the MCP Server
+      # can reach Ollama at host.docker.internal.
+      - name: Install Ollama and pull the embedding model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sudo systemctl stop ollama || true
+          OLLAMA_HOST=0.0.0.0:11434 \
+            nohup ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:11434/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://localhost:11434/
+          ollama pull nomic-embed-text
+
+      # Ask for an embedding from inside the container, the way the
+      # vectorizer will, which also loads the model before the seeding.
+      - name: Check that the test server can embed text through Ollama
+        run: |
+          docker exec cookbook-test-pg curl -fsS --max-time 120 \
+            http://host.docker.internal:11434/api/embed \
+            -d '{"model": "nomic-embed-text", "input": "cookbook"}' \
+            | jq -e '.embeddings[0] | length == 768'
+
+      # The token is generated for this run only, but mask it anyway before
+      # it reaches the environment file.
+      - name: Start the MCP Server
+        run: |
+          scripts/start_postgres_mcp.sh --network cookbook-ci \
+            --pg-host cookbook-test-pg --pg-port 5432 \
+            --pg-sslmode verify-full \
+            > "$RUNNER_TEMP/mcp.env"
+          sed -n 's/^MCP_TOKEN=/::add-mask::/p' "$RUNNER_TEMP/mcp.env"
+          cat "$RUNNER_TEMP/mcp.env" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/mcp.env"
+
+      # test_recipes.sh fails when it finds no recipes, so pass with a
+      # notice until the directory has some.
+      - name: Test recipes
+        run: |
+          if [[ ! -d recipes/postgres_mcp ]] ||
+             [[ -z "$(find recipes/postgres_mcp \( -name expected_output.txt \
+                      -o -name check_output \) -print -quit)" ]]; then
+            echo "::notice::There are no MCP Server recipes to test yet"
+            exit 0
+          fi
+          scripts/test_recipes.sh --dir recipes/postgres_mcp \
+            python typescript java csharp go rust ruby curl
+
+      - name: Show the server and Ollama logs
+        if: failure()
+        run: |
+          docker logs cookbook-postgres-mcp || true
+          docker logs cookbook-test-pg || true
+          cat "$RUNNER_TEMP/ollama.log" || true
+
+      - name: Stop the servers
+        if: always()
+        run: docker rm -f -v cookbook-postgres-mcp cookbook-test-pg || true
 
   workbench:
     name: Recipes (AI DBA Workbench)
