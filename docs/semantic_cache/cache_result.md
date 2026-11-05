@@ -123,10 +123,10 @@ result up with the embedding that it cached, so the similarity rounds to
 --8<-- "recipes/semantic_cache/cache_result/sql/main.sql:lookup"
 ```
 
-The function also counts each lookup as a hit or a miss, by updating the
-single row of the `semantic_cache.cache_metadata` table; the [Measuring
-the Cache Hit Rate](cache_statistics.md) recipe shows how to read those
-statistics.
+The function also counts each lookup as a hit or a miss, by updating the single
+row of the `semantic_cache.cache_metadata` table; the
+[Measuring the Cache Hit Rate](cache_statistics.md) recipe shows how to read
+those statistics.
 
 ## Removing the Entries
 
@@ -151,8 +151,8 @@ transaction ends.
 
 ## Running the Example
 
-The complete script is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/cache_result).
+The complete script is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/cache_result).
 psql reads its connection settings from the standard `PG*` environment
 variables. Set the variables for your server, and then run the following
 command from the `sql` directory of the recipe:
@@ -174,12 +174,12 @@ The following block shows the complete script:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [pg_semantic_cache function
-  reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
+- The
+  [pg_semantic_cache function reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
   describes every function in version 0.1.0-beta4.
 - The [Finding an Answer to a Reworded Question](similar_question.md)
   recipe looks up a cached result with a question that uses different
   words.
-- The [Expiring Cached Results](expire_entries.md) and [Invalidating Cached
-  Results by Tag](invalidate_by_tag.md) recipes show two ways to remove
-  results that are out of date.
+- The [Expiring Cached Results](expire_entries.md) and
+  [Invalidating Cached Results by Tag](invalidate_by_tag.md) recipes show two
+  ways to remove results that are out of date.

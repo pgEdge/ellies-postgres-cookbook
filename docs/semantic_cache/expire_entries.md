@@ -24,11 +24,11 @@ Entries stored after evict_expired(): 0
 
 ## Preparing the Ingredients
 
-The script needs the same server as the [Caching a Query
-Result](cache_result.md) recipe: pg_semantic_cache with a vector dimension
-of 768, and the pgEdge Vectorizer creating embeddings with
-`nomic-embed-text` through Ollama. That recipe describes how to configure
-both extensions.
+The script needs the same server as the
+[Caching a Query Result](cache_result.md) recipe: pg_semantic_cache with a
+vector dimension of 768, and the pgEdge Vectorizer creating embeddings with
+`nomic-embed-text` through Ollama. That recipe describes how to configure both
+extensions.
 
 ## Setting Up the Script
 
@@ -118,8 +118,8 @@ configuration.
 
 ## Running the Example
 
-The complete script is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/expire_entries).
+The complete script is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/expire_entries).
 psql reads its connection settings from the standard `PG*` environment
 variables. Set the variables for your server, and then run the following
 command from the `sql` directory of the recipe:
@@ -141,8 +141,8 @@ The following block shows the complete script:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [pg_semantic_cache function
-  reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
+- The
+  [pg_semantic_cache function reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
   describes `evict_expired()`, `auto_evict()`, and the functions that
   evict the least recently and least frequently used entries.
 - The [Invalidating Cached Results by Tag](invalidate_by_tag.md) recipe

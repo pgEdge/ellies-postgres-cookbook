@@ -23,11 +23,11 @@ Removed 1 remaining cached entry
 
 ## Preparing the Ingredients
 
-The script needs the same server as the [Caching a Query
-Result](cache_result.md) recipe: pg_semantic_cache with a vector dimension
-of 768, and the pgEdge Vectorizer creating embeddings with
-`nomic-embed-text` through Ollama. That recipe describes how to configure
-both extensions.
+The script needs the same server as the
+[Caching a Query Result](cache_result.md) recipe: pg_semantic_cache with a
+vector dimension of 768, and the pgEdge Vectorizer creating embeddings with
+`nomic-embed-text` through Ollama. That recipe describes how to configure both
+extensions.
 
 ## Setting Up the Script
 
@@ -113,8 +113,8 @@ transactions short.
 
 ## Running the Example
 
-The complete script is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/invalidate_by_tag).
+The complete script is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/invalidate_by_tag).
 psql reads its connection settings from the standard `PG*` environment
 variables. Set the variables for your server, and then run the following
 command from the `sql` directory of the recipe:
@@ -136,8 +136,8 @@ The following block shows the complete script:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [pg_semantic_cache function
-  reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
+- The
+  [pg_semantic_cache function reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
   describes `invalidate_cache()` and the other functions that remove
   entries.
 - The [Expiring Cached Results](expire_entries.md) recipe removes results

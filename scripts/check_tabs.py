@@ -21,6 +21,9 @@ that exist.
 Tab groups whose labels are not language names (for example, "Linux" and
 "macOS") are ignored, unless they mix in a language label.
 
+Every page is also checked for Markdown links split across two lines,
+which the pgEdge documentation style forbids.
+
 Usage:
     scripts/check_tabs.py [docs directory]
 
@@ -43,6 +46,10 @@ LANGUAGE_LABELS = set(LABELS) | {CURL.label}
 INCLUDE = re.compile(
     r'^\s*--8<--\s+"(?P<path>[^":]+)(?::(?P<section>[^"]+))?"',
     re.MULTILINE)
+# A link whose text or URL runs on to the next line, such as
+# "[cookbook\nrepository](...)" or "[text](https://...\n...)".
+SPLIT_LINK = re.compile(r"\[[^\]\n`]*\n[^\]`]*\]\(|\]\([^)\s]*\n")
+FENCE = re.compile(r"^\s*```.*?^\s*```", re.MULTILINE | re.DOTALL)
 
 
 def tab_groups(path: Path):
@@ -106,6 +113,16 @@ def check(path: Path, docs: Path) -> list[str]:
             problems.append(
                 f"{path}:{line}: tabs are {labels}, expected {expected}")
     return problems
+
+
+def check_split_links(path: Path) -> list[str]:
+    """Report Markdown links that are split across two lines."""
+    # Blank out code blocks, keeping their newlines so line numbers hold.
+    text = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"),
+                     path.read_text())
+    return [f"{path}:{text.count(chr(10), 0, m.start()) + 1}: a link is "
+            "split across lines; keep [text](URL) on one line"
+            for m in SPLIT_LINK.finditer(text)]
 
 
 def check_includes(path: Path) -> list[str]:
@@ -226,6 +243,7 @@ def main() -> None:
     problems = check_sections(Path("recipes"))
     for path in sorted(docs.rglob("*.md")):
         problems += check(path, docs)
+        problems += check_split_links(path)
     for problem in problems:
         print(problem)
     if problems:

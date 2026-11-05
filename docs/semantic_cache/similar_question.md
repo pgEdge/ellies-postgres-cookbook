@@ -32,11 +32,11 @@ Removed 1 cached entry
 
 ## Preparing the Ingredients
 
-The script needs the same server as the [Caching a Query
-Result](cache_result.md) recipe: pg_semantic_cache with a vector dimension
-of 768, and the pgEdge Vectorizer creating embeddings with
-`nomic-embed-text` through Ollama. That recipe describes how to configure
-both extensions.
+The script needs the same server as the
+[Caching a Query Result](cache_result.md) recipe: pg_semantic_cache with a
+vector dimension of 768, and the pgEdge Vectorizer creating embeddings with
+`nomic-embed-text` through Ollama. That recipe describes how to configure both
+extensions.
 
 ## Setting Up the Script
 
@@ -74,13 +74,12 @@ often fall into different lists, however large the cache grows. When the
 script was tested without the setting below, a question with a similarity
 of 0.757 missed an entry with a threshold of 0.75.
 
-The number of lists also depends on how the index was built. A new cache
-has 100 lists. The `rebuild_index()` function chooses 10, 100, 200, or
-1,000 lists from the number of entries in the cache, counted before it
-deletes them; after the setup in the [Caching a Query
-Result](cache_result.md) recipe, which rebuilds an empty cache, the index
-has 10 lists. The following query shows the definition of the index,
-including its `lists` setting:
+The number of lists also depends on how the index was built. A new cache has
+100 lists. The `rebuild_index()` function chooses 10, 100, 200, or 1,000 lists
+from the number of entries in the cache, counted before it deletes them; after
+the setup in the [Caching a Query Result](cache_result.md) recipe, which
+rebuilds an empty cache, the index has 10 lists. The following query shows the
+definition of the index, including its `lists` setting:
 
 ```sql
 SELECT indexdef
@@ -161,8 +160,8 @@ transactions short.
 
 ## Running the Example
 
-The complete script is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/similar_question).
+The complete script is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/semantic_cache/similar_question).
 psql reads its connection settings from the standard `PG*` environment
 variables. Set the variables for your server, and then run the following
 command from the `sql` directory of the recipe:
@@ -184,11 +183,11 @@ The following block shows the complete script:
 The following resources provide more information about the topics in this
 recipe:
 
-- The [pg_semantic_cache function
-  reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
+- The
+  [pg_semantic_cache function reference](https://github.com/pgEdge/pg_semantic_cache/tree/f946dff6183984dd0eebc962031eb66d6668c014/docs/functions)
   describes every function in version 0.1.0-beta4.
-- The pgvector documentation on [IVFFlat
-  indexes](https://github.com/pgvector/pgvector#ivfflat) explains lists and
-  probes.
+- The pgvector documentation on
+  [IVFFlat indexes](https://github.com/pgvector/pgvector#ivfflat) explains
+  lists and probes.
 - The [Measuring the Cache Hit Rate](cache_statistics.md) recipe shows how
   to read the hits and misses that each lookup records.
