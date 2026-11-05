@@ -55,11 +55,11 @@ jobs:
                  ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
                 all=true
               else
-                files="$(git diff --name-only "$BEFORE" HEAD)"
+                files="$(git -c core.quotePath=false diff --name-only --no-renames "$BEFORE" HEAD)"
               fi
               ;;
             pull_request)
-              files="$(git diff --name-only HEAD^1 HEAD)"
+              files="$(git -c core.quotePath=false diff --name-only --no-renames HEAD^1 HEAD)"
               ;;
             *)
               all=true
@@ -107,7 +107,7 @@ jobs:
           fi
 
           echo "Event: $EVENT; testing everything: $all"
-          [[ -n "$files" ]] && printf 'Changed: %s\n' $files
+          [[ -n "$files" ]] && printf 'Changed:\n%s\n' "$files"
           for job in recipes rag_server workbench extensions server; do
             echo "$job=${!job}" | tee -a "$GITHUB_OUTPUT"
           done
