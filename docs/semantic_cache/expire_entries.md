@@ -60,10 +60,12 @@ commits on its own instead. If a run stops part-way, the entry expires a
 second later, and lookups ignore it from then on; the next call to
 `evict_expired()` deletes it.
 
-The cache keeps one entry for each question text, and caching the same
-question again leaves the expiry time of the existing entry unchanged. The
-script therefore starts by removing any entry that an interrupted run left
-behind, with the `semantic_cache.invalidate_cache()` function and the
+The cache keeps one entry for each question text. Caching a question that
+already has an entry returns the id of the existing entry, and leaves its
+result and expiry time unchanged, so caching an expired question again
+leaves the entry expired. The script therefore starts by removing any
+entry that an interrupted run left behind, with the
+`semantic_cache.invalidate_cache()` function and the
 `cookbook-expire-entries` tag. The following block removes those entries:
 
 ```sql

@@ -105,7 +105,11 @@ The script removes the entry that remains with the
 
 The script runs the steps that change the cache between `BEGIN` and
 `COMMIT`. If any step fails, psql stops, and PostgreSQL rolls back the
-transaction, so a failed run leaves no entry behind.
+transaction, so a failed run leaves no entry behind. Each lookup updates
+the hit and miss counters in the single row of the
+`semantic_cache.cache_metadata` table, so a lookup in an open transaction
+makes other sessions' lookups wait until the transaction ends; keep such
+transactions short.
 
 ## Running the Example
 

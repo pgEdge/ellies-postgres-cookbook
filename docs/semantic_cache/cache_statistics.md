@@ -122,7 +122,10 @@ following block removes the entry:
 The script runs the steps that change the cache between `BEGIN` and
 `COMMIT`. If any step fails, psql stops, and PostgreSQL rolls back the
 transaction, which removes the entry and also undoes the changes to the
-counters.
+counters. The first lookup locks the row of the
+`semantic_cache.cache_metadata` table that holds the counters, so other
+sessions' lookups wait until the transaction ends; keep such transactions
+short.
 
 ## Running the Example
 

@@ -37,11 +37,12 @@ function. The examples need a server with the following components:
   creates embeddings with 768 dimensions, whereas pg_semantic_cache expects
   1536 by default.
 
-The following settings in `postgresql.conf` configure the Vectorizer to
-use Ollama on the local machine:
+The `generate_embedding()` function calls the model from the session that
+runs it, so it does not need the Vectorizer's background workers. The
+following settings in `postgresql.conf` configure the Vectorizer to use
+Ollama on the local machine:
 
 ```ini
-shared_preload_libraries = 'pgedge_vectorizer'
 pgedge_vectorizer.provider = 'ollama'
 pgedge_vectorizer.api_url = 'http://localhost:11434'
 pgedge_vectorizer.model = 'nomic-embed-text'
@@ -122,9 +123,10 @@ result up with the embedding that it cached, so the similarity rounds to
 --8<-- "recipes/semantic_cache/cache_result/sql/main.sql:lookup"
 ```
 
-The function also counts each lookup as a hit or a miss in the statistics
-of the cache; the [Measuring the Cache Hit Rate](cache_statistics.md)
-recipe shows how to read those statistics.
+The function also counts each lookup as a hit or a miss, by updating the
+single row of the `semantic_cache.cache_metadata` table; the [Measuring
+the Cache Hit Rate](cache_statistics.md) recipe shows how to read those
+statistics.
 
 ## Removing the Entries
 
@@ -142,7 +144,10 @@ The script runs the steps that change the cache between `BEGIN` and
 `COMMIT`. If any step fails, psql stops, and PostgreSQL rolls back the
 transaction, so a failed run leaves no entry behind. An application would
 normally commit each cached result at once, so that other sessions can
-find it.
+find it, and would not look anything up inside a long transaction: every
+lookup updates the same `cache_metadata` row, so a lookup in an open
+transaction locks that row, and other sessions' lookups wait until the
+transaction ends.
 
 ## Running the Example
 

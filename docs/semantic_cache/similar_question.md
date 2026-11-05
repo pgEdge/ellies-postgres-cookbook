@@ -63,23 +63,54 @@ them in psql variables:
 ## Searching Every List of the Index
 
 pg_semantic_cache indexes the embeddings with a pgvector IVFFlat index,
-which divides the vectors into lists, and by default searches only the list
-nearest to the query. A lookup can therefore miss a similar entry that lies
-in another list; when the script was tested without the setting below, a
-question with a similarity of 0.757 missed an entry with a threshold of
-0.75. The `ivfflat.probes` setting sets the number of lists to search, and
-a value at least as large as the number of lists makes the search exact.
-pg_semantic_cache creates 100 lists in a new cache, and `rebuild_index()`
-creates between 10 and 1,000 lists, depending on the number of entries.
-The following block sets the number of lists for the session:
+which divides the vectors into lists around a set of centres, and by
+default searches only the list whose centre is nearest to the query.
+pgvector chooses the centres from the rows in the table when it builds the
+index, but pg_semantic_cache always builds the index on an empty table:
+`init_schema()` creates the table and the index together, and
+`rebuild_index()` empties the table before it creates the index. With no
+rows to learn from, pgvector picks random centres, so similar embeddings
+often fall into different lists, however large the cache grows. When the
+script was tested without the setting below, a question with a similarity
+of 0.757 missed an entry with a threshold of 0.75.
+
+The number of lists also depends on how the index was built. A new cache
+has 100 lists. The `rebuild_index()` function chooses 10, 100, 200, or
+1,000 lists from the number of entries in the cache, counted before it
+deletes them; after the setup in the [Caching a Query
+Result](cache_result.md) recipe, which rebuilds an empty cache, the index
+has 10 lists. The following query shows the definition of the index,
+including its `lists` setting:
+
+```sql
+SELECT indexdef
+  FROM pg_indexes
+ WHERE schemaname = 'semantic_cache'
+   AND indexname = 'idx_cache_embedding';
+```
+
+There are two ways to make lookups find every similar entry:
+
+- Set `ivfflat.probes`, the number of lists to search, to at least the
+  number of lists in the index, which makes the search exact; the script
+  sets it to 100 for the session.
+- Call `semantic_cache.set_index_type('hnsw')` before
+  `rebuild_index()`, so that the cache uses an HNSW index, which needs no
+  rows to build a good index.
+
+Calling `rebuild_index()` again once the cache holds data does not help,
+because the function deletes every entry before it creates the index, so
+pgvector picks random centres again; only the number of lists changes.
+
+The following block sets the number of lists to search for the session:
 
 ```sql
 --8<-- "recipes/semantic_cache/similar_question/sql/main.sql:probes"
 ```
 
 Searching more lists makes each lookup slower, which matters little for a
-small cache; a large cache might use a smaller value, and accept that a
-lookup occasionally misses.
+small cache; for a large cache, an HNSW index avoids the problem without
+searching every list.
 
 ## Caching the Answer
 
@@ -122,7 +153,11 @@ The `semantic_cache.invalidate_cache()` function removes the entry by its
 ```
 
 The script runs the steps that change the cache between `BEGIN` and
-`COMMIT`, so a failed run leaves no entry behind.
+`COMMIT`, so a failed run leaves no entry behind. Each lookup updates the
+hit and miss counters in the single row of the
+`semantic_cache.cache_metadata` table, so a lookup in an open transaction
+makes other sessions' lookups wait until the transaction ends; keep such
+transactions short.
 
 ## Running the Example
 

@@ -36,8 +36,9 @@ SELECT pgedge_vectorizer.generate_embedding(:'question')::text
 -- The cache table has an IVFFlat index, which by default searches only
 -- the one list of vectors nearest to the query, and so can miss a close
 -- entry in another list. Searching 100 lists makes the search exact for
--- an index of up to 100 lists, which is what pg_semantic_cache creates
--- for a cache of up to 10,000 entries.
+-- an index of up to 100 lists; the lists setting in the indexdef column
+-- of pg_indexes, for semantic_cache.idx_cache_embedding, shows how many
+-- lists the index has.
 SET ivfflat.probes = 100;
 -- --8<-- [end:probes]
 
