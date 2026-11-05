@@ -30,11 +30,15 @@ fictional Acme Gadget.
 The following table lists the library that each example uses to reach
 PostgreSQL, and the one that it uses to reach Ollama:
 
-| Language   | PostgreSQL driver                            | HTTP client                            |
-|------------|----------------------------------------------|----------------------------------------|
-| Python     | [psycopg](https://www.psycopg.org/psycopg3/) | [httpx](https://www.python-httpx.org/) |
-| TypeScript | [node-postgres](https://node-postgres.com/)  | The `fetch` function from Node.js      |
-| Go         | [pgx](https://github.com/jackc/pgx)          | The `net/http` package                 |
+| Language   | PostgreSQL driver                                               | HTTP client                                                                         |
+|------------|-----------------------------------------------------------------|-------------------------------------------------------------------------------------|
+| Python     | [psycopg](https://www.psycopg.org/psycopg3/)                    | [httpx](https://www.python-httpx.org/)                                              |
+| TypeScript | [node-postgres](https://node-postgres.com/)                     | The `fetch` function from Node.js                                                   |
+| Java       | [pgJDBC](https://jdbc.postgresql.org/)                          | The `java.net.http` package, with [Jackson](https://github.com/FasterXML/jackson)   |
+| C#         | [Npgsql](https://www.npgsql.org/)                               | `HttpClient` and `System.Text.Json` from .NET                                       |
+| Go         | [pgx](https://github.com/jackc/pgx)                             | The `net/http` package                                                              |
+| Rust       | [rust-postgres](https://github.com/rust-postgres/rust-postgres) | [reqwest](https://docs.rs/reqwest/), with [serde_json](https://docs.rs/serde_json/) |
+| Ruby       | [ruby-pg](https://github.com/ged/ruby-pg)                       | `Net::HTTP` and `json` from the standard library                                    |
 
 The following tabs show the dependency declaration from each example
 project:
@@ -51,10 +55,34 @@ project:
     --8<-- "recipes/rag_server/prepare_data/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/rag_server/prepare_data/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/rag_server/prepare_data/csharp/PrepareData.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/rag_server/prepare_data/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/rag_server/prepare_data/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -75,10 +103,34 @@ imports for each language:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:imports"
     ```
 
 ## Configuring the Program
@@ -115,10 +167,34 @@ settings and the documents:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:config"
     ```
 
 ## Creating the Embeddings
@@ -147,10 +223,34 @@ error when it does not. The following tabs show the request:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:embed"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:embed"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:embed"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:embed"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:embed"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:embed"
     ```
 
 ## Creating the Table
@@ -175,19 +275,46 @@ show how each program creates the table:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:table"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:table"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:table"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:table"
     ```
 
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:table"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:table"
+    ```
+
 ## Inserting the Documents
 
 Each program inserts the documents inside a transaction, so that a failure
 leaves no partial data. The programs pass each embedding as text, such as
-`[0.1,0.2,0.3]`, and cast the parameter to `vector` in the `INSERT`
-statement, which works with any driver and needs no extra type
-registration. The following tabs show how each program inserts the rows:
+`[0.1,0.2,0.3]`, and cast the parameter to `vector` in the `INSERT` statement,
+which works with any driver and needs no extra type registration. The Rust
+program declares the parameter as text first (`$4::text::vector`), because the
+postgres crate checks each Rust value against the type that the server expects,
+and will not send a string as a `vector`. The following tabs show how each
+program inserts the rows:
 
 === "Python"
 
@@ -201,10 +328,34 @@ registration. The following tabs show how each program inserts the rows:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:insert"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:insert"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:insert"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:insert"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:insert"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:insert"
     ```
 
 ## Verifying the Rows
@@ -225,10 +376,34 @@ how many dimensions their embeddings have, using the pgvector
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:verify"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:verify"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:verify"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:verify"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:verify"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:verify"
     ```
 
 ## Cleaning Up
@@ -251,10 +426,34 @@ keep the table. The following tabs show the cleanup:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:cleanup"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:cleanup"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:cleanup"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:cleanup"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:cleanup"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:cleanup"
     ```
 
 ## Running the Program
@@ -276,10 +475,34 @@ part of each program:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb:main"
     ```
 
 ## Running the Example
@@ -306,10 +529,35 @@ tabs show the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 ## Configuring the Pipeline
@@ -344,10 +592,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/rag_server/prepare_data/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/prepare_data/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/prepare_data/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/prepare_data/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/prepare_data/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/prepare_data/ruby/main.rb"
     ```
 
 ## Next Steps

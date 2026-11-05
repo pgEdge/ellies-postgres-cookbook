@@ -1,0 +1,14 @@
+[package]
+name = "row_level_security"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The blocking client, with TLS from rustls and request and response bodies
+# as JSON; the default features add HTTP/2 and other things this example
+# does not use.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+serde_json = "1"
+# --8<-- [end:deps]

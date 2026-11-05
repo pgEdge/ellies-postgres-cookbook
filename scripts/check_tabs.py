@@ -7,10 +7,11 @@ Linked tabs switch by label, so a misspelt label ("Javascript" for
 "TypeScript", say) or a missing tab silently breaks the language switcher
 for readers. This check runs in CI alongside the docs build.
 
-Pages under docs/rag_server, docs/ai_dba_workbench, and docs/starfleet
-document HTTP API recipes, and use the API languages (Python, TypeScript,
-and Go) in place of the full set; every other page uses the full set. In
-both cases a curl tab may follow the languages.
+Pages for a product's HTTP API (API_PRODUCTS in scripts/languages.py) use
+the API languages in place of the full set: every language except C, or
+only Python, TypeScript and Go for the products in THREE_LANGUAGE_PRODUCTS.
+Every other page uses the full set. In both cases a curl tab may follow the
+languages.
 
 Pages under docs/snowflake, docs/vectorizer, and docs/semantic_cache show
 SQL only, in plain fenced blocks, so they must have no language tab group

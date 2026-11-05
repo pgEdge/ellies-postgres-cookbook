@@ -54,16 +54,22 @@ following example shows the body of the second request:
 
 The following table lists the HTTP client that each example uses:
 
-| Language   | HTTP client                                                  |
-|------------|--------------------------------------------------------------|
-| Python     | [httpx](https://www.python-httpx.org/)                       |
-| TypeScript | The `fetch` function that Node.js provides                   |
-| Go         | The `net/http` package                                       |
-| curl       | [curl](https://curl.se/) and [jq](https://jqlang.org/)       |
+| Language   | HTTP client                                                                                  |
+|------------|----------------------------------------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/)                                                       |
+| TypeScript | The `fetch` function that Node.js provides                                                   |
+| Java       | The `java.net.http` package, with [Jackson](https://github.com/FasterXML/jackson) for JSON   |
+| C#         | The `HttpClient` class and `System.Text.Json`, which .NET provides                           |
+| Go         | The `net/http` package                                                                       |
+| Rust       | [reqwest](https://docs.rs/reqwest/), with [serde_json](https://docs.rs/serde_json/) for JSON |
+| Ruby       | `Net::HTTP` and `json` from the standard library                                             |
+| curl       | [curl](https://curl.se/) and [jq](https://jqlang.org/)                                       |
 
 The following tabs show the dependency declaration from each example project;
 the TypeScript project needs only the compiler and the Node.js type
-definitions, and the Go program needs nothing beyond the standard library:
+definitions, the Java project adds Jackson, the Rust project adds reqwest and
+serde_json, and the C#, Go and Ruby projects need nothing beyond their standard
+libraries:
 
 === "Python"
 
@@ -77,10 +83,34 @@ definitions, and the Go program needs nothing beyond the standard library:
     --8<-- "recipes/rag_server/conversation/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/rag_server/conversation/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/rag_server/conversation/csharp/Conversation.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/rag_server/conversation/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/rag_server/conversation/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -102,10 +132,34 @@ and `jq` are installed. The following tabs show the imports for each language:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -142,10 +196,34 @@ The following tabs show how each program reads its settings:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -173,10 +251,34 @@ both. The following tabs show how each program sends a question:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts:ask"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java:ask"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs:ask"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go:ask"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs:ask"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb:ask"
     ```
 
 === "curl"
@@ -205,10 +307,34 @@ the questions in turn:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts:converse"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java:converse"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs:converse"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go:converse"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs:converse"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb:converse"
     ```
 
 === "curl"
@@ -236,10 +362,34 @@ program:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -272,10 +422,35 @@ the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -300,10 +475,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/rag_server/conversation/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/conversation/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/conversation/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/conversation/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/conversation/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/conversation/ruby/main.rb"
     ```
 
 === "curl"

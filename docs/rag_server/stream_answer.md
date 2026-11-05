@@ -55,17 +55,22 @@ the three types:
 The programs use only an HTTP client and a JSON decoder. The following table
 lists the client that each example uses:
 
-| Language   | HTTP client                                                  |
-|------------|--------------------------------------------------------------|
-| Python     | [httpx](https://www.python-httpx.org/)                       |
-| TypeScript | The `fetch` function that Node.js provides                   |
-| Go         | The `net/http` package                                       |
-| curl       | [curl](https://curl.se/) and [jq](https://jqlang.org/)       |
+| Language   | HTTP client                                                                                  |
+|------------|----------------------------------------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/)                                                       |
+| TypeScript | The `fetch` function that Node.js provides                                                   |
+| Java       | The `java.net.http` package, with [Jackson](https://github.com/FasterXML/jackson) for JSON   |
+| C#         | The `HttpClient` class and `System.Text.Json`, which .NET provides                           |
+| Go         | The `net/http` package                                                                       |
+| Rust       | [reqwest](https://docs.rs/reqwest/), with [serde_json](https://docs.rs/serde_json/) for JSON |
+| Ruby       | `Net::HTTP` and `json` from the standard library                                             |
+| curl       | [curl](https://curl.se/) and [jq](https://jqlang.org/)                                       |
 
-The following tabs show the dependency declaration from each example
-project; the TypeScript project needs only the compiler and the Node.js
-type definitions, and the Go program needs nothing beyond the standard
-library:
+The following tabs show the dependency declaration from each example project;
+the TypeScript project needs only the compiler and the Node.js type
+definitions, the Java project adds Jackson, the Rust project adds reqwest and
+serde_json, and the C#, Go and Ruby projects need nothing beyond their standard
+libraries:
 
 === "Python"
 
@@ -79,10 +84,34 @@ library:
     --8<-- "recipes/rag_server/stream_answer/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/rag_server/stream_answer/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/rag_server/stream_answer/csharp/StreamAnswer.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/rag_server/stream_answer/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/rag_server/stream_answer/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -105,10 +134,34 @@ language:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -145,10 +198,34 @@ request. The following tabs show how each program reads its settings:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -180,10 +257,34 @@ for each language:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts:events"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java:events"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs:events"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go:events"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs:events"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb:events"
     ```
 
 === "curl"
@@ -222,10 +323,34 @@ events with the parser in the previous step and the main part in the next:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts:stream"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java:stream"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs:stream"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go:stream"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs:stream"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb:stream"
     ```
 
 === "curl"
@@ -236,16 +361,23 @@ events with the parser in the previous step and the main part in the next:
 
 ## Handling Errors
 
-The main part of each program prints the question, calls the function from
-the previous step, and prints the number of chunks. The program reports any
-failure on `stderr`, whether the server was unreachable, replied with an
-error status, or sent an `error` event, and then exits with a non-zero
-status. The Python program catches `httpx.HTTPError`, the base class for
-connection failures and timeouts, as well as its own error class; the
-TypeScript program catches any rejected promise; the Go program returns each
-error from a `run()` function to `main()`; and the curl script relies on
-`set -o pipefail`, so a failure of `curl` or of the event reader fails the
-whole pipeline. The following tabs show the main part of each program:
+The main part of each program prints the question, calls the function from the
+previous step, and prints the number of chunks. The program reports any failure
+on `stderr`, whether the server was unreachable, replied with an error status,
+or sent an `error` event, and then exits with a non-zero status. The Python
+program catches `httpx.HTTPError`, the base class for connection failures and
+timeouts, as well as its own error class; the TypeScript program catches any
+rejected promise; the Java program catches `IOException`, which covers
+connection failures and timeouts, along with its own exception class and
+Jackson's `JacksonException` for an event that is not valid JSON; the C#
+program uses an exception filter that accepts `HttpRequestException`,
+`TaskCanceledException` (for a timeout), `IOException`, `JsonException` and its
+own exception class; the Go and Rust programs return each error from a `run()`
+function to `main()`, and the Rust program also prints the chain of underlying
+causes; the Ruby program rescues the standard library's network errors,
+`JSON::ParserError` and its own error class; and the curl script relies on `set
+-o pipefail`, so a failure of `curl` or of the event reader fails the whole
+pipeline. The following tabs show the main part of each program:
 
 === "Python"
 
@@ -259,10 +391,34 @@ whole pipeline. The following tabs show the main part of each program:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -295,10 +451,35 @@ tabs show the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -323,10 +504,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/rag_server/stream_answer/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/rag_server/stream_answer/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/rag_server/stream_answer/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/rag_server/stream_answer/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/rag_server/stream_answer/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/rag_server/stream_answer/ruby/main.rb"
     ```
 
 === "curl"

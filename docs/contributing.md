@@ -87,9 +87,9 @@ two rules apply:
   `docs/starfleet/`, `docs/postgres_mcp/`, and `docs/control_plane/`
   document HTTP API recipes, and use every language except C, in the
   order above. A `curl` tab may follow them, for a recipe with a
-  `curl/main.sh` script. The RAG Server, Workbench, and Starfleet recipes
-  have Python, TypeScript, and Go programs only until their Java, C#,
-  Rust, and Ruby programs are added; `THREE_LANGUAGE_PRODUCTS` in
+  `curl/main.sh` script. The Workbench and Starfleet recipes have
+  Python, TypeScript, and Go programs only until their Java, C#, Rust,
+  and Ruby programs are added; `THREE_LANGUAGE_PRODUCTS` in
   `scripts/languages.py` lists the products still in that state.
 - Pages under `docs/snowflake/`, `docs/vectorizer/`, and
   `docs/semantic_cache/` document SQL extension recipes, and have no tab
@@ -236,7 +236,8 @@ repeated. The following command tests the RAG Server recipes in every
 API language:
 
 ```bash
-scripts/test_recipes.sh --dir recipes/rag_server python typescript go curl
+scripts/test_recipes.sh --dir recipes/rag_server \
+    python typescript java csharp go rust ruby curl
 ```
 
 A recipe whose output varies from run to run, such as a reply from a
@@ -335,9 +336,12 @@ API live under `recipes/<product>/<slug>/`, with their pages at
 `ai_dba_workbench`, `starfleet`, `postgres_mcp`, or `control_plane`. Each
 recipe has a program in every language except C, and a `curl/main.sh`
 script unless its steps cannot be written as HTTP calls. The Python programs use
-`httpx`, the TypeScript programs use the built-in `fetch` function, the Go
-programs use the `net/http` package, and the curl scripts use `jq` to read
-JSON.
+`httpx`, the TypeScript programs use the built-in `fetch` function, the Java
+programs use the `java.net.http` package with Jackson, the C# programs use
+`HttpClient` with `System.Text.Json`, the Go programs use the `net/http`
+package, the Rust programs use the blocking `reqwest` client with
+`serde_json`, the Ruby programs use `Net::HTTP` and `json` from the standard
+library, and the curl scripts use `jq` to read JSON.
 
 Every page states the product version that its examples target, near the
 top of the page; the RAG Server recipes target RAG Server 2.0.0, the
@@ -411,7 +415,7 @@ eval "$(scripts/start_rag_server.sh --network cookbook \
 export RAG_SERVER_URL RAG_PIPELINE OLLAMA_URL=http://localhost:11434
 scripts/test_recipes.sh --dir recipes/rag_server \
     --exclude recipes/rag_server/row_level_security \
-    python typescript go curl
+    python typescript java csharp go rust ruby curl
 ```
 
 The row-level security recipe needs a server of its own, because the
@@ -427,7 +431,7 @@ eval "$(scripts/start_rag_server.sh --identity --network cookbook \
     --pg-host cookbook-test-pg --pg-port 5432 --port 8082)"
 export RAG_SERVER_URL RAG_PIPELINE
 scripts/test_recipes.sh --dir recipes/rag_server/row_level_security \
-    python typescript go curl
+    python typescript java csharp go rust ruby curl
 ```
 
 The Starfleet recipes use a real Starfleet account, so a recipe that
