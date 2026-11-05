@@ -1,0 +1,5 @@
+Node: 1
+Node inside the transaction: 0
+nextval() says: value for snowflake.node is not set
+Node after the rollback: 1
+nextval() says: ok

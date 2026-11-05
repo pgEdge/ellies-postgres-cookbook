@@ -1,0 +1,2 @@
+Old ID: 1
+New ID is on node 1 and larger than the old one: true

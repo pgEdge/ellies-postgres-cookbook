@@ -1,0 +1,3 @@
+Node: 1
+Made within the last minute: true
+Same node from get_node(): true
