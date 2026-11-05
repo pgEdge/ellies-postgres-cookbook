@@ -256,6 +256,7 @@ public class Main {
         props.setProperty("user", DATABASE_USER);
         props.setProperty("password", DATABASE_PASSWORD);
         props.setProperty("connectTimeout", String.valueOf(TIMEOUT.toSeconds()));
+        props.setProperty("loginTimeout", String.valueOf(TIMEOUT.toSeconds()));
         String url = "jdbc:postgresql://" + info.path("addresses").get(0).asString()
                 + ":" + info.path("port").asInt() + "/"
                 + database.path("spec").path("database_name").asString();
