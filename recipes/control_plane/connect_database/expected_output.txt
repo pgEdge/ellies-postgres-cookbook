@@ -1,0 +1,3 @@
+Connecting to node n1
+Connected to database cookbook
+Spock: 5.0.12
