@@ -85,9 +85,12 @@ two rules apply:
 
 - Pages under `docs/rag_server/`, `docs/ai_dba_workbench/`,
   `docs/starfleet/`, `docs/postgres_mcp/`, and `docs/control_plane/`
-  document HTTP API recipes, and use only the API languages, which are
-  Python, TypeScript, and Go, in that order. A `curl` tab may follow them,
-  for a recipe with a `curl/main.sh` script.
+  document HTTP API recipes, and use every language except C, in the
+  order above. A `curl` tab may follow them, for a recipe with a
+  `curl/main.sh` script. The RAG Server, Workbench, and Starfleet recipes
+  have Python, TypeScript, and Go programs only until their Java, C#,
+  Rust, and Ruby programs are added; `THREE_LANGUAGE_PRODUCTS` in
+  `scripts/languages.py` lists the products still in that state.
 - Pages under `docs/snowflake/`, `docs/vectorizer/`, and
   `docs/semantic_cache/` document SQL extension recipes, and have no tab
   groups at all; the section on SQL extension recipes below describes
@@ -320,8 +323,8 @@ Starfleet API, the pgEdge Postgres MCP Server, and the pgEdge Control Plane
 API live under `recipes/<product>/<slug>/`, with their pages at
 `docs/<product>/<slug>.md`, where `<product>` is `rag_server`,
 `ai_dba_workbench`, `starfleet`, `postgres_mcp`, or `control_plane`. Each
-recipe has Python, TypeScript, and Go programs, and a `curl/main.sh` script
-unless its steps cannot be written as HTTP calls. The Python programs use
+recipe has a program in every language except C, and a `curl/main.sh`
+script unless its steps cannot be written as HTTP calls. The Python programs use
 `httpx`, the TypeScript programs use the built-in `fetch` function, the Go
 programs use the `net/http` package, and the curl scripts use `jq` to read
 JSON.
