@@ -930,10 +930,11 @@ jobs:
     # connect_database, and rotate_password recipes, in eight languages
     # each); each took under two minutes in testing, but a database can
     # take a few minutes to become available and a few more to delete. The
-    # rest is for setting up the tools and for the sweep, with time to
-    # spare, so the job ends before the 360-minute limit could cut a
-    # clean-up short.
-    timeout-minutes: 270
+    # builds, the dependency installs, and the quick recipes share those
+    # 240 minutes. The remaining 45 minutes are for setting up the tools and
+    # for the 20-minute sweep, so the job ends before the 360-minute limit
+    # could cut a clean-up short.
+    timeout-minutes: 285
     concurrency:
       group: starfleet-recipes
       cancel-in-progress: false
