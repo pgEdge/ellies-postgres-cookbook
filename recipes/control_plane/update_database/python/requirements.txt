@@ -1,0 +1,6 @@
+# --8<-- [start:deps]
+# httpx, an HTTP client with a requests-like API.
+httpx>=0.28,<1
+# psycopg 3, with the pre-built binary package that bundles libpq.
+psycopg[binary]>=3.2,<4
+# --8<-- [end:deps]

@@ -1,0 +1,20 @@
+[package]
+name = "update_database"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The blocking client, with TLS from rustls and request and response bodies
+# as JSON; the default features add HTTP/2 and other things this example
+# does not use.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+serde_json = "1"
+# The synchronous PostgreSQL client; tokio-postgres is the asynchronous
+# equivalent.
+postgres = "0.19"
+# Handling Ctrl-C, and with the termination feature SIGTERM, so that the
+# program can restore the settings before it exits.
+ctrlc = { version = "3", features = ["termination"] }
+# --8<-- [end:deps]

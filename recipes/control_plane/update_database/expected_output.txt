@@ -1,0 +1,4 @@
+Setting work_mem to 16MB
+Update completed
+work_mem is now 16MB
+Restored the original settings
