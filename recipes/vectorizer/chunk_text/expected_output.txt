@@ -1,0 +1,34 @@
+Chunk 1:
+[Context: # Ellie's Kitchen Handbook]
+
+# Ellie's Kitchen Handbook
+
+Chunk 2:
+[Context: # Ellie's Kitchen Handbook]
+
+Ellie keeps this handbook beside the stove, so that every cook in the
+kitchen follows the same routine.
+
+Chunk 3:
+[Context: # Ellie's Kitchen Handbook > ## Opening the Kitchen]
+
+## Opening the Kitchen
+
+Chunk 4:
+[Context: # Ellie's Kitchen Handbook > ## Opening the Kitchen]
+
+Switch on the ovens at six o'clock, and check that each one reaches
+temperature before the first tray goes in. Wash your hands, put on an
+apron, and read the day's orders on the board.
+
+Chunk 5:
+[Context: # Ellie's Kitchen Handbook > ## Closing the Kitchen]
+
+## Closing the Kitchen
+
+Chunk 6:
+[Context: # Ellie's Kitchen Handbook > ## Closing the Kitchen]
+
+Wipe down every surface, label and date the leftovers, and switch off
+the ovens. Empty the bins, sweep the floor, and lock the back door on
+your way out.

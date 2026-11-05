@@ -1,0 +1,3 @@
+Chunks with keyword vectors: 3
+Question: Which database stores tables?
+Top match (row 3): PostgreSQL stores data in tables and answers questions written in SQL.

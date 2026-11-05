@@ -1,0 +1,6 @@
+Before the commit:
+pending: 3
+After the worker has finished:
+completed: 3
+Pending items in the queue: 0
+Failed items for the table: 0

@@ -1,0 +1,4 @@
+Chunk table: cookbook_enable_vectorization_content_chunks
+Chunks: 3
+Chunks with embeddings: 3
+Embedding dimensions: 768

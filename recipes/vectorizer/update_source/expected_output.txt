@@ -1,0 +1,5 @@
+Before the update: Jupiter is the largest planet in the solar system, with dozens of moons.
+After the update: Saturn is famous for its bright rings of ice and rock.
+Chunks for row 2 with embeddings: 1
+Question: Which planet has rings?
+Top match (row 2): Saturn is famous for its bright rings of ice and rock.
