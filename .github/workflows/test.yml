@@ -15,9 +15,13 @@ permissions:
 
 # A new push to a pull request cancels the run it supersedes. Other events
 # are never cancelled, so that a scheduled or manual Starfleet run, which
-# creates databases that cost money, always reaches its clean-up.
+# creates databases that cost money, always reaches its clean-up. They also
+# get a group of their own, because a group holds only one pending run and
+# a newer one would otherwise replace a queued scheduled run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Each recipe job runs only when something it depends on has changed; the
