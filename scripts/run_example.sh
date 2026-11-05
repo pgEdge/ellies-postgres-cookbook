@@ -60,6 +60,14 @@ build() {
             ;;
         curl)
             ;;
+        sql)
+            # An extension recipe is a psql script, so there is nothing
+            # to build, but the script must say so if psql is missing.
+            if ! command -v psql >/dev/null 2>&1; then
+                echo "psql is not installed" >&2
+                exit 2
+            fi
+            ;;
         *)
             echo "Unknown language directory: $language" >&2
             exit 2
@@ -79,6 +87,8 @@ run() {
         java)       exec mvn --quiet --batch-mode exec:java ;;
         csharp)     exec dotnet run --no-build ;;
         curl)       exec bash main.sh ;;
+        # ON_ERROR_STOP makes psql exit non-zero at the first error.
+        sql)        exec psql -X -q -v ON_ERROR_STOP=1 -f main.sql ;;
     esac
 }
 

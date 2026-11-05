@@ -4,8 +4,10 @@ The canonical list of languages used by Ellie's Postgres Cookbook.
 Content tabs are linked by label, so every recipe page must use exactly
 one of the sets of labels below, in exactly this order: all the languages
 for a recipe that talks to PostgreSQL, or the API languages for a recipe
-that calls a product's HTTP API. This module is the single source of truth
-for both scripts/tabs.py and scripts/check_tabs.py.
+that calls a product's HTTP API. The pages of an extension product
+(EXTENSION_PRODUCTS) show SQL only, as plain code blocks with no tabs, so
+they have no labels at all. This module is the single source of truth for
+both scripts/tabs.py and scripts/check_tabs.py.
 
 Copyright (c) 2026, pgEdge, Inc.
 This code is released under the PostgreSQL License.
@@ -43,16 +45,30 @@ LANGUAGES = [
 ]
 
 # Recipes for a product's HTTP API (the pgEdge RAG Server, the AI DBA
-# Workbench, and the pgEdge Starfleet API) use these languages only, in
+# Workbench, the pgEdge Starfleet API, the pgEdge Postgres MCP Server and
+# the pgEdge Control Plane) use these languages only, in
 # the same order as above. The product is the directory under recipes/
 # and docs/ that holds the recipe and its page.
 API_LANGUAGES = [language for language in LANGUAGES
                  if language.directory in ("python", "typescript", "go")]
-API_PRODUCTS = ("rag_server", "ai_dba_workbench", "starfleet")
+API_PRODUCTS = ("rag_server", "ai_dba_workbench", "starfleet",
+                "postgres_mcp", "control_plane")
+
+# The recipes for a PostgreSQL extension (Snowflake, the pgEdge Vectorizer
+# and pg_semantic_cache) are SQL scripts that psql runs, with no driver
+# program. SQL is deliberately not in LANGUAGES, because it is never a tab
+# label: the pages show it in plain fenced blocks.
+SQL = Language("SQL", "sql", "main.sql", "sql", "", "")
+EXTENSION_PRODUCTS = ("snowflake", "vectorizer", "semantic_cache")
 
 
 def product_languages(product: str) -> list:
-    """Return the languages whose tabs a product's recipe pages carry."""
+    """Return the languages whose tabs a product's recipe pages carry.
+
+    An extension product has SQL alone, which its pages show without tabs.
+    """
+    if product in EXTENSION_PRODUCTS:
+        return [SQL]
     return list(API_LANGUAGES if product in API_PRODUCTS else LANGUAGES)
 
 # HTTP API recipes may add a curl tab after their languages. Recipes that

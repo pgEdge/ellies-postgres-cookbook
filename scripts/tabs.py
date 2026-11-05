@@ -19,6 +19,12 @@ special:
     full    includes the whole of each main source file; the snippets
             extension strips the section markers automatically.
 
+Recipes under recipes/snowflake, recipes/vectorizer, and
+recipes/semantic_cache are SQL only (sql/main.sql), and their pages use no
+tabs: each section produces a plain fenced sql block that includes the
+section. For these recipes the deps section does not exist, and the full
+section includes the whole of sql/main.sql.
+
 A recipe may omit a language, for example C where the library has no
 equivalent of the feature. For a language whose directory is missing, the
 tab holds a placeholder sentence instead of an include (and the script
@@ -37,7 +43,7 @@ This code is released under the PostgreSQL License.
 import sys
 from pathlib import Path
 
-from languages import CURL, PLACEHOLDER, product_languages
+from languages import CURL, EXTENSION_PRODUCTS, PLACEHOLDER, product_languages
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -100,13 +106,28 @@ def tab_group(recipe: Path, section: str) -> str:
     return "\n".join(lines)
 
 
+def sql_block(recipe: Path, section: str) -> str:
+    """Return a plain fenced block for a section of an SQL-only recipe."""
+    (language,) = product_languages(recipe.parent.name)
+    if section == "deps":
+        sys.exit(f"{recipe.name} is SQL only and has no deps section")
+    if not (recipe / language.directory / language.source).is_file():
+        sys.exit(f"{recipe / language.directory / language.source} "
+                 "does not exist")
+    ref, lexer = include(recipe, language, section)
+    return "\n".join([f"```{lexer}", f'--8<-- "{ref}"', "```", ""])
+
+
 def main() -> None:
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     recipe = (Path.cwd() / sys.argv[1]).resolve()
     for section in sys.argv[2:]:
         print(f"<!-- {section} -->")
-        print(tab_group(recipe, section))
+        if recipe.parent.name in EXTENSION_PRODUCTS:
+            print(sql_block(recipe, section))
+        else:
+            print(tab_group(recipe, section))
 
 
 if __name__ == "__main__":

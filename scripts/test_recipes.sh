@@ -6,6 +6,10 @@
 # Usage: scripts/test_recipes.sh [--dir DIR ...] [--exclude DIR ...]
 #            [language ...]
 #
+# A language is the name of a recipe's subdirectory: python, typescript,
+# go, curl, and so on, or sql for the psql scripts of the extension recipes
+# (for example, scripts/test_recipes.sh sql --dir recipes/snowflake).
+#
 # --dir limits the run to the recipes under DIR (for example,
 # recipes/rag_server), and --exclude skips the recipes under DIR; both may
 # be repeated. By default every recipe under recipes/ is tested.

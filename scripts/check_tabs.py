@@ -12,6 +12,11 @@ document HTTP API recipes, and use the API languages (Python, TypeScript,
 and Go) in place of the full set; every other page uses the full set. In
 both cases a curl tab may follow the languages.
 
+Pages under docs/snowflake, docs/vectorizer, and docs/semantic_cache show
+SQL only, in plain fenced blocks, so they must have no language tab group
+at all, and every snippet include on them must name a file and a section
+that exist.
+
 Tab groups whose labels are not language names (for example, "Linux" and
 "macOS") are ignored, unless they mix in a language label.
 
@@ -28,10 +33,15 @@ import sys
 import textwrap
 from pathlib import Path
 
-from languages import CURL, LABELS, PLACEHOLDER, product_languages
+from languages import (CURL, EXTENSION_PRODUCTS, LABELS, PLACEHOLDER, SQL,
+                       product_languages)
 
 TAB = re.compile(r'^(?P<indent>\s*)===[+!]? "(?P<label>[^"]+)"')
 LANGUAGE_LABELS = set(LABELS) | {CURL.label}
+# A snippet include such as --8<-- "path/to/file.sql:section".
+INCLUDE = re.compile(
+    r'^\s*--8<--\s+"(?P<path>[^":]+)(?::(?P<section>[^"]+))?"',
+    re.MULTILINE)
 
 
 def tab_groups(path: Path):
@@ -79,7 +89,14 @@ def check(path: Path, docs: Path) -> list[str]:
         if unfilled in line:
             problems.append(f"{path}:{number}: placeholder tab text from "
                             "scripts/tabs.py was not replaced")
+    if product in EXTENSION_PRODUCTS:
+        problems += check_includes(path)
     for line, labels in tab_groups(path):
+        if product in EXTENSION_PRODUCTS:
+            if (LANGUAGE_LABELS | {SQL.label}).intersection(labels):
+                problems.append(f"{path}:{line}: tabs {labels} on an "
+                                "SQL-only page; use plain sql code blocks")
+            continue
         if not LANGUAGE_LABELS.intersection(labels):
             continue
         expected = labels_for_page + ([CURL.label] if CURL.label in labels
@@ -87,6 +104,22 @@ def check(path: Path, docs: Path) -> list[str]:
         if labels != expected:
             problems.append(
                 f"{path}:{line}: tabs are {labels}, expected {expected}")
+    return problems
+
+
+def check_includes(path: Path) -> list[str]:
+    """Report snippet includes whose file or section does not exist."""
+    problems = []
+    text = path.read_text()
+    for match in INCLUDE.finditer(text):
+        number = text.count("\n", 0, match.start()) + 1
+        source = Path(match["path"])
+        if not source.is_file():
+            problems.append(f"{path}:{number}: {source} does not exist")
+        elif match["section"] and match["section"] not in {
+                name for name, _ in sections(source.read_text())}:
+            problems.append(f"{path}:{number}: {source} has no section "
+                            f"'{match['section']}'")
     return problems
 
 
@@ -103,7 +136,8 @@ XML_SUFFIXES = {".xml", ".csproj"}
 
 # Source files whose sections are checked for completeness. The bracket
 # count does not skip strings or comments, so keep them balanced too.
-CODE_SUFFIXES = {".py", ".ts", ".java", ".cs", ".go", ".rs", ".rb", ".c"}
+CODE_SUFFIXES = {".py", ".ts", ".java", ".cs", ".go", ".rs", ".rb", ".c",
+                 ".sql"}
 SECTION = re.compile(
     r"-+8<-+\s*\[\s*start\s*:\s*(?P<name>[\w-]+)\s*\][^\n]*\n"
     r"(?P<body>.*?)"
@@ -116,7 +150,7 @@ ANY_MARKER = re.compile(r"-+8<-+\s*\[\s*(start|end)\s*:")
 # a keyword that can only continue an earlier block.
 CONTINUATIONS = {"catch", "except", "rescue", "ensure", "finally", "else",
                  "elif", "elsif", "}", "end"}
-COMMENT_PREFIXES = ("#", "//", "/*", "*")
+COMMENT_PREFIXES = ("#", "//", "/*", "*", "--")
 
 
 def check_sections(recipes: Path) -> list[str]:

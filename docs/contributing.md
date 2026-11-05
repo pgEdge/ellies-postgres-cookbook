@@ -30,6 +30,7 @@ recipes/
       rust/
       ruby/
       c/
+      sql/                        # Extension recipes: main.sql only.
 scripts/
   languages.py                    # The canonical list of languages.
   tabs.py                         # Generates tab groups for a page.
@@ -47,8 +48,13 @@ scripts/
 The cookbook groups recipes by product; recipes for PostgreSQL itself live
 under `postgresql/`. Recipes for the HTTP APIs of pgEdge products live
 under `rag_server/` for the pgEdge RAG Server, `ai_dba_workbench/` for
-the AI DBA Workbench, and `starfleet/` for the pgEdge Starfleet API; the
-section on HTTP API recipes below describes them.
+the AI DBA Workbench, `starfleet/` for the pgEdge Starfleet API,
+`postgres_mcp/` for the pgEdge Postgres MCP Server, and `control_plane/`
+for the pgEdge Control Plane; the section on HTTP API recipes below
+describes them. Recipes for PostgreSQL extensions live under `snowflake/`
+for Snowflake, `vectorizer/` for the pgEdge Vectorizer, and
+`semantic_cache/` for pg_semantic_cache; the section on SQL extension
+recipes below describes them.
 
 Recipes for the pgEdge Go LLM Library are the exception to the
 one-program-per-language rule; the section on single-language recipes
@@ -77,10 +83,15 @@ The following table lists each label with its directory and source file:
 Which set of labels a page uses depends on its product directory, and
 two rules apply:
 
-- Pages under `docs/rag_server/`, `docs/ai_dba_workbench/`, and
-  `docs/starfleet/` document HTTP API recipes, and use only the API
-  languages, which are Python, TypeScript, and Go, in that order. A `curl`
-  tab may follow them, for a recipe with a `curl/main.sh` script.
+- Pages under `docs/rag_server/`, `docs/ai_dba_workbench/`,
+  `docs/starfleet/`, `docs/postgres_mcp/`, and `docs/control_plane/`
+  document HTTP API recipes, and use only the API languages, which are
+  Python, TypeScript, and Go, in that order. A `curl` tab may follow them,
+  for a recipe with a `curl/main.sh` script.
+- Pages under `docs/snowflake/`, `docs/vectorizer/`, and
+  `docs/semantic_cache/` document SQL extension recipes, and have no tab
+  groups at all; the section on SQL extension recipes below describes
+  them.
 - Every other page uses all eight languages, in the order above.
 
 In both cases a recipe may omit a language by leaving out its directory;
@@ -304,19 +315,23 @@ that need a cloud API key list the variable in `requires.txt`.
 
 ## Writing HTTP API Recipes
 
-Recipes for the pgEdge RAG Server, the AI DBA Workbench API, and the
-pgEdge Starfleet API live under `recipes/<product>/<slug>/`, with their
-pages at `docs/<product>/<slug>.md`, where `<product>` is `rag_server`,
-`ai_dba_workbench`, or `starfleet`. Each recipe has Python, TypeScript,
-and Go programs, and a `curl/main.sh` script unless its steps cannot be
-written as HTTP calls. The Python programs use `httpx`, the TypeScript
-programs use the built-in `fetch` function, the Go programs use the
-`net/http` package, and the curl scripts use `jq` to read JSON.
+Recipes for the pgEdge RAG Server, the AI DBA Workbench API, the pgEdge
+Starfleet API, the pgEdge Postgres MCP Server, and the pgEdge Control Plane
+API live under `recipes/<product>/<slug>/`, with their pages at
+`docs/<product>/<slug>.md`, where `<product>` is `rag_server`,
+`ai_dba_workbench`, `starfleet`, `postgres_mcp`, or `control_plane`. Each
+recipe has Python, TypeScript, and Go programs, and a `curl/main.sh` script
+unless its steps cannot be written as HTTP calls. The Python programs use
+`httpx`, the TypeScript programs use the built-in `fetch` function, the Go
+programs use the `net/http` package, and the curl scripts use `jq` to read
+JSON.
 
 Every page states the product version that its examples target, near the
 top of the page; the RAG Server recipes target RAG Server 2.0.0, the
-Workbench recipes target AI DBA Workbench 1.0.0, and the Starfleet recipes
-target the Starfleet Managed API v1.
+Workbench recipes target AI DBA Workbench 1.0.0, the Starfleet recipes
+target the Starfleet Managed API v1, the Postgres MCP Server recipes target
+pgEdge Postgres MCP Server 1.1.0, and the Control Plane recipes target the
+Control Plane v0.11.0.
 
 The programs read the following variables, and treat an empty value as
 unset:
@@ -414,6 +429,71 @@ name starts with `cookbook-`, and nothing else. If you run a Starfleet
 recipe locally, unset `PGSSLROOTCERT` first: the libpq library and pgx
 treat `sslmode=require` as `verify-ca` when it is set, and reject the
 certificate of a Starfleet database.
+
+## Writing SQL Extension Recipes
+
+Recipes for PostgreSQL extensions are SQL only, because a driver program
+would only wrap the SQL and repeat the connection recipes. They live under
+`recipes/<product>/<slug>/sql/main.sql`, with their pages at
+`docs/<product>/<slug>.md`, where `<product>` is `snowflake` for
+Snowflake, `vectorizer` for the pgEdge Vectorizer, or `semantic_cache` for
+pg_semantic_cache. The recipe has an `expected_output.txt` file or an
+executable `check_output` file, as for any other recipe.
+
+Every page states the version of the extension that its examples target,
+near the top of the page, in a sentence such as "These examples are for
+Snowflake 2.6.0." The Snowflake recipes target Snowflake 2.6.0, the
+Vectorizer recipes target pgEdge Vectorizer 1.1, and the semantic cache
+recipes target pg_semantic_cache 0.1.0-beta4.
+
+The test script runs the program with
+`psql -X -q -v ON_ERROR_STOP=1 -f main.sql`, so the script reads its
+connection settings from the `PG*` variables, and stops with a non-zero
+status at the first error. The unreachable-server run sets `PGPORT=1`, as
+for the other recipes. The program starts with `\pset format unaligned`
+and `\pset tuples_only on`, so that its output is plain lines that
+`expected_output.txt` can match, and a waiting loop, such as one that
+waits for the Vectorizer's background worker, is a `DO` block that calls
+`pg_sleep` and raises an error on a timeout. The following command tests
+the Snowflake recipes:
+
+```bash
+scripts/test_recipes.sh sql --dir recipes/snowflake
+```
+
+The section markers in an SQL file are SQL comments that contain the
+usual marker, which the Snippets extension recognises after the leading
+`--`. The following example marks the `setup` section:
+
+```sql
+-- ;--8<-- [start:setup]
+CREATE TABLE cookbook_demo (id integer);
+-- ;--8<-- [end:setup]
+```
+
+The Markdown source of this page escapes the markers with a semicolon, as
+described earlier. The sections follow the same rules as in other
+languages: each is one contiguous block of complete statements, and
+`scripts/check_tabs.py` rejects a section whose brackets do not balance.
+
+An SQL-only page has no content tabs. Run `scripts/tabs.py` with the
+recipe directory and the section names, and it prints a plain `sql` code
+block for each section, instead of a tab group:
+
+```bash
+scripts/tabs.py recipes/snowflake/<slug> setup full
+```
+
+The `full` section includes the whole file, and `deps` is not available.
+Write an introductory sentence before each block, as on any other page.
+The `scripts/check_tabs.py` script fails the build if an extension page
+contains a tab group, or includes a file or a section that does not exist.
+
+Some state is global to the server, such as the semantic cache table and
+the Vectorizer's queues. A program that uses shared state tags what it
+creates, or names it, with `cookbook`, and removes only those rows and
+objects when it finishes, including when a step fails, so that a recipe
+never touches the data of another recipe or of a real workload.
 
 ## Publishing the Documentation
 
