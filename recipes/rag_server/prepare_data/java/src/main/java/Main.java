@@ -16,6 +16,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -27,6 +28,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.StringJoiner;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -106,6 +111,30 @@ public class Main {
     }
 
     /**
+     * Sends a request and returns the response with its whole body. The
+     * request timeout stops applying once the headers arrive, so a server
+     * that stalls part of the way through the body would hang send(); this
+     * applies the same timeout to the whole exchange instead.
+     */
+    static HttpResponse<String> send(HttpClient client, HttpRequest request)
+            throws IOException, InterruptedException {
+        Duration timeout = request.timeout().orElseThrow();
+        CompletableFuture<HttpResponse<String>> pending =
+                client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            return pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            pending.cancel(true);
+            throw new HttpTimeoutException("request timed out");
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException cause) {
+                throw cause;
+            }
+            throw new IOException(e.getCause());
+        }
+    }
+
+    /**
      * Asks Ollama for the embedding of each text, in the same order.
      * pgvector stores single-precision values, so a float loses nothing
      * that the table would keep.
@@ -122,8 +151,7 @@ public class Main {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(payload)))
                 .build();
-        HttpResponse<String> response = HttpClient.newHttpClient()
-                .send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = send(HttpClient.newHttpClient(), request);
 
         // The client treats an error status as a normal response, so check
         // it here.
