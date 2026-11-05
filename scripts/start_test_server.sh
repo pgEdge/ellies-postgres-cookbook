@@ -21,12 +21,14 @@
 # database, and sets the semantic cache to 768 dimensions to match
 # nomic-embed-text.
 #
-# A certificate authority and a server certificate are generated into a
-# temporary directory each time the script runs, and the private keys never
-# leave that directory. The server certificate has subject alternative names
-# for localhost, 127.0.0.1, the container name, and every host name or IP
-# address given as an extra argument (for example, the name of the
-# container as another container sees it on a Docker network).
+# A certificate authority and a server certificate are generated each time
+# the script runs, into cookbook-certs-NAME in the temporary directory, which
+# replaces the directory of any earlier run with the same name. The private
+# keys never leave that directory, and the CA key is deleted once it has
+# signed the server certificate. The server certificate has subject
+# alternative names for localhost, 127.0.0.1, the container name, and every
+# host name or IP address given as an extra argument (for example, the name
+# of the container as another container sees it on a Docker network).
 #
 # On success the script prints one line to stdout, PGSSLROOTCERT=<path>,
 # where <path> is the certificate authority certificate that clients use
@@ -49,6 +51,8 @@
 # on an address the container can reach (OLLAMA_HOST=0.0.0.0:11434).
 #
 # Stop the server with: docker rm -f NAME
+# Remove its certificates, if you wish, with:
+#   rm -rf "${TMPDIR:-/tmp}/cookbook-certs-NAME"
 #
 # Copyright (c) 2026, pgEdge, Inc.
 # This code is released under the PostgreSQL License.
@@ -69,7 +73,7 @@ while [[ $# -gt 0 ]]; do
         --network)    network="${2:?--network needs a value}"; shift 2 ;;
         --port)       port="${2:?--port needs a value}"; shift 2 ;;
         --ollama-url) ollama_url="${2:?--ollama-url needs a value}"; shift 2 ;;
-        -h|--help)    sed -n '3,51p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)    sed -n '3,56p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*)           echo "Unknown option: $1" >&2; exit 2 ;;
         *)            hosts+=("$1"); shift ;;
     esac
@@ -93,9 +97,14 @@ else
     fi
 fi
 
-certs="$(mktemp -d)"
-# Keep the directory private; the container reads it as root.
-chmod 700 "$certs"
+# One directory per container name, so that repeated runs do not leave a
+# directory behind each time. mkdir without -p fails rather than reuse a
+# directory that someone else created. Keep the directory private; the
+# container reads it as root.
+certs="${TMPDIR:-/tmp}"
+certs="${certs%/}/cookbook-certs-$name"
+rm -rf "$certs"
+mkdir -m 700 "$certs"
 
 # If anything fails from here on, show the server log (once the container
 # exists), remove the container, and delete the certificate directory,
@@ -142,9 +151,11 @@ openssl x509 -req -in "$certs/server.csr" -days 2 \
     -CA "$certs/ca.crt" -CAkey "$certs/ca.key" -CAcreateserial \
     -extfile "$certs/server.ext" -out "$certs/server.crt" 2>/dev/null
 
-# Only the public certificates need to be readable by clients.
+# Only the public certificates need to be readable by clients. Nothing
+# needs the CA key or the signing files again.
 chmod 644 "$certs/ca.crt" "$certs/server.crt"
 chmod 600 "$certs/server.key"
+rm -f "$certs/ca.key" "$certs/ca.srl" "$certs/server.csr" "$certs/server.ext"
 
 docker rm -f "$name" >/dev/null 2>&1 || true
 
