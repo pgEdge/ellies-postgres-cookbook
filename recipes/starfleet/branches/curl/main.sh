@@ -485,8 +485,7 @@ main() {
     branch_id="" branch_name="" branch_lookup=0
     trap cleanup EXIT
     # Turn Ctrl-C and SIGTERM into a normal exit, so that cleanup runs.
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    trap 'echo "Interrupted" >&2; exit 130' INT TERM
 
     token="$(get_token)"
 

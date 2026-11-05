@@ -572,6 +572,13 @@ func run() (err error) {
 	// deferred cleanup below still runs.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Note whether a signal arrived, after the deferred clean-up below has
+	// run, so that main can report an interruption.
+	defer func() {
+		if ctx.Err() != nil {
+			interrupted = true
+		}
+	}()
 
 	token, err := getToken(ctx)
 	if err != nil {
@@ -673,10 +680,23 @@ func run() (err error) {
 	return nil
 }
 
+// interrupted is set when Ctrl-C or SIGTERM arrived before run() returned.
+var interrupted bool
+
 // main reports any error returned by run() and exits with a non-zero
-// status.
+// status. After a signal, it prints "Interrupted" and exits with 130, the
+// status of a program that the user stopped, unless the clean-up failed as
+// well, which errors.Join reports on a line of its own.
 func main() {
 	if err := run(); err != nil {
+		if interrupted {
+			fmt.Fprintln(os.Stderr, "Interrupted")
+			if strings.Contains(err.Error(), "\n") {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(130)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
