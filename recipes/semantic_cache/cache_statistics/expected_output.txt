@@ -1,0 +1,8 @@
+First lookup -> hit
+Second lookup -> hit
+Unrelated lookup -> miss
+Entries added: 1
+Hits: 2
+Misses: 1
+Hit rate for this run: 66.7%
+Removed 1 cached entry

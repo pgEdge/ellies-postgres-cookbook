@@ -1,0 +1,5 @@
+Cached the result for 3600 seconds with tags {cookbook,cookbook-cache-result}
+Found: true
+Similarity: 1.00
+Result: {"orders_shipped": 1234}
+Removed 1 cached entry

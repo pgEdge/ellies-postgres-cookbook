@@ -1,0 +1,5 @@
+Cached 2 results
+Invalidated 1 entry tagged cookbook-orders
+Orders question -> miss
+Customers question -> hit
+Removed 1 remaining cached entry

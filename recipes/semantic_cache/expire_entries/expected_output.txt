@@ -1,0 +1,5 @@
+Cached the result for 1 second
+Lookup straight away: hit
+Lookup after 2 seconds: miss
+Entries still stored: 1
+Entries stored after evict_expired(): 0

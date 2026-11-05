@@ -1,0 +1,4 @@
+Cached the answer to: Which customers placed the most orders this year?
+Who are our top customers by number of orders this year? -> hit
+How do I reset my password? -> miss
+Removed 1 cached entry
