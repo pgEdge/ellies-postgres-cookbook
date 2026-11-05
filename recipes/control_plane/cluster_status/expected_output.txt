@@ -1,0 +1,4 @@
+Version: v0.11.0
+Cluster: available
+Hosts (1):
+- cookbook-host-1: healthy
