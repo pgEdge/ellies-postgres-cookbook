@@ -95,6 +95,24 @@ nav:
       - Setting a Statement Timeout: postgresql/statement_timeout.md
       - Retrying Serialisation Failures: postgresql/retry_transactions.md
       - Connecting Securely with TLS: postgresql/tls_connect.md
+  - Using Snowflake:
+      - Generating Snowflake IDs: snowflake/generate_ids.md
+      - Decoding a Snowflake ID: snowflake/decode_id.md
+      - Converting a Sequence to Snowflake: snowflake/convert_sequence.md
+      - Checking the Node Number: snowflake/node_setting.md
+  - Using pgEdge Vectorizer:
+      - Vectorizing a Table: vectorizer/enable_vectorization.md
+      - Searching Vectorized Text: vectorizer/semantic_search.md
+      - Combining Keyword and Vector Search: vectorizer/hybrid_search.md
+      - Splitting Text into Chunks: vectorizer/chunk_text.md
+      - Monitoring the Embedding Queue: vectorizer/queue_status.md
+      - Keeping Embeddings Up to Date: vectorizer/update_source.md
+  - Using pg_semantic_cache:
+      - Caching a Query Result: semantic_cache/cache_result.md
+      - Finding an Answer to a Reworded Question: semantic_cache/similar_question.md
+      - Expiring Cached Results: semantic_cache/expire_entries.md
+      - Invalidating Cached Results by Tag: semantic_cache/invalidate_by_tag.md
+      - Measuring the Cache Hit Rate: semantic_cache/cache_statistics.md
   - Using the pgEdge Go LLM Library:
       - Sending a Chat Request: go_llm_lib/chat_request.md
       - Streaming a Response: go_llm_lib/streaming_response.md
@@ -130,6 +148,18 @@ nav:
       - Creating a Branch for a Test Run: starfleet/branches.md
       - Taking a Backup and Tracking Its Task: starfleet/backups.md
       - Rotating a Role Password: starfleet/rotate_password.md
+  - Using the pgEdge Postgres MCP Server:
+      - Connecting to the MCP Server: postgres_mcp/connect.md
+      - Exploring a Schema: postgres_mcp/explore_schema.md
+      - Running Read-Only Queries: postgres_mcp/read_only.md
+      - Searching by Meaning: postgres_mcp/similarity_search.md
+      - Reading Resources and Prompts: postgres_mcp/resources_and_prompts.md
+  - Using the pgEdge Control Plane API:
+      - Checking the Cluster: control_plane/cluster_status.md
+      - Creating a Database: control_plane/create_database.md
+      - Connecting to a Database: control_plane/connect_database.md
+      - Following a Task: control_plane/track_tasks.md
+      - "Changing a Database's Settings": control_plane/update_database.md
   - Contributing a Recipe: contributing.md
   - Changelog: changelog.md
   - License: LICENSE.md

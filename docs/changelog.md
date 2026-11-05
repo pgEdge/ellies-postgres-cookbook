@@ -11,6 +11,30 @@ and this project adheres to
 
 ### Added
 
+- Four SQL recipes for the Snowflake 2.6.0 extension: Generating
+  Snowflake IDs, Decoding a Snowflake ID, Converting a Sequence to
+  Snowflake, and Checking the Node Number.
+- Six SQL recipes for pgEdge Vectorizer 1.1: Vectorizing a Table,
+  Searching Vectorized Text, Combining Keyword and Vector Search,
+  Splitting Text into Chunks, Monitoring the Embedding Queue, and Keeping
+  Embeddings Up to Date.
+- Five SQL recipes for pg_semantic_cache 0.1.0-beta4: Caching a Query
+  Result, Finding an Answer to a Reworded Question, Expiring Cached
+  Results, Invalidating Cached Results by Tag, and Measuring the Cache Hit
+  Rate.
+- Five recipes for the pgEdge Postgres MCP Server 1.1.0: Connecting to
+  the MCP Server, Exploring a Schema, Running Read-Only Queries,
+  Searching by Meaning, and Reading Resources and Prompts.
+- Five recipes for the pgEdge Control Plane v0.11.0 API: Checking the
+  Cluster, Creating a Database, Connecting to a Database, Following a
+  Task, and Changing a Database's Settings.
+- Java, C#, Rust, and Ruby programs for every RAG Server, AI DBA
+  Workbench, and Starfleet recipe, so that every HTTP API recipe is in
+  every language except C.
+- A test server image built from pgEdge Postgres with the extensions
+  installed, scripts that start the Postgres MCP Server and the Control
+  Plane in containers, and continuous integration jobs for the extension,
+  Postgres MCP Server, and Control Plane recipes.
 - Nine recipes for the pgEdge RAG Server 2.0.0 API: Preparing Data for
   the RAG Server, Asking a Question, Streaming an Answer, Showing the
   Sources of an Answer, Filtering Retrieved Documents, Holding a

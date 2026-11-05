@@ -6,10 +6,10 @@ answers a single question, such as how to connect to a database and run a
 query, and walks through the code that answers the question one step at a
 time.
 
-Every recipe presents the code in the following languages, except the
-recipes for the pgEdge Go LLM Library, which are Go only, and the Using a
-Connection Pool recipe, which has no C program because libpq has no
-built-in connection pool:
+Every recipe that talks to PostgreSQL through a driver presents the code in
+the following languages, except the recipes for the pgEdge Go LLM Library,
+which are Go only, and the Using a Connection Pool recipe, which has no C
+program because libpq has no built-in connection pool:
 
 - Python
 - TypeScript
@@ -21,8 +21,11 @@ built-in connection pool:
 - C
 
 The recipes for the HTTP APIs of the pgEdge RAG Server, the pgEdge AI DBA
-Workbench, and pgEdge Starfleet present the code in Python, TypeScript, and
-Go, and also include a `curl` example.
+Workbench, pgEdge Starfleet, the pgEdge Postgres MCP Server, and the pgEdge
+Control Plane present the code in every language in the list except C, and
+also include a `curl` example. The recipes for the Snowflake, pgEdge
+Vectorizer, and pg_semantic_cache extensions are SQL scripts that psql runs,
+because each extension is used entirely through SQL.
 
 ## Choosing a Language
 
@@ -39,10 +42,11 @@ in the
 The continuous integration pipeline builds and runs every program against a
 real PostgreSQL server each time the repository changes. The pipeline checks
 that each program produces the expected output, and exits with an error
-when the server is unreachable. The RAG Server and AI DBA Workbench
-recipes run against those products in containers; the Starfleet recipes
-run weekly against the live service, except the two recipes that leave a
-backup behind. Each recipe links to the complete program in every
+when the server is unreachable. The extension recipes run against a pgEdge
+Postgres server with the extensions installed. The RAG Server, AI DBA
+Workbench, Postgres MCP Server, and Control Plane recipes run against those
+products in containers; the Starfleet recipes run weekly against the live
+service, except the two recipes that leave a backup behind. Each recipe links to the complete program in every
 language, so readers can copy a working project rather than assembling one
 from fragments.
 
@@ -64,6 +68,21 @@ The following table lists the recipes that the cookbook contains:
 | [Setting a Statement Timeout](postgresql/statement_timeout.md) | Limit statement run time on the server, catch SQLSTATE 57014, and keep using the connection. |
 | [Retrying Serialisation Failures](postgresql/retry_transactions.md) | Retry a `REPEATABLE READ` transaction after a serialisation failure or deadlock (SQLSTATE 40001 or 40P01). |
 | [Connecting Securely with TLS](postgresql/tls_connect.md) | Connect over TLS with full certificate and host name verification, and confirm that the session is encrypted. |
+| [Generating Snowflake IDs](snowflake/generate_ids.md) | Give a table cluster-unique `bigint` keys built from a timestamp, a counter, and the node number. |
+| [Decoding a Snowflake ID](snowflake/decode_id.md) | Find the node and the moment that produced a Snowflake ID with `snowflake.format()`. |
+| [Converting a Sequence to Snowflake](snowflake/convert_sequence.md) | Move an existing identity column to Snowflake IDs in place, keeping the IDs of existing rows. |
+| [Checking the Node Number](snowflake/node_setting.md) | See the error that Snowflake raises when the `snowflake.node` setting is not set. |
+| [Vectorizing a Table](vectorizer/enable_vectorization.md) | Keep embeddings for a text column up to date with `pgedge_vectorizer.enable_vectorization()` and its background worker. |
+| [Searching Vectorized Text](vectorizer/semantic_search.md) | Find the chunks closest in meaning to a question, even when they share no words. |
+| [Combining Keyword and Vector Search](vectorizer/hybrid_search.md) | Rank text by its keywords and its meaning at once with `hybrid_search_simple()`. |
+| [Splitting Text into Chunks](vectorizer/chunk_text.md) | Try a chunking strategy and size on your own text with `pgedge_vectorizer.chunk_text()`. |
+| [Monitoring the Embedding Queue](vectorizer/queue_status.md) | Read the `queue_status`, `pending_count`, and `failed_items` views before and after the worker runs. |
+| [Keeping Embeddings Up to Date](vectorizer/update_source.md) | Change a row's text and let the trigger replace its chunks and queue new embeddings. |
+| [Caching a Query Result](semantic_cache/cache_result.md) | Store the result of an expensive query in pg_semantic_cache and read it back by the meaning of the question. |
+| [Finding an Answer to a Reworded Question](semantic_cache/similar_question.md) | Return a cached answer when the same question is asked in different words. |
+| [Expiring Cached Results](semantic_cache/expire_entries.md) | Give cached results a lifetime, and delete expired entries with `evict_expired()`. |
+| [Invalidating Cached Results by Tag](semantic_cache/invalidate_by_tag.md) | Remove every cached result that carries a tag when the data behind it changes. |
+| [Measuring the Cache Hit Rate](semantic_cache/cache_statistics.md) | Read the cache's lookup statistics and work out its hit rate. |
 | [Sending a Chat Request](go_llm_lib/chat_request.md) | Send a system and a user message to any supported provider chosen by environment, and print the reply text and token usage. |
 | [Streaming a Response](go_llm_lib/streaming_response.md) | Print a reply chunk by chunk with `ChatStream`, then the token usage from the final `ChunkDone` chunk. |
 | [Handling Provider Errors and Retries](go_llm_lib/error_handling.md) | Classify failures with `errors.Is` on the sentinel errors and `errors.As` to `*llm.ProviderError`, and tune `RetryConfig` with an `OnRetry` hook. |
@@ -95,3 +114,13 @@ The following table lists the recipes that the cookbook contains:
 | [Creating a Branch for a Test Run](starfleet/branches.md) | Create a copy-on-write branch of a Starfleet database, query it, then delete the branch and the database. |
 | [Taking a Backup and Tracking Its Task](starfleet/backups.md) | Take an on-demand backup, poll it to completion, and list the database's tasks; the backup cannot be deleted. |
 | [Rotating a Role Password](starfleet/rotate_password.md) | Rotate the `app` role's password, wait for the database to be available, and connect with the new one. |
+| [Connecting to the MCP Server](postgres_mcp/connect.md) | Check the health of a Postgres MCP Server, send the `initialize` handshake, and see how it treats an unknown token. |
+| [Exploring a Schema with the MCP Server](postgres_mcp/explore_schema.md) | List tables and columns with `get_schema_info`, and count matching rows with `count_rows`. |
+| [Running Read-Only Queries with the MCP Server](postgres_mcp/read_only.md) | Run a `SELECT` with `query_database`, and see PostgreSQL reject an `INSERT` in the read-only transaction. |
+| [Searching by Meaning with the MCP Server](postgres_mcp/similarity_search.md) | Find the rows closest in meaning to a question with the `similarity_search` tool. |
+| [Reading MCP Server Resources and Prompts](postgres_mcp/resources_and_prompts.md) | List resources and prompts, read `pg://system_info`, and fetch the `explore-database` prompt. |
+| [Checking the Control Plane Cluster](control_plane/cluster_status.md) | Read the Control Plane version, the state of its cluster, and the state of each host. |
+| [Creating a Database with the Control Plane](control_plane/create_database.md) | Create a one-node database, follow its state until it is available, and delete it on every path. |
+| [Connecting to a Control Plane Database](control_plane/connect_database.md) | Read where a database's instances listen from the API, and connect with a PostgreSQL driver. |
+| [Following a Control Plane Task](control_plane/track_tasks.md) | Find the task that created a database, print its log entries as they appear, and report how it finished. |
+| [Changing a Database's Settings with the Control Plane](control_plane/update_database.md) | Change a Postgres setting through the database's specification, check it, and put the original back. |
