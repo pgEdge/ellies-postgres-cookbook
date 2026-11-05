@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Checks the shape of the create_database output: the host, the new
+# database, the wait, and the deletion, in that order.
+set -euo pipefail
+
+output="$(cat)"
+[[ -n "${output//[[:space:]]/}" ]] || { echo "empty output" >&2; exit 1; }
+
+# Every pattern must match a line, in this order. The state lines between
+# "Created" and "available" vary, so the check allows any number.
+expected=(
+    '^Host: [a-z0-9-]+$'
+    '^Created database cookbook-recipe-[0-9a-f]{6}$'
+    '^Database state: [a-z]+$'
+    '^Database is available on port [0-9]+$'
+    '^Deleted database$'
+)
+
+position=0
+while IFS= read -r line; do
+    if [[ $position -lt ${#expected[@]} ]] && [[ "$line" =~ ${expected[$position]} ]]; then
+        position=$((position + 1))
+    elif [[ $position -eq 3 ]] && [[ "$line" =~ ^Database\ state:\ [a-z]+$ ]]; then
+        :
+    else
+        echo "unexpected line: $line" >&2
+        exit 1
+    fi
+done <<<"$output"
+
+[[ $position -eq ${#expected[@]} ]] \
+    || { echo "output stopped before: ${expected[$position]}" >&2; exit 1; }
