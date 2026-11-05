@@ -26,9 +26,21 @@ machine can read the command lines of running processes. The programs in this
 recipe read the secret from the environment and, for the curl script, pass it
 to curl on standard input.
 
-The Python, TypeScript, and Go programs need only the dependencies in the
-following excerpts; the Go program uses the standard library alone. The curl
-script needs `curl` and `jq`.
+The following table lists the HTTP client and the JSON library that each
+example uses:
+
+| Language   | HTTP client and JSON library                                   |
+|------------|----------------------------------------------------------------|
+| Python     | [httpx](https://www.python-httpx.org/) and the `json` module   |
+| TypeScript | The `fetch` function that Node.js provides                     |
+| Java       | The `java.net.http` client and [Jackson](https://github.com/FasterXML/jackson) |
+| C#         | `HttpClient` and `System.Text.Json`, which are part of .NET    |
+| Go         | The `net/http` and `encoding/json` standard library packages   |
+| Rust       | [reqwest](https://docs.rs/reqwest) and [serde_json](https://docs.rs/serde_json) |
+| Ruby       | `Net::HTTP` and `json`, which come with Ruby                   |
+
+The curl script needs `curl` and `jq`. The following excerpts show the
+dependencies of each example project:
 
 === "Python"
 
@@ -42,11 +54,40 @@ script needs `curl` and `jq`.
     --8<-- "recipes/starfleet/access_token/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/starfleet/access_token/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/starfleet/access_token/csharp/AccessToken.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/starfleet/access_token/go/go.mod:deps"
     ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/starfleet/access_token/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/Gemfile:deps"
+    ```
+
+The Go project has no dependencies, so its `go.mod` file names only the version
+of Go, the Ruby project's `Gemfile` names no gems, and the C# project
+references no packages. The TypeScript project depends on the compiler and the
+Node.js type definitions only.
 
 ## Importing the Libraries
 
@@ -65,10 +106,34 @@ the tools that it needs:
     --8<-- "recipes/starfleet/access_token/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/access_token/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/access_token/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/access_token/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/access_token/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -102,10 +167,34 @@ The following code reads the settings:
     --8<-- "recipes/starfleet/access_token/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/access_token/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/access_token/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/access_token/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/access_token/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -135,10 +224,34 @@ never appears in the process list:
     --8<-- "recipes/starfleet/access_token/typescript/main.ts:token"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/access_token/java/src/main/java/Main.java:token"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/access_token/csharp/Program.cs:token"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/access_token/go/main.go:token"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/access_token/rust/src/main.rs:token"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/main.rb:token"
     ```
 
 === "curl"
@@ -165,10 +278,34 @@ message and a non-zero exit status:
     --8<-- "recipes/starfleet/access_token/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/access_token/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/access_token/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/access_token/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/access_token/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -179,8 +316,8 @@ message and a non-zero exit status:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/access_token).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/access_token).
 Set the environment variables for your account, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -201,10 +338,35 @@ the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -229,10 +391,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/starfleet/access_token/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/access_token/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/access_token/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/access_token/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/access_token/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/access_token/ruby/main.rb"
     ```
 
 === "curl"

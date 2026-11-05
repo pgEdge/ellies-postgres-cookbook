@@ -60,8 +60,10 @@ clean up:
     for this repository does not run this recipe, and you should run it
     sparingly.
 
-The programs need only an HTTP client, and the curl script needs `curl` and
-`jq`. The following excerpts show the dependencies:
+The programs need only the HTTP clients of the "Getting an Access Token"
+recipe, except that the Rust program also uses
+[signal-hook](https://docs.rs/signal-hook) to catch signals. The curl script
+needs `curl` and `jq`. The following excerpts show the dependencies:
 
 === "Python"
 
@@ -75,10 +77,34 @@ The programs need only an HTTP client, and the curl script needs `curl` and
     --8<-- "recipes/starfleet/backups/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/starfleet/backups/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/starfleet/backups/csharp/Backups.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/starfleet/backups/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/starfleet/backups/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -98,10 +124,34 @@ the tools that it needs:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -137,10 +187,34 @@ settings:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -166,10 +240,34 @@ recipe:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:token"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:token"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:token"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:token"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:token"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:token"
     ```
 
 === "curl"
@@ -196,10 +294,34 @@ the function raises carries the HTTP status:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:api"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:api"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:api"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:api"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:api"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:api"
     ```
 
 === "curl"
@@ -226,10 +348,34 @@ smallest size, and the following code makes the choice:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:placement"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:placement"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:placement"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:placement"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:placement"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:placement"
     ```
 
 === "curl"
@@ -255,10 +401,34 @@ names it with the `cookbook-` prefix:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:create"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:create"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:create"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:create"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:create"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:create"
     ```
 
 === "curl"
@@ -284,10 +454,34 @@ stops at once if the status is `degraded` or `failed`:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:wait"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:wait"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:wait"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:wait"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:wait"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:wait"
     ```
 
 === "curl"
@@ -329,10 +523,34 @@ and lists the tasks:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:backup"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:backup"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:backup"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:backup"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:backup"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:backup"
     ```
 
 === "curl"
@@ -376,10 +594,34 @@ when its database is deleted. The following code deletes the database:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:delete"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:delete"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:delete"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:delete"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:delete"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:delete"
     ```
 
 === "curl"
@@ -390,14 +632,24 @@ when its database is deleted. The following code deletes the database:
 
 ## Running the Program
 
-The `main` function runs the steps in order, and deletes the database in a
-`finally` block (a `defer` in Go, and a trap on `EXIT` in the curl script), so
-that the deletion happens when a step fails or when you press Ctrl-C. The
-program also turns the SIGTERM signal into a normal exit, so that `kill` cleans
-up as well. The program chooses the database name before it sends the create
-request, so the cleanup can find the database by name if the reply never
-arrives. The cleanup ignores further interrupts, because a second Ctrl-C must
-not leave a billable database behind. The following code shows the function:
+The `main` function runs the steps in order, and deletes the database on every
+path: in a `finally` block in Python, TypeScript, Java, and C#, in an `ensure`
+block in Ruby, after `run` returns in Rust, with a `defer` in Go, and with a
+trap on `EXIT` in the curl script. The deletion therefore happens when a step
+fails or when you press Ctrl-C, and the Rust program catches a panic with
+`catch_unwind` so that one cannot skip the deletion either. Each program also
+handles the SIGTERM signal as it does Ctrl-C (SIGINT), so that `kill` cleans up
+as well. The C# program registers `PosixSignalRegistration` handlers that
+cancel the request in progress, the Rust program sets a flag with signal-hook
+that stops it before its next request, and the Ruby program receives each
+signal as an exception. Java's supported API cannot catch a signal, so the Java
+program registers a shutdown hook, which the JVM runs when SIGINT or SIGTERM
+ends the program; the hook deletes the database, or waits for the main thread
+to finish doing so, and then ends the program. The program chooses the database
+name before it sends the create request, so the cleanup can find the database
+by name if the reply never arrives. The cleanup ignores further interrupts,
+because a second Ctrl-C must not leave a billable database behind. The
+following code shows the function:
 
 === "Python"
 
@@ -411,10 +663,34 @@ not leave a billable database behind. The following code shows the function:
     --8<-- "recipes/starfleet/backups/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -425,8 +701,8 @@ not leave a billable database behind. The following code shows the function:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/backups).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/backups).
 Set the environment variables for your account, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -447,10 +723,35 @@ the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -478,10 +779,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/starfleet/backups/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/backups/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/backups/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/backups/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/backups/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/backups/ruby/main.rb"
     ```
 
 === "curl"

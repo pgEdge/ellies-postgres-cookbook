@@ -1,0 +1,18 @@
+[package]
+name = "rotate_password"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# --8<-- [start:deps]
+[dependencies]
+# The blocking client of reqwest, with rustls for TLS and JSON bodies.
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+serde_json = "1"
+# The synchronous PostgreSQL client, with TLS through OpenSSL.
+postgres = "0.19"
+postgres-openssl = "0.5"
+openssl = "0.10"
+# The standard library cannot catch a signal, so this small crate does it.
+signal-hook = "0.4"
+# --8<-- [end:deps]

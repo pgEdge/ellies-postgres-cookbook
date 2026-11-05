@@ -46,10 +46,34 @@ following excerpts show them:
     --8<-- "recipes/starfleet/reference_data/typescript/package.json"
     ```
 
+=== "Java"
+
+    ```xml
+    --8<-- "recipes/starfleet/reference_data/java/pom.xml:deps"
+    ```
+
+=== "C#"
+
+    ```xml
+    --8<-- "recipes/starfleet/reference_data/csharp/ReferenceData.csproj:deps"
+    ```
+
 === "Go"
 
     ```text
     --8<-- "recipes/starfleet/reference_data/go/go.mod:deps"
+    ```
+
+=== "Rust"
+
+    ```toml
+    --8<-- "recipes/starfleet/reference_data/rust/Cargo.toml:deps"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/Gemfile:deps"
     ```
 
 ## Importing the Libraries
@@ -69,10 +93,34 @@ the tools that it needs:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:imports"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:imports"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:imports"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:imports"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:imports"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:imports"
     ```
 
 === "curl"
@@ -106,10 +154,34 @@ The following code reads the settings:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:config"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:config"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:config"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:config"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:config"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:config"
     ```
 
 === "curl"
@@ -135,10 +207,34 @@ recipe. The following code requests the token:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:token"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:token"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:token"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:token"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:token"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:token"
     ```
 
 === "curl"
@@ -165,10 +261,34 @@ message when a call fails:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:api"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:api"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:api"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:api"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:api"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:api"
     ```
 
 === "curl"
@@ -194,10 +314,34 @@ database. The following code prints them:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:regions"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:regions"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:regions"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:regions"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:regions"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:regions"
     ```
 
 === "curl"
@@ -224,10 +368,34 @@ list in the order that the API returns it. The following code prints the sizes:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:sizes"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:sizes"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:sizes"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:sizes"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:sizes"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:sizes"
     ```
 
 === "curl"
@@ -254,10 +422,34 @@ versions:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:versions"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:versions"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:versions"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:versions"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:versions"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:versions"
     ```
 
 === "curl"
@@ -282,10 +474,34 @@ The `main` function gets a token and prints the three lists:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts:main"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java:main"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs:main"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go:main"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs:main"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb:main"
     ```
 
 === "curl"
@@ -296,8 +512,8 @@ The `main` function gets a token and prints the three lists:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/reference_data).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/starfleet/reference_data).
 Set the environment variables for your account, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -318,10 +534,35 @@ the commands that build and run each example:
     npm start
     ```
 
+=== "Java"
+
+    ```bash
+    mvn compile exec:java
+    ```
+
+=== "C#"
+
+    ```bash
+    dotnet run
+    ```
+
 === "Go"
 
     ```bash
     go run .
+    ```
+
+=== "Rust"
+
+    ```bash
+    cargo run
+    ```
+
+=== "Ruby"
+
+    ```bash
+    bundle install
+    bundle exec ruby main.rb
     ```
 
 === "curl"
@@ -346,10 +587,34 @@ The following tabs show the complete program for each language:
     --8<-- "recipes/starfleet/reference_data/typescript/main.ts"
     ```
 
+=== "Java"
+
+    ```java
+    --8<-- "recipes/starfleet/reference_data/java/src/main/java/Main.java"
+    ```
+
+=== "C#"
+
+    ```csharp
+    --8<-- "recipes/starfleet/reference_data/csharp/Program.cs"
+    ```
+
 === "Go"
 
     ```go
     --8<-- "recipes/starfleet/reference_data/go/main.go"
+    ```
+
+=== "Rust"
+
+    ```rust
+    --8<-- "recipes/starfleet/reference_data/rust/src/main.rs"
+    ```
+
+=== "Ruby"
+
+    ```ruby
+    --8<-- "recipes/starfleet/reference_data/ruby/main.rb"
     ```
 
 === "curl"

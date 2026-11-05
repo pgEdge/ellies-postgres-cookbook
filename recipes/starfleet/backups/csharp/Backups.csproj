@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- -8<- [start:deps] -->
+  <!-- The program uses only HttpClient and System.Text.Json, which are
+       part of .NET, so it needs no packages. -->
+  <!-- -8<- [end:deps] -->
+
+</Project>

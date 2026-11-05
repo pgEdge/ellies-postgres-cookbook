@@ -87,10 +87,10 @@ two rules apply:
   `docs/starfleet/`, `docs/postgres_mcp/`, and `docs/control_plane/`
   document HTTP API recipes, and use every language except C, in the
   order above. A `curl` tab may follow them, for a recipe with a
-  `curl/main.sh` script. The Workbench and Starfleet recipes have
-  Python, TypeScript, and Go programs only until their Java, C#, Rust,
-  and Ruby programs are added; `THREE_LANGUAGE_PRODUCTS` in
-  `scripts/languages.py` lists the products still in that state.
+  `curl/main.sh` script. A product whose recipes have only Python,
+  TypeScript, and Go programs so far goes in `THREE_LANGUAGE_PRODUCTS`
+  in `scripts/languages.py` until its Java, C#, Rust, and Ruby programs
+  are added, and its pages then use those three languages alone.
 - Pages under `docs/snowflake/`, `docs/vectorizer/`, and
   `docs/semantic_cache/` document SQL extension recipes, and have no tab
   groups at all; the section on SQL extension recipes below describes
