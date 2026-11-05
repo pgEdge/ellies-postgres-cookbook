@@ -1,0 +1,5 @@
+Columns: name, price
+Row: Acme Seedling Kit, 19.95
+Row: Acme Quiet Keys, 64.25
+Row: Acme Trail Runner, 89.99
+INSERT rejected: Error iterating rows: ERROR: cannot execute INSERT in a read-only transaction (SQLSTATE 25006)

@@ -1,0 +1,4 @@
+Health: ok
+Server: pgedge-postgres-mcp 1.1.0
+Protocol version: 2025-06-18
+Wrong token: HTTP 401, Invalid or unknown token

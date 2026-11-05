@@ -1,0 +1,6 @@
+Resources: pg://system_info
+PostgreSQL major version: 18
+Writes allowed: false
+Prompts: design-schema, diagnose-query-issue, explore-database, setup-semantic-search
+explore-database: Systematic database exploration workflow
+First message role: user

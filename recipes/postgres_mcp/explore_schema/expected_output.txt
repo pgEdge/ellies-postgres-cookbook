@@ -1,0 +1,11 @@
+Tables in cookbook_mcp:
+- products: Made-up products for the pgEdge Postgres MCP Server recipes
+Columns of cookbook_mcp.products:
+- category: text
+- description: text
+- description_embedding: vector(768)
+- id: integer (primary key)
+- in_stock: boolean
+- name: text
+- price: numeric(8,2)
+Products in stock: 4
