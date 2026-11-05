@@ -13,6 +13,13 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run it supersedes. Other events
+# are never cancelled, so that a scheduled or manual Starfleet run, which
+# creates databases that cost money, always reaches its clean-up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Each recipe job runs only when something it depends on has changed; the
 # changes job decides which. The filtering is done per job rather than
 # with a paths filter on the workflow, because the Publish workflow waits
@@ -23,6 +30,7 @@ jobs:
   changes:
     name: Changed files
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       recipes: ${{ steps.filter.outputs.recipes }}
       rag_server: ${{ steps.filter.outputs.rag_server }}
@@ -75,10 +83,14 @@ jobs:
             case "$file" in
               # Everything that every recipe job runs.
               .github/workflows/test.yml | \
-              scripts/test_recipes.sh | scripts/run_example.sh | \
-              scripts/start_test_server.sh | scripts/test_server/*)
+              scripts/test_recipes.sh | scripts/run_example.sh)
                 recipes=true rag_server=true workbench=true extensions=true
                 control_plane=true
+                postgres_mcp=true
+                ;;
+              # The test server is not used by the Control Plane job.
+              scripts/start_test_server.sh | scripts/test_server/*)
+                recipes=true rag_server=true workbench=true extensions=true
                 postgres_mcp=true
                 ;;
               scripts/start_rag_server.sh | scripts/fixtures/* | \
@@ -134,6 +146,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       cache-key: ${{ steps.key.outputs.key }}
     steps:
@@ -175,6 +188,7 @@ jobs:
     needs: [changes, test_server_image]
     if: needs.changes.outputs.recipes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -321,6 +335,7 @@ jobs:
     needs: [changes, test_server_image]
     if: needs.changes.outputs.extensions == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       PGHOST: localhost
       PGPORT: 5432
@@ -389,23 +404,10 @@ jobs:
             -d '{"model": "nomic-embed-text", "input": "cookbook"}' \
             | jq -e '.embeddings[0] | length == 768'
 
-      # test_recipes.sh fails when it finds no recipes, so test only the
-      # directories that have some, and pass when none do.
       - name: Test recipes
         run: |
-          dirs=()
-          for product in snowflake vectorizer semantic_cache; do
-            if [[ -d "recipes/$product" ]] &&
-               [[ -n "$(find "recipes/$product" \( -name expected_output.txt \
-                        -o -name check_output \) -print -quit)" ]]; then
-              dirs+=(--dir "recipes/$product")
-            fi
-          done
-          if [[ ${#dirs[@]} -eq 0 ]]; then
-            echo "::notice::There are no extension recipes to test yet"
-            exit 0
-          fi
-          scripts/test_recipes.sh "${dirs[@]}" sql
+          scripts/test_recipes.sh --dir recipes/snowflake \
+            --dir recipes/vectorizer --dir recipes/semantic_cache sql
 
       - name: Show the server and Ollama logs
         if: failure()
@@ -418,6 +420,7 @@ jobs:
     needs: [changes, test_server_image]
     if: needs.changes.outputs.rag_server == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     env:
       PGHOST: localhost
       PGPORT: 5432
@@ -562,6 +565,7 @@ jobs:
     needs: [changes, test_server_image]
     if: needs.changes.outputs.postgres_mcp == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       PGHOST: localhost
       PGPORT: 5432
@@ -675,16 +679,8 @@ jobs:
           cat "$RUNNER_TEMP/mcp.env" >> "$GITHUB_ENV"
           rm -f "$RUNNER_TEMP/mcp.env"
 
-      # test_recipes.sh fails when it finds no recipes, so pass with a
-      # notice until the directory has some.
       - name: Test recipes
         run: |
-          if [[ ! -d recipes/postgres_mcp ]] ||
-             [[ -z "$(find recipes/postgres_mcp \( -name expected_output.txt \
-                      -o -name check_output \) -print -quit)" ]]; then
-            echo "::notice::There are no MCP Server recipes to test yet"
-            exit 0
-          fi
           scripts/test_recipes.sh --dir recipes/postgres_mcp \
             python typescript java csharp go rust ruby curl
 
@@ -704,6 +700,7 @@ jobs:
     needs: [changes, test_server_image]
     if: needs.changes.outputs.workbench == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       PGHOST: localhost
       PGPORT: 5432
@@ -831,6 +828,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.control_plane == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 80
 
     steps:
       - uses: actions/checkout@v4
@@ -1103,6 +1101,7 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
