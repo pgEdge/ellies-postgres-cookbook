@@ -396,10 +396,10 @@ end
 def server_version(connection)
   # A database can refuse connections for a short while after the API
   # reports it as available, so try a few times before giving up. The
-  # other programs repeat only errors that carry no SQLSTATE code, but
-  # libpq gives none for any failure to connect, a failed login included,
-  # so the pg gem cannot tell them apart and the example repeats every
-  # PG::ConnectionBad.
+  # TypeScript, Java, C#, Go, and Rust programs repeat only errors that
+  # carry no SQLSTATE code, but libpq gives none for any failure to
+  # connect, a failed login included, so the pg gem cannot tell them
+  # apart and the example repeats every PG::ConnectionBad.
   attempt = 0
   begin
     conn = PG.connect(connection)

@@ -90,7 +90,8 @@ two rules apply:
   `curl/main.sh` script. A product whose recipes have only Python,
   TypeScript, and Go programs so far goes in `THREE_LANGUAGE_PRODUCTS`
   in `scripts/languages.py` until its Java, C#, Rust, and Ruby programs
-  are added, and its pages then use those three languages alone.
+  are added; whilst it is listed there, its pages use those three
+  languages alone.
 - Pages under `docs/snowflake/`, `docs/vectorizer/`, and
   `docs/semantic_cache/` document SQL extension recipes, and have no tab
   groups at all; the section on SQL extension recipes below describes

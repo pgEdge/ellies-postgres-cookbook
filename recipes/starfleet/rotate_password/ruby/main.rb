@@ -348,11 +348,11 @@ def current_user(connection)
   # A database can refuse connections for a short while after the API
   # reports it as available, so try a few times before giving up. The API
   # may also report the database as available a moment before the new
-  # password works, so a failed login is worth repeating too. The other
-  # programs repeat only errors with no SQLSTATE code and failed logins
-  # (28P01), but libpq gives no code for any failure to connect, so the
-  # pg gem cannot tell them apart and the example repeats every
-  # PG::ConnectionBad.
+  # password works, so a failed login is worth repeating too. The
+  # TypeScript, Java, C#, Go, and Rust programs repeat only errors with no
+  # SQLSTATE code and failed logins (28P01), but libpq gives no code for
+  # any failure to connect, so the pg gem cannot tell them apart and the
+  # example repeats every PG::ConnectionBad.
   attempt = 0
   begin
     conn = PG.connect(connection)

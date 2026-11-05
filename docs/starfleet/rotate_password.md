@@ -640,14 +640,15 @@ not signed by a public authority, so the example does not verify it. That
 leaves the connection open to a man-in-the-middle attack, because anyone who
 can intercept the traffic could pose as the server, so do not use this approach
 for data that matters. A server can refuse connections for a short while after
-a change, so the code makes up to six attempts, ten seconds apart. The Python,
+a change, so the code makes up to six attempts, ten seconds apart. The
 TypeScript, Java, C#, Go, and Rust code retries failures to connect, and also a
 failed login (SQLSTATE 28P01), because the API may report the database as
 available a moment before the new password works, but not other errors that the
-server reports; libpq gives no SQLSTATE code for any failure to connect, so
-ruby-pg cannot tell a failed login from a refused connection, and the Ruby code
-repeats them all, as the curl script does, because `psql` gives the same exit
-status for every failure to connect. The following code runs the query:
+server reports. psycopg and ruby-pg both use libpq, which gives no SQLSTATE
+code for any failure to connect, so the Python and Ruby code cannot tell a
+failed login from a refused connection, and repeats them all, as the curl
+script does, because `psql` gives the same exit status for every failure to
+connect. The following code runs the query:
 
 === "Python"
 

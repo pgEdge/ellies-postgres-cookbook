@@ -648,13 +648,13 @@ example does not verify it. That leaves the connection open to a
 man-in-the-middle attack, because anyone who can intercept the traffic could
 pose as the server, so do not use this approach for data that matters. A server
 can refuse connections for a short while after the API reports it as available,
-so the code makes up to six attempts, ten seconds apart. The Python,
-TypeScript, Java, C#, Go, and Rust code retries only failures to connect, and
-not errors that the server reports, such as a failed login; libpq gives no
-SQLSTATE code for any failure to connect, so ruby-pg cannot tell a failed login
-from a refused connection, and the Ruby code repeats them all, as the curl
-script does, because `psql` gives the same exit status for every failure to
-connect. The following code runs the query:
+so the code makes up to six attempts, ten seconds apart. The TypeScript, Java,
+C#, Go, and Rust code retries only failures to connect, and not errors that the
+server reports, such as a failed login. psycopg and ruby-pg both use libpq,
+which gives no SQLSTATE code for any failure to connect, so the Python and Ruby
+code cannot tell a failed login from a refused connection, and repeats them
+all, as the curl script does, because `psql` gives the same exit status for
+every failure to connect. The following code runs the query:
 
 === "Python"
 
