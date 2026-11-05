@@ -199,7 +199,7 @@ our_server_running() {
 # started under another --name.
 other_instances() {
     docker ps -a --filter "label=$container_label" --format '{{.Names}}' \
-        2>/dev/null | grep -vx -- "$name" | tr '\n' ' ' | sed 's/ $//' || true
+        2>/dev/null | grep -vxF -- "$name" | tr '\n' ' ' | sed 's/ $//' || true
 }
 
 # Delete a database through the API and wait until it has gone. The API
@@ -208,14 +208,25 @@ other_instances() {
 # wait until it is available, degraded or failed. A delete usually takes
 # under 30 seconds, but one took over 240 on a GitHub runner, so each
 # wait is 600 seconds. Only HTTP 404 counts as gone; an error or a time
-# out means try again.
+# out means try again, but five failed connections in a row (HTTP code
+# 000) mean that the API has gone, so give up.
 delete_database() {
-    local id="$1" state="" response code deadline
+    local id="$1" state="" response code deadline unreachable=0
     deadline=$((SECONDS + 600))
     while (( SECONDS < deadline )); do
         response="$(api -s -w '\n%{http_code}' "$url/v1/databases/$id" || true)"
         code="${response##*$'\n'}"
         [[ "$code" == 404 ]] && return 0
+        if [[ "$code" == 000 ]]; then
+            unreachable=$((unreachable + 1))
+            if (( unreachable >= 5 )); then
+                say "The Control Plane API stopped responding; not deleting" \
+                    "database $id"
+                return 1
+            fi
+        else
+            unreachable=0
+        fi
         state=""
         if [[ "$code" == 200 ]]; then
             state="$(jq -r '.state' <<<"${response%$'\n'*}" 2>/dev/null || true)"
@@ -326,7 +337,10 @@ stop_all() {
                 find /cleanup -mindepth 1 -delete >/dev/null 2>&1 || true
         fi
         rmdir "$data_dir" 2>/dev/null || true
-        if [[ -n "$created_swarm" ]]; then
+        if [[ -n "$created_swarm" && -n "$others" ]]; then
+            say "Leaving the swarm in place, because another Control Plane" \
+                "started by this script exists: $others"
+        elif [[ -n "$created_swarm" ]]; then
             say "Leaving the swarm that this script created"
             docker swarm leave --force >/dev/null 2>&1 || true
             # docker swarm init creates this bridge, and leaving the swarm
