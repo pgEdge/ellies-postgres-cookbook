@@ -23,7 +23,9 @@ nextval() says: ok
 
 The example needs the same setup as the
 [Generating Snowflake IDs](generate_ids.md) recipe. Changing
-`snowflake.node` needs a superuser, because the setting has the context
+`snowflake.node` needs a superuser, or a role that has been granted `SET`
+on the parameter with `GRANT SET ON PARAMETER snowflake.node TO
+role_name` (PostgreSQL 15 and later), because the setting has the context
 `superuser`.
 
 ## Reading the Setting
@@ -67,10 +69,18 @@ again. The following statements confirm both:
 
 ## Setting the Node on a Server
 
-The node number must be different on every server in a cluster, and can be
-any value from 1 to 1023. Set it in `postgresql.conf`, or run `ALTER SYSTEM
-SET snowflake.node = 2` and then `SELECT pg_reload_conf()`. A value given on
-the `postgres` command line takes precedence over both.
+Each server in a cluster needs a different node number, from 1 to 1023. A
+managed pgEdge deployment assigns `snowflake.node` for you, and the value
+comes from each node's place in the cluster:
+
+- The Control Plane sets `snowflake.node` from the node ordinal.
+- The pgEdge Helm charts derive `snowflake.node` from each node name.
+- The pgEdge Ansible playbooks set `snowflake.node` from the node zone.
+
+When you deploy with one of these methods, no further action is needed.
+For a self-managed server, set the value in `postgresql.conf`, or run
+`ALTER SYSTEM SET snowflake.node = 2` and then `SELECT pg_reload_conf()`.
+A value given on the `postgres` command line takes precedence over both.
 
 ## Running the Example
 
@@ -101,3 +111,5 @@ recipe:
 - The PostgreSQL documentation for
   [ALTER SYSTEM](https://www.postgresql.org/docs/current/sql-altersystem.html)
   describes how to persist a setting.
+- The [Snowflake repository](https://github.com/pgEdge/snowflake) holds the
+  source and documentation for the extension.

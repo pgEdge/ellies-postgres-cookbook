@@ -22,7 +22,9 @@ SELECT 'Node: ' || (:'decoded'::jsonb ->> 'id');
 -- --8<-- [start:time]
 -- The ts key is the moment the ID was made, so it should be close to now().
 SELECT 'Made within the last minute: ' ||
-       (abs(extract(epoch FROM now() - (:'decoded'::jsonb ->> 'ts')::timestamptz)) < 60);
+       (abs(extract(epoch FROM
+                    now() - (:'decoded'::jsonb ->> 'ts')::timestamptz))
+        < 60);
 -- --8<-- [end:time]
 
 -- --8<-- [start:check]

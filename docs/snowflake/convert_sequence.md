@@ -35,10 +35,13 @@ The following statements create the table and insert the row:
 ## Converting the Column
 
 The function takes the `regclass` of the sequence behind the column, which
-`pg_get_serial_sequence()` finds. It drops the identity property and sets
-the default of the column to `snowflake.nextval()`. The function raises
-`NOTICE` messages that describe each change, so the program sets
-`client_min_messages` to `warning` at the start to keep the output stable.
+`pg_get_serial_sequence()` finds. It clears the identity property and sets
+the default of the column to `snowflake.nextval()`; the sequence stays, and
+the function changes it to `bigint` with `NO CYCLE` and a `MAXVALUE` of
+9223372036854775807, so that Snowflake IDs stay within its bounds. The
+function raises `NOTICE` messages that describe each change, so the program
+sets `client_min_messages` to `warning` at the start to keep the output
+stable.
 The following statement converts the column:
 
 ```sql
