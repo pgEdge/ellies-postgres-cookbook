@@ -242,8 +242,12 @@ than read by read. A parser collects the `data:` lines of an event, decodes
 them as JSON when it reaches the blank line that ends the event, and ignores
 comment lines and any other field. The parser also sends the last event when
 the stream ends without a final blank line, so that a stream cut short in
-that way does not lose its `done` event. The following tabs show the parser
-for each language:
+that way does not lose its `done` event. The Java and C# HTTP clients stop
+applying their timeout once the headers arrive, so those two programs give each
+line of the stream its own 300-second limit, which the C# parser applies here
+and the Java program applies in the next step; without it, a server that stops
+sending part of the way through would leave the program waiting for ever. The
+following tabs show the parser for each language:
 
 === "Python"
 
@@ -368,11 +372,14 @@ or sent an `error` event, and then exits with a non-zero status. The Python
 program catches `httpx.HTTPError`, the base class for connection failures and
 timeouts, as well as its own error class; the TypeScript program catches any
 rejected promise; the Java program catches `IOException`, which covers
-connection failures and timeouts, along with its own exception class and
-Jackson's `JacksonException` for an event that is not valid JSON; the C#
-program uses an exception filter that accepts `HttpRequestException`,
-`TaskCanceledException` (for a timeout), `IOException`, `JsonException` and its
-own exception class; the Go and Rust programs return each error from a `run()`
+connection failures and timeouts, including the `HttpTimeoutException` it
+throws when the stream stops part of the way through, along with its own
+exception class and Jackson's `JacksonException` for an event that is not valid
+JSON; the C# program uses an exception filter that accepts
+`HttpRequestException`, `TaskCanceledException` (for a timeout while waiting
+for the response), `TimeoutException` (which it throws when the stream stops
+part of the way through), `IOException`, `JsonException` and its own exception
+class; the Go and Rust programs return each error from a `run()`
 function to `main()`, and the Rust program also prints the chain of underlying
 causes; the Ruby program rescues the standard library's network errors,
 `JSON::ParserError` and its own error class; and the curl script relies on `set

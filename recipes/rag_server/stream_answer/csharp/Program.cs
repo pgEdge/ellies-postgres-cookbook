@@ -29,9 +29,10 @@ static string Pipeline() => EnvOr("RAG_PIPELINE", "cookbook");
 
 const string Question = "How long does the Acme Widget 2.0 take to charge?";
 
-// The server may wait for the language model before it starts to answer,
-// and a small model on a modest machine can take a while, so allow plenty
-// of time.
+// The program applies the timeout to the wait for the response and to each
+// wait for a line of the stream, rather than to the whole stream, but the
+// server may wait for the language model to begin, and a small model on a
+// modest machine can take a while, so allow plenty of time.
 const int TimeoutSeconds = 300;
 // --8<-- [end:config]
 
@@ -46,8 +47,29 @@ const int TimeoutSeconds = 300;
 static async IAsyncEnumerable<JsonNode?> ReadEventsAsync(StreamReader reader)
 {
     var data = new List<string>();
-    while (await reader.ReadLineAsync() is { } line)
+    while (true)
     {
+        // The client's timeout stops applying once the headers arrive, so a
+        // server that stops sending part of the way through would otherwise
+        // leave the read waiting for ever. The token cancels a read for
+        // which no line arrives in time.
+        using var timeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(TimeoutSeconds));
+        string? line;
+        try
+        {
+            line = await reader.ReadLineAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"No data from the server for {TimeoutSeconds} seconds");
+        }
+        if (line is null)
+        {
+            break;
+        }
+
         if (line.Length == 0)
         {
             if (data.Count > 0)
@@ -182,11 +204,12 @@ try
     Console.WriteLine($"Chunks received: {chunks}");
 }
 // HttpRequestException covers failures to reach the server, such as a
-// refused connection, TaskCanceledException covers a timeout, IOException
-// covers a failure part of the way through the stream, and JsonException
-// covers an event whose data is not valid JSON.
+// refused connection, TaskCanceledException covers a timeout while waiting
+// for the response, TimeoutException covers a stream that stops part of
+// the way through, IOException covers a stream that fails part of the way
+// through, and JsonException covers an event whose data is not valid JSON.
 catch (Exception e) when (e is HttpRequestException or TaskCanceledException
-    or IOException or JsonException or RagException)
+    or TimeoutException or IOException or JsonException or RagException)
 {
     Console.Error.WriteLine($"RAG Server error: {e.Message}");
     return 1;

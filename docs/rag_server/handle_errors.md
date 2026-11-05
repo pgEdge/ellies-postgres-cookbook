@@ -24,11 +24,11 @@ Asking an empty question
 
 The examples assume a running RAG Server with a pipeline named `cookbook` that
 holds the fictional Acme Widget support documents. The
-`scripts/start_rag_server.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads those
-documents and starts the server in Docker, and the [Preparing Data for the RAG
-Server](prepare_data.md) recipe shows how to build such a table and pipeline
-yourself.
+`scripts/start_rag_server.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads
+those documents and starts the server in Docker, and the
+[Preparing Data for the RAG Server](prepare_data.md) recipe shows how to build
+such a table and pipeline yourself.
 
 When a request fails, the server replies with an HTTP error status and a JSON
 body of the following form, where `code` is a fixed string for a program to
@@ -403,8 +403,8 @@ the main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/handle_errors).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/handle_errors).
 Set the environment variables for your RAG Server, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -523,8 +523,8 @@ recipe:
   succeeds.
 - The [Checking Health and Listing Pipelines](health_and_pipelines.md) recipe
   shows how to check the server before asking.
-- The [pgEdge RAG Server
-  documentation](https://docs.pgedge.com/pgedge-rag-server/) describes every
-  endpoint and setting.
+- The
+  [pgEdge RAG Server documentation](https://docs.pgedge.com/pgedge-rag-server/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

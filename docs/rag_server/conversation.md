@@ -23,11 +23,11 @@ Assistant: Once charged, it runs for eighteen hours.
 
 The examples assume a running RAG Server with a pipeline named `cookbook` that
 holds the fictional Acme Widget support documents. The
-`scripts/start_rag_server.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads those
-documents and starts the server in Docker, and the [Preparing Data for the RAG
-Server](prepare_data.md) recipe shows how to build such a table and pipeline
-yourself.
+`scripts/start_rag_server.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads
+those documents and starts the server in Docker, and the
+[Preparing Data for the RAG Server](prepare_data.md) recipe shows how to build
+such a table and pipeline yourself.
 
 The second question, 'And how many hours does the Acme Widget run for once it
 is charged?', does not say which version of the product it means, so the model
@@ -38,9 +38,9 @@ the earlier turns in order. The pipeline passes the history to the language
 model, but it searches for documents using the `query` alone. A follow-up
 question must therefore still name its subject, here the Acme Widget, for the
 search to find the right documents, and the history only settles the details
-that the question leaves out, here the version. The [Asking a
-Question](ask_question.md) recipe describes the request without a history. The
-following example shows the body of the second request:
+that the question leaves out, here the version. The
+[Asking a Question](ask_question.md) recipe describes the request without a
+history. The following example shows the body of the second request:
 
 ```json
 {
@@ -400,8 +400,8 @@ program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/conversation).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/conversation).
 Set the environment variables for your RAG Server, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -520,8 +520,8 @@ recipe:
   without a history.
 - The [Streaming an Answer](stream_answer.md) recipe shows how to receive an
   answer as the model writes it.
-- The [pgEdge RAG Server
-  documentation](https://docs.pgedge.com/pgedge-rag-server/) describes every
-  endpoint and setting.
+- The
+  [pgEdge RAG Server documentation](https://docs.pgedge.com/pgedge-rag-server/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

@@ -34,14 +34,14 @@ IDENTITY_REQUIRED (HTTP 401)
 The examples assume a running RAG Server that has per-request identity turned
 on, and a pipeline named `cookbook_private` that reads a table of fictional
 documents, each owned by one of two made-up people. The
-`scripts/start_rag_server.sh --identity` command in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) creates the
-table, the policy, and the database role, loads the documents, and starts the
-server in Docker. The role has no password, because the test server uses trust
-authentication, which accepts any connection without checking one. Do not copy
-that into a real deployment: give the role a password, or a client certificate,
-store it in your secrets manager, and use a PostgreSQL authentication method
-that checks it, such as `scram-sha-256`.
+`scripts/start_rag_server.sh --identity` command in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook)
+creates the table, the policy, and the database role, loads the documents, and
+starts the server in Docker. The role has no password, because the test server
+uses trust authentication, which accepts any connection without checking one.
+Do not copy that into a real deployment: give the role a password, or a client
+certificate, store it in your secrets manager, and use a PostgreSQL
+authentication method that checks it, such as `scram-sha-256`.
 
 The RAG Server can run each search as the person who asked, so that PostgreSQL
 decides which rows the person may read. This depends on four things, and the
@@ -450,8 +450,8 @@ part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/row_level_security).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/row_level_security).
 Set the environment variables for your RAG Server, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -570,8 +570,9 @@ recipe:
   the `include_sources` setting.
 - The [Handling RAG Server Errors](handle_errors.md) recipe shows how to react
   to the error codes that the server returns.
-- The [pgEdge RAG Server
-  documentation](https://docs.pgedge.com/pgedge-rag-server/) describes the
-  identity settings, such as `allowed_roles` and the claims setting name.
+- The
+  [pgEdge RAG Server documentation](https://docs.pgedge.com/pgedge-rag-server/)
+  describes the identity settings, such as `allowed_roles` and the claims
+  setting name.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.

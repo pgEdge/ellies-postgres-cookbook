@@ -73,7 +73,7 @@ def embed(texts)
   # or not an error occurred.
   response = Net::HTTP.start(
     uri.host, uri.port,
-    use_ssl: uri.scheme == "https", read_timeout: 300
+    use_ssl: uri.scheme == "https", open_timeout: 300, read_timeout: 300
   ) { |http| http.request(request) }
   # Net::HTTP treats an error status as a normal response, so check it
   # here.

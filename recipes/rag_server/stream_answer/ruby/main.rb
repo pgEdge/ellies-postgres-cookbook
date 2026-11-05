@@ -151,7 +151,8 @@ begin
   # or not an error occurred.
   chunks = Net::HTTP.start(
     uri.host, uri.port,
-    use_ssl: uri.scheme == "https", read_timeout: TIMEOUT_SECONDS
+    use_ssl: uri.scheme == "https",
+    open_timeout: TIMEOUT_SECONDS, read_timeout: TIMEOUT_SECONDS
   ) { |http| stream_answer(http, QUESTION) }
   puts "Chunks received: #{chunks}"
 # SystemCallError covers a refused connection, Timeout::Error covers the

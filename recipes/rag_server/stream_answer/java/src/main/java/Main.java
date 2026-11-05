@@ -19,10 +19,16 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import tools.jackson.core.JacksonException;
@@ -48,9 +54,10 @@ public class Main {
     static final String QUESTION =
             "How long does the Acme Widget 2.0 take to charge?";
 
-    // The server may wait for the language model before it starts to
-    // answer, and a small model on a modest machine can take a while, so
-    // allow plenty of time.
+    // The program applies the timeout to the wait for the response and to
+    // each wait for a line of the stream, rather than to the whole stream,
+    // but the server may wait for the language model to begin, and a small
+    // model on a modest machine can take a while, so allow plenty of time.
     static final Duration TIMEOUT = Duration.ofSeconds(300);
     // --8<-- [end:config]
 
@@ -58,20 +65,26 @@ public class Main {
     // A mapper is safe to share, so the program creates only one.
     static final ObjectMapper MAPPER = JsonMapper.builder().build();
 
+    /** Supplies the lines of a stream, returning null at the end. */
+    interface LineSource {
+        String readLine() throws IOException;
+    }
+
     /**
-     * Parses Server-Sent Events from a reader, and passes the JSON object
-     * that the data of each event holds to handle, as each event arrives.
+     * Parses Server-Sent Events from a source of lines, and passes the JSON
+     * object that the data of each event holds to handle, as each event
+     * arrives.
      *
      * An event is one or more "data:" lines followed by a blank line. The
      * stream may end without the final blank line, so the last event is
      * sent when the lines run out as well. readTree() throws a
      * JacksonException for data that is not valid JSON.
      */
-    static void readEvents(BufferedReader reader, Consumer<JsonNode> handle)
+    static void readEvents(LineSource lines, Consumer<JsonNode> handle)
             throws IOException {
         List<String> data = new ArrayList<>();
         String line;
-        while ((line = reader.readLine()) != null) {
+        while ((line = lines.readLine()) != null) {
             if (line.isEmpty()) {
                 if (!data.isEmpty()) {
                     handle.accept(MAPPER.readTree(String.join("\n", data)));
@@ -135,6 +148,53 @@ public class Main {
         return URI.create(BASE_URL + "/v1/pipelines/" + name);
     }
 
+    // A daemon thread does not keep the program running after main()
+    // returns.
+    static final ScheduledExecutorService WATCHDOG =
+            Executors.newSingleThreadScheduledExecutor(task -> {
+                Thread thread = new Thread(task);
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    /**
+     * Reads a line, giving up if none arrives within TIMEOUT. The request's
+     * timeout stops applying once the headers arrive, so a server that
+     * stops sending part of the way through would otherwise leave the read
+     * waiting for ever. Closing the stream from another thread ends a read
+     * that is waiting for data.
+     */
+    static String readLineWithin(BufferedReader reader, InputStream body)
+            throws IOException {
+        // The flag is set before the stream is closed, so the read that
+        // fails as a result can tell that it timed out.
+        AtomicBoolean timedOut = new AtomicBoolean(false);
+        ScheduledFuture<?> timer = WATCHDOG.schedule(() -> {
+            timedOut.set(true);
+            try {
+                body.close();
+            } catch (IOException e) {
+                // The stream is being abandoned, so there is nothing to do.
+            }
+        }, TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        String line;
+        try {
+            line = reader.readLine();
+        } catch (IOException e) {
+            if (!timedOut.get()) {
+                throw e;
+            }
+            line = null;
+        } finally {
+            timer.cancel(false);
+        }
+        if (timedOut.get()) {
+            throw new HttpTimeoutException("No data from the server for "
+                    + TIMEOUT.toSeconds() + " seconds");
+        }
+        return line;
+    }
+
     /** Prints the answer as it arrives, and returns the number of chunks. */
     static int streamAnswer(HttpClient client, String question)
             throws IOException, InterruptedException, RagException {
@@ -147,7 +207,8 @@ public class Main {
                 .POST(HttpRequest.BodyPublishers.ofString(payload))
                 .build();
         // ofInputStream() returns as soon as the headers arrive, and the
-        // body is read from the stream as the server sends it.
+        // body is read from the stream as the server sends it. The
+        // request's timeout covers only the wait for the headers.
         HttpResponse<InputStream> response =
                 client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
@@ -166,7 +227,7 @@ public class Main {
                         + errorText(body));
             }
 
-            readEvents(reader, event -> {
+            readEvents(() -> readLineWithin(reader, response.body()), event -> {
                 switch (event.path("type").asString()) {
                     case "chunk" -> {
                         // The last chunk has no content.
@@ -211,7 +272,8 @@ public class Main {
             int chunks = streamAnswer(client, QUESTION);
             System.out.println("Chunks received: " + chunks);
         // IOException covers failures to reach the server, such as a
-        // refused connection or a timeout. The message of a refused
+        // refused connection, and timeouts, including a stream that stops
+        // part of the way through. The message of a refused
         // connection can be empty, so print the exception itself, which
         // includes its type.
         } catch (IOException | InterruptedException e) {

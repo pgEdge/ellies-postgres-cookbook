@@ -108,7 +108,8 @@ begin
   # or not an error occurred.
   healthy = Net::HTTP.start(
     uri.host, uri.port,
-    use_ssl: uri.scheme == "https", read_timeout: TIMEOUT_SECONDS
+    use_ssl: uri.scheme == "https",
+    open_timeout: TIMEOUT_SECONDS, read_timeout: TIMEOUT_SECONDS
   ) do |http|
     check_live(http)
     result = check_health(http)

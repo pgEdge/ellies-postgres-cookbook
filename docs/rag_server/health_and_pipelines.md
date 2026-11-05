@@ -24,11 +24,11 @@ Pipelines (1):
 
 The examples assume a running RAG Server with a pipeline named `cookbook` that
 holds the fictional Acme Widget support documents. The
-`scripts/start_rag_server.sh` script in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads those
-documents and starts the server in Docker, and the [Preparing Data for the RAG
-Server](prepare_data.md) recipe shows how to build such a table and pipeline
-yourself.
+`scripts/start_rag_server.sh` script in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook) loads
+those documents and starts the server in Docker, and the
+[Preparing Data for the RAG Server](prepare_data.md) recipe shows how to build
+such a table and pipeline yourself.
 
 The server offers three endpoints for these checks, and each takes a `GET`
 request. The following table describes them:
@@ -444,8 +444,8 @@ main part of each program:
 
 ## Running the Example
 
-The complete project for each language is available in the [cookbook
-repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/health_and_pipelines).
+The complete project for each language is available in the
+[cookbook repository](https://github.com/pgEdge/ellies-postgres-cookbook/tree/main/recipes/rag_server/health_and_pipelines).
 Set the environment variables for your RAG Server, and then run the command for
 your language from the corresponding project directory. The following tabs show
 the commands that build and run each example:
@@ -564,8 +564,8 @@ recipe:
   to the errors that a query can return.
 - The [Asking a Question](ask_question.md) recipe shows how to query one of the
   pipelines that this recipe lists.
-- The [pgEdge RAG Server
-  documentation](https://docs.pgedge.com/pgedge-rag-server/) describes every
-  endpoint and setting.
+- The
+  [pgEdge RAG Server documentation](https://docs.pgedge.com/pgedge-rag-server/)
+  describes every endpoint and setting.
 - The [Contributing a Recipe](../contributing.md) page explains how to add a
   recipe or a language to the cookbook.
