@@ -51,7 +51,7 @@ your way out.
 ```
 
 The `markdown` strategy puts each heading in a chunk of its own, and keeps
-the two sentences of each paragraph together, because they fit within the
+each paragraph in a single chunk, because each paragraph fits within the
 chunk size.
 
 ## Preparing the Ingredients

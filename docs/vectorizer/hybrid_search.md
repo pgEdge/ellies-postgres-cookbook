@@ -40,10 +40,9 @@ pgedge_vectorizer.enable_hybrid = on
 The setting must apply to the background worker as well as to the session
 that searches, so set it in `postgresql.conf` and reload the
 configuration, or set it on the server's command line, rather than in the
-session alone.
-Chunks that the worker embedded before the setting took effect have no
-sparse vector until `pgedge_vectorizer.reprocess_chunks()` queues them
-again.
+session alone. Chunks that the worker embedded before the setting took
+effect have no sparse vector until `pgedge_vectorizer.reprocess_chunks()`
+queues them again.
 
 ## Configuring psql
 

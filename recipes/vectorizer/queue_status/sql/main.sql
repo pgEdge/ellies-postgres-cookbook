@@ -76,7 +76,19 @@ BEGIN
               AND status IN ('pending', 'processing'));
 
         IF clock_timestamp() > deadline THEN
-            RAISE EXCEPTION 'timed out waiting for the embeddings';
+            -- Report the latest error that the worker recorded for the
+            -- table; a request that hangs records none.
+            SELECT error_message INTO failure
+            FROM pgedge_vectorizer.queue
+            WHERE chunk_table = 'cookbook_queue_status_content_chunks'
+              AND error_message IS NOT NULL
+            ORDER BY next_retry_at DESC NULLS LAST, id DESC
+            LIMIT 1;
+            RAISE EXCEPTION 'timed out waiting for the embeddings: %',
+                coalesce(failure, 'no error recorded; check that '
+                    || 'pgedge_vectorizer.databases lists this database '
+                    || 'and that pgedge_vectorizer.api_url reaches the '
+                    || 'embedding provider');
         END IF;
         PERFORM pg_sleep(1);
     END LOOP;
